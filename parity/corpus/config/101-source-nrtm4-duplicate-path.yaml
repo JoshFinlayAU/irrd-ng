@@ -1,0 +1,76 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+    notify_invalid_enabled: false
+  sources:
+    ONE:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /tmp
+      keep_journal: true
+      authoritative: true
+    TWO:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /tmp
+      keep_journal: true
+      authoritative: true
+    THREE:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /etc
+      keep_journal: true
+      authoritative: true
+    FOUR:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /etc
+      keep_journal: true
+      authoritative: true

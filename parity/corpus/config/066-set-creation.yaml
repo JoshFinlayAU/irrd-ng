@@ -1,0 +1,25 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+    set_creation:
+      as-set:
+        prefix_required: not-a-bool
+        autnum_authentication: unknown-value
+      COMMON:
+        prefix_required: true
+        autnum_authentication: REQUIRED
+      rtr-set:
+        autnum_authentication: ''
+      route-set:
+        prefix_required: 1
+  rpki:
+    roa_source: null

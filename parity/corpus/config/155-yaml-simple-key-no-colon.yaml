@@ -1,0 +1,4 @@
+irrd:
+  database_url: 1
+  redis_url
+  piddir: /tmp

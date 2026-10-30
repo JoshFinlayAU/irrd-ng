@@ -1,0 +1,4 @@
+a: !!str 1
+b: !!int '2'
+c: !!float '3'
+d: !!null ''

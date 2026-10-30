@@ -1,0 +1,31 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    F1:
+      nrtm4_server_snapshot_frequency: 216000
+    F2:
+      nrtm4_server_snapshot_frequency: 100
+    F3:
+      nrtm4_server_snapshot_frequency: 3600
+    F4:
+      nrtm4_server_snapshot_frequency: 86400
+    F5:
+      nrtm4_server_snapshot_frequency: 86401
+    F6:
+      nrtm4_server_snapshot_frequency: 3600.5
+    F7:
+      ntm4server_snapshot_frequency: true
+    F8:
+      nrtm4_server_snapshot_frequency: .inf

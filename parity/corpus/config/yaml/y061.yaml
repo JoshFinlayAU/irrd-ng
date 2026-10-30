@@ -1,0 +1,21 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tm
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  access_lists:
+    x:
+    - 10.0.0.0/8
+  source_aliases: {}
+  compatibilit*:
+    asdot_queries: true
+    nknown: 1

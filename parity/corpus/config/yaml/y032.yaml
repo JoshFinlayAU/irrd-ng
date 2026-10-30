@@ -1,0 +1,2 @@
+irrd:
+  readon?y_standby: !!bool

@@ -1,0 +1,85 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    HTTP:
+      nrtm4_client_notification_file_url: http://invalid
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    HTTPS:
+      nrtm4_client_notification_file_url: https://example.net/unf.json
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    FILE:
+      nrtm4_client_notification_file_url: file:///tmp/unf.json
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    FILEREL:
+      nrtm4_client_notification_file_url: file:unf.json
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    FILEEMPTY:
+      nrtm4_client_notification_file_url: 'file:'
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    HTTPSEMPTY:
+      nrtm4_client_notification_file_url: https://
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    NOKEY:
+      nrtm4_client_notification_file_url: https://example.net/unf.json
+    ZERO:
+      nrtm4_client_notification_file_url: 0

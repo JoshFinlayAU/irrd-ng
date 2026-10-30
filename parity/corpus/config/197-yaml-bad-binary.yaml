@@ -1,0 +1,3 @@
+irrd:
+  log:
+    level: !!binary aGVsbG8

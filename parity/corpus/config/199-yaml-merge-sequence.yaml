@@ -1,0 +1,4 @@
+a: &a {database_url: x}
+b: &b {redis_url: y}
+irrd:
+  <<: [*a, *b]

@@ -1,0 +1,18 @@
+irrd:
+  database_url:
+    x:
+      y: 2
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+    footer:
+      a: 1
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null

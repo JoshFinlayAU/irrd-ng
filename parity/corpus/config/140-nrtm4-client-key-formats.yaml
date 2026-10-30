@@ -1,0 +1,223 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    GARBAGE:
+      nrtm4_client_initial_public_key: invalid
+    SPACE:
+      nrtm4_client_initial_public_key: ' '
+    TRUNCATED:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQ
+
+        -----END PUBLIC KEY-----
+
+        '
+    BADBASE64:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        M!kwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    NOEND:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        '
+    WRONGEND:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PRIVATE KEY-----
+
+        '
+    INDENTED:
+      nrtm4_client_initial_public_key: '  -----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    JUNKBEFORE:
+      nrtm4_client_initial_public_key: 'junk
+
+        -----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    NONEWLINE:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----'
+    TAMPERED:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu1ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+    PUBWORD:
+      nrtm4_client_initial_public_key: PUBLIC
+    PRIVWORD:
+      nrtm4_client_initial_public_key: PRIVATE
+    CERTWORD:
+      nrtm4_client_initial_public_key: CERTIFICATE
+    SSHPRIVWORD:
+      nrtm4_client_initial_public_key: OPENSSH PRIVATE
+    EMPTYBODY:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        -----END PUBLIC KEY-----
+
+        '
+    PRIVGARBAGE:
+      nrtm4_client_initial_public_key: '-----BEGIN PRIVATE KEY-----
+
+        AAAA
+
+        -----END PRIVATE KEY-----
+
+        '
+    ECPRIVGARBAGE:
+      nrtm4_client_initial_public_key: '-----BEGIN EC PRIVATE KEY-----
+
+        AAAA
+
+        -----END EC PRIVATE KEY-----
+
+        '
+    SSHGARBAGE:
+      nrtm4_client_initial_public_key: ecdsa-sha2-nistp256 AAAA
+    SSHONEWORD:
+      nrtm4_client_initial_public_key: ecdsa-sha2-nistp256
+    SSHUNKNOWN:
+      nrtm4_client_initial_public_key: ecdsa-sha2-foo AAAA
+    P384PUB:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEqWrXZ0ULZbHW4T1TuXzL04xlqyyWEGSO
+
+        QZ0UPP1YRSHPtA3yJngb8DB0zUsch4CnhS0wzNvwMsJ3816aSt8ITusYj7TWbnxd
+
+        Z+UVk5TSnkTJVlFNDN4R3LlYPAdlcoJi
+
+        -----END PUBLIC KEY-----
+
+        '
+    K256PUB:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAEMuGO25X+dsGpWS5WOU/opuUuQxCfI6tD
+
+        p0MSZigmaZv9lwMuf7Zr0y3iySPD9kI346/hym0MgqwtfPNKpWJwfg==
+
+        -----END PUBLIC KEY-----
+
+        '
+    CERT:
+      nrtm4_client_initial_public_key: '-----BEGIN CERTIFICATE-----
+
+        MIIBbTCCAROgAwIBAgIUd4YVmOurYLxfH/ZAGGCPXyG+UrYwCgYIKoZIzj0EAwIw
+
+        DDEKMAgGA1UEAwwBeDAeFw0yNjEwMzAyMjQ3MjVaFw0zNjEwMjcyMjQ3MjVaMAwx
+
+        CjAIBgNVBAMMAXgwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQspoxBvygF3edD
+
+        cRIs+TB8mZIAhzYMNt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP
+
+        6Rez5Pmxo1MwUTAdBgNVHQ4EFgQUKdyus1zT6nmazNxrYiAy9YyvluIwHwYDVR0j
+
+        BBgwFoAUKdyus1zT6nmazNxrYiAy9YyvluIwDwYDVR0TAQH/BAUwAwEB/zAKBggq
+
+        hkjOPQQDAgNIADBFAiEAqDvO38f0heSMa6CasrpywkioLvWG9rpYjG8h4RDIXEEC
+
+        ICrxlIhhfmafFNlddJjQb13v9biu5CCWgszURzD7Ox1j
+
+        -----END CERTIFICATE-----
+
+        '
+    SSHPUB:
+      nrtm4_client_initial_public_key: 'ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBG3AOAangQj02eHBEDp9eD/v0VNiHyf2WVV9ZmaQ4WjM5SmHMdyb2Kk+lgelKd5c8kIdSa6np67U8JjPZllI09U= claude@claude-code
+
+        '
+    PRIVASPUB:
+      nrtm4_client_initial_public_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+    SEC1ASPUB:
+      nrtm4_client_initial_public_key: '-----BEGIN EC PRIVATE KEY-----
+
+        MHcCAQEEIFgrXT/kGTFSmKZ93u3K/72ve0d6iUrstTZVWhstq4dsoAoGCCqGSM49
+
+        AwEHoUQDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2DDbfu0ofoocKgnihO3oOQjuF
+
+        Gu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END EC PRIVATE KEY-----
+
+        '
+    INTKEY:
+      nrtm4_client_initial_public_key: 12345
+    EMPTYPEMTAG:
+      nrtm4_client_initial_public_key: '-----BEGIN -----
+
+        AAAA
+
+        -----END -----
+
+        '
+    B64PADDING:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ=A
+
+        -----END PUBLIC KEY-----
+
+        '

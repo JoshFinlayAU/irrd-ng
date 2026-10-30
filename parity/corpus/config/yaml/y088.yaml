@@ -1,0 +1,17 @@
+# IRRd v4 reference configuration for the parity harness.
+#
+# irrd-ng runs with this same file, with the database_url and redis_url keys
+# accepted and ignored. Sources are added by the harness as suites need them.
+irrd:
+  database_url: postgresql://irrd:irrd@postgres/irrd
+  redis_url: redis://redis
+  piddir: /run/irrd
+  server:
+    http:
+      interface: 0.0.0.0
+      port: 8080
+      url: http://localhost:9080/
+      status_access_list: harness
+      event_stream_access_list: harness
+    whois:
+   

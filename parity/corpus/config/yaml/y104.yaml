@@ -1,0 +1,21 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https:/irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  soures:
+    TESTDB:
+      keep_journal: true
+    TESTDB2:
+      keep_journal: true
+      nrtm_host: 192.0.2.1
+      import_serial_source: ftp://x/serial

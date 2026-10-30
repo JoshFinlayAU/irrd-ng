@@ -1,0 +1,3 @@
+irrd:
+  database_url: "foo
+  redis_url: x

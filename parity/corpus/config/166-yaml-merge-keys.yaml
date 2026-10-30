@@ -1,0 +1,7 @@
+defaults: &defaults
+  database_url: postgresql://x
+  redis_url: redis://x
+irrd:
+  <<: *defaults
+  piddir: /tmp
+  redis_url: ''
