@@ -25,6 +25,7 @@ mod known_keys;
 pub mod messages;
 mod python;
 mod ratelimit;
+mod rpsl;
 mod urlparse;
 mod yaml;
 
