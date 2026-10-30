@@ -4,8 +4,9 @@ For each source this keeps, deterministically:
   - a sample of every object class (the PER_CLASS objects whose text hashes
     lowest, so the choice is stable while those objects exist upstream),
   - every object that exercises an RPSL formatting edge case (continuation
-    lines with '+', tab or space, comments, mixed-case attribute names,
-    non-ASCII bytes, very long lines), capped per kind,
+    lines with '+', tab or space, inline comments, whole '#' and '%' comment
+    lines inside an object, whitespace-only lines, mixed-case attribute
+    names, non-ASCII bytes, very long lines), capped per kind,
   - the full recursive closure of the SETS deepest as-sets in the source,
     with the aut-num, route and route6 objects of every member ASN, so set
     expansion and !a/!g/!6 have real trees, loops and dangling members.
@@ -39,16 +40,31 @@ def source_of(name):
 
 
 def objects(raw):
-    for chunk in re.split(rb"\n[ \t]*\n", raw):
-        lines = [ln for ln in chunk.split(b"\n") if ln and not ln.startswith((b"#", b"%"))]
-        if lines and b":" in lines[0]:
-            yield b"\n".join(lines) + b"\n"
+    """Yield each paragraph of a dump verbatim, split the way v4 splits them.
+
+    v4 (irrd/utils/text.py, split_paragraphs_rpsl) ends a paragraph only on a
+    truly empty line; a line holding spaces or tabs does not split. Comment
+    lines are kept: v4 always drops '#' lines and drops '%' lines only when
+    asked (an operator precedence quirk), and the servers under test must do
+    that themselves. Paragraphs with no attribute line, such as dump headers,
+    are skipped.
+    """
+    for chunk in re.split(rb"\r?\n(?:\r?\n)+", raw):
+        if any(b":" in ln and not ln.startswith((b"#", b"%")) for ln in chunk.split(b"\n")):
+            yield chunk.rstrip(b"\r\n") + b"\n"
+
+
+def first_attr_line(obj):
+    for ln in obj.split(b"\n"):
+        if ln and not ln.startswith((b"#", b"%")):
+            return ln
+    return b""
 
 
 def attrs(obj):
     out = []
     for line in obj.split(b"\n"):
-        if not line:
+        if not line or line.startswith((b"#", b"%")):
             continue
         if line[:1] in (b" ", b"\t", b"+") and out:
             out[-1][1] += b" " + line[1:].strip()
@@ -62,7 +78,13 @@ def edge_kinds(obj):
     lines = obj.split(b"\n")
     kinds = set()
     for ln in lines[1:]:
-        if ln.startswith(b"+"):
+        if ln.startswith(b"#"):
+            kinds.add("comment-line-hash")
+        elif ln.startswith(b"%"):
+            kinds.add("comment-line-percent")
+        elif ln and not ln.strip():
+            kinds.add("whitespace-only-line")
+        elif ln.startswith(b"+"):
             kinds.add("cont-plus")
         elif ln.startswith(b"\t"):
             kinds.add("cont-tab")
@@ -70,7 +92,7 @@ def edge_kinds(obj):
             kinds.add("cont-space")
     for ln in lines:
         k = ln.split(b":", 1)[0]
-        if b"#" in ln:
+        if b"#" in ln and not ln.startswith(b"#"):
             kinds.add("comment")
         if k != k.lower() and ln[:1] not in (b" ", b"\t", b"+"):
             kinds.add("attr-case")
@@ -103,6 +125,8 @@ def main(cache):
         sets, routes_by_asn, autnums = {}, defaultdict(list), {}
         for o in objs:
             a = attrs(o)
+            if not a:
+                continue
             klass, key = a[0][0], a[0][1].upper()
             cls[klass].append(o)
             if klass == b"as-set":

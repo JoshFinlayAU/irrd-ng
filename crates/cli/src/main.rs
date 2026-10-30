@@ -14,6 +14,7 @@ use std::process::ExitCode;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod messages;
 mod tools;
 
 fn main() -> ExitCode {
@@ -27,10 +28,7 @@ fn main() -> ExitCode {
 
     let name = if invoked == "irrd-ng" {
         if args.len() < 2 {
-            eprintln!(
-                "usage: irrd-ng <tool> [args...]\n\ntools: {}",
-                tools::names().join(", ")
-            );
+            eprintln!("{}", messages::usage(&tools::names()));
             return ExitCode::from(2);
         }
         args.remove(0);
@@ -42,7 +40,7 @@ fn main() -> ExitCode {
     match tools::lookup(&name) {
         Some(tool) => tool(&args),
         None => {
-            eprintln!("irrd-ng: unknown tool name {name:?}");
+            eprintln!("{}", messages::unknown_tool(&name));
             ExitCode::from(2)
         }
     }
