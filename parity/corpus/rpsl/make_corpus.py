@@ -429,4 +429,79 @@ keycerts += [
     keycert("PGPKEY-" + fp_ed[-8:], [ed[0], *[base64.b64encode(b"\x99\x00").decode()], ed[-1]]),
 ]
 write("keycert", keycerts)
+
+# ---------------------------------------------------------------------------
+# generated: seeded structured-random values for the value parsers (IPy,
+# AS numbers, set names, e-mail, changed dates, range operators)
+# ---------------------------------------------------------------------------
+import random  # noqa: E402
+
+rng = random.Random(20261031)
+
+
+def pick(*opts):
+    return rng.choice(opts)
+
+
+def v4_part():
+    return pick(str(rng.randint(0, 255)), str(rng.randint(0, 300)), "0" + str(rng.randint(0, 99)), "", "x",
+                "٣", " 1", "1_0", "+1", "-1", "0x1", str(rng.randint(0, 9)))
+
+
+def v4_addr():
+    n = pick(4, 4, 4, 4, 3, 5, 1, 2)
+    return ".".join(v4_part() for _ in range(n))
+
+
+def hextet():
+    return pick(format(rng.randint(0, 0xffff), "x"), format(rng.randint(0, 0xffff), "X"), "0", "", "0000",
+                "fffff", "g1", "١", "0x1", "1_2", " a")
+
+
+def v6_addr():
+    k = rng.randint(1, 9)
+    parts = [hextet() for _ in range(k)]
+    if rng.random() < 0.5:
+        parts.insert(rng.randint(0, len(parts)), "")
+    s = ":".join(parts)
+    if rng.random() < 0.1:
+        s = s + ":" + v4_addr()
+    if rng.random() < 0.1:
+        s = "::" + s
+    return s
+
+
+def plen(maxlen):
+    return pick(str(rng.randint(0, maxlen)), str(rng.randint(0, maxlen + 8)), "", "0", "x", "٢٤", "08",
+                "255.255.255.0", "255.0.255.0")
+
+
+generated = []
+for _ in range(400):
+    generated.append(route(v4_addr() + pick("/", "/", "/", "") + plen(32)))
+for _ in range(400):
+    generated.append(route6(v6_addr() + pick("/", "/", "") + plen(128)))
+for _ in range(300):
+    sep = pick(" - ", "-", " -", "- ", "")
+    generated.append(inetnum(v4_addr() + (sep + v4_addr() if sep else "")))
+for _ in range(300):
+    addr = pick(v4_addr(), v6_addr(), v4_addr() + "/" + plen(32), v6_addr() + "/" + plen(128))
+    op = pick("", "", "^+", "^-", "^" + str(rng.randint(0, 130)),
+              "^" + str(rng.randint(0, 130)) + "-" + str(rng.randint(0, 130)), "^", "^x", "^1-", "^-1")
+    generated.append(rset(pick("members: ", "mp-members: ") + addr + op))
+for _ in range(200):
+    a = pick("AS", "as", "As", "", "AS-", "ASN") + pick(str(rng.randint(0, 2**33)), str(rng.randint(0, 99)),
+                                                       "0" + str(rng.randint(0, 9)), "", "x", "1.2", " 7", "٤٢")
+    generated.append(autnum(a))
+for _ in range(150):
+    comps = [pick("AS-" + str(rng.randint(0, 9)), "as" + str(rng.randint(0, 99999)), "RS-X", "FOO", "ANY",
+                  "AS0" + str(rng.randint(0, 9)), "", "1A", "AS-_", "PRNG-1") for _ in range(rng.randint(1, 7))]
+    generated.append(obj("as-set: " + ":".join(comps), "mnt-by: TEST-MNT", "source: TEST"))
+for _ in range(150):
+    local = pick("a", "a.b", "", "a b", "a+b", "ä", "A_B", "a@b")
+    dom = pick("example.net", "[192.0.2.1]", "[2001:db8::1]", "", "x..y", "[1.2.3]", "ex ample")
+    date = pick("", " 20240101", " " + str(rng.randint(19000101, 20991231)), " 2024", " 2024010", " x")
+    generated.append(obj("person: P", "address: x", "phone: 1", "e-mail: a@example.net", "nic-hdl: P-TEST",
+                         "changed: " + local + "@" + dom + date, "mnt-by: TEST-MNT", "source: TEST"))
+write("generated", generated)
 print("written")
