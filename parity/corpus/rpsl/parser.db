@@ -1,0 +1,144 @@
+foo-block:      192.0.2.0/24
+source: TEST
+
+*xxte:          192.0.2.0/24
+source: TEST
+
+just some text without a colon
+
+ route: 192.0.2.0/24
+origin: AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+this line has no colon
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+bad attr name: x
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+bad@attr: x
+worse attr: y
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+source: TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+
+route:          192.0.2.0/24
+origin: AS65537
+unknown-attr: x
+unknown-attr: y
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+aggr-mtd: a
+aggr-mtd: b
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+mnt-by: TEST-MNT
+source: TEST
+source: OTHER
+
+person:         Two Handles
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: ONE-TEST
+nic-hdl: TWO-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+route:          not-a-prefix
+origin: AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin: AS65537
+mnt-by: TEST-MNT
+source: TEST-SOURCE!
+
+route:          192.0.2.0/24
+origin: AS65537
+mnt-by: TEST-MNT
+source:
+
+route:          192.0.2.0/24
+origin: AS65537
+mnt-by: TEST-MNT
+
+route:          192.0.2.0/24
+origin: AS65537
+last-modified: a
+last-modified: b
+mnt-by:         TEST-MNT
+source:         TEST
+
+mntner:         DUMMY-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: MD5-PW DummyValue
+auth: BCRYPT-PW DummyValue
+mnt-by: DUMMY-MNT
+source: TEST
+
+mntner:         MIXED-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW DummyValue
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: MIXED-MNT
+source: TEST
+
+route6: 2001:db8::/32
+origin: AS65537
+mnt-by: TEST-MNT
+member-of: RS-A
+member-of: RS-B, rs-c
+admin-c: A-TEST
+admin-c: ANY
+source: TEST
+
+aut-num: AS0
+as-name: ZERO
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS0 - AS0
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+route: 0.0.0.0/0
+origin: AS0
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6: ::/0
+origin: AS4294967295
+mnt-by:         TEST-MNT
+source:         TEST
+
+key-cert: PGPKEY-ABCDEF01
+certif: x
+mnt-by: TEST-MNT

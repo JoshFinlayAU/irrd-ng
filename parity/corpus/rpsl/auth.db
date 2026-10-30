@@ -1,0 +1,286 @@
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: CRYPT-PW LEuuhsBJNFV0Q
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: crypt-pw LEuuhsBJNFV0Q
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: MD5-PW $1$fgW84Y9r$kKEn9MUq8PChNKpQhO6BM.
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: bcrypt-pw $2a$10$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2y$04$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2$16$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$17$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$31$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$32$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$03$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$4$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$012$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2x$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2c$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0S
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Saa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$!TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0f6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sb
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa$
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW $2b$xx$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW not-a-hash
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW DummyValue
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW  double
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: BCRYPT-PW a,b
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-80F238C6
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: pgpkey-80f238c6
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-80F238C
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-80F238C6A
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-GGGGGGGG
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: IRRD-INTERNAL-AUTH
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: irrd-internal-auth
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: MAIL-FROM a@example.net
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: NONE
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: X509-1
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: SSO a@example.net
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: CRYPT-PW
+mnt-by: AUTH-MNT
+source: TEST
+
+mntner: AUTH-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: MD5-PW DummyValue
+mnt-by: AUTH-MNT
+source: TEST

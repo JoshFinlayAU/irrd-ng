@@ -1,0 +1,1893 @@
+route:          192.0.2.0/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.02.0/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.1/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.1/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/33
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.256/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          0192.0.2.0/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          1.2.3.4/0
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          0.0.0.0/0
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/abc
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          ١٩٢.0.2.0/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/٢٤
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0 /24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24,192.0.3.0/24
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:DB8::/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8:0:0:0:0:0:0/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::1/128
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::1/64
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/129
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8:::/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::1::/64
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8:1:2:3:4:5:6:7/64
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         20010db8000000000000000000000000/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::/0
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::/96
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::ffff:0:0/96
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::1:2:3:4:5:6/96
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         1:0:0:1:0:0:0:0/64
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         fffff::/16
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::ffff:192.0.2.0/120
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ABCD/16
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/32 
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::/1
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         0::/0
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         1::/16
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         1:2:3:4:5:6:7::/112
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ::1:0:0:0:0/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         ٢٠٠١:db8::/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8:g::/48
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::1.2.3.4/128
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::-1/64
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         1:2:3:4:5:6:7:8::/128
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+inetnum:        192.0.2.0 - 192.0.2.255
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0-192.0.2.255
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.02.0 - 192.0.2.0255
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.255 - 192.0.2.0
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0 - 2001:db8::1
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        2001:db8::1 - 2001:db8::2
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0 - 
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0/24
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0/24 - 192.0.3.0/24
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0 - 192.0.2.1 - 192.0.2.3
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        10
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        300
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        0x0A000000 - 0x0A0000FF
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0 -192.0.2.9
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        a.b.c.d - 1.2.3.4
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        1.2.3.4.5 - 1.2.3.5
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0/255.255.255.0
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0/255.0.255.0
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0/24 - 192.0.2.255/32
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        1.2.3.4/1.2.3.4
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.0 - 192.0.2.4-192.0.2.7
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        192.0.2.4-192.0.2.6 - 192.0.2.9
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        4294967295
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        4294967296
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+inetnum:        99999999999999999999999999999999999999999999
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^foo
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^23
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^23-25
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^25-24
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^1234
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^0-0
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.1
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 2001:db8::/32
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: ::1.2.3.4
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: rs-lower^+
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: AS-SET^-
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: as1
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: AS1^24
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: as01:rs-x
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: foo
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^٢٥
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0 - 192.0.2.255
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0-192.0.2.255
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.5-192.0.2.6
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/33
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: RS-A:RS-B:RS-C:RS-D:RS-E:RS-F
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: AS1:AS2
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: RS-ANY:ANY
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: 2001:db8::/32^48-56
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: 2001:db8::1
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: 2001:db8::/32^24
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: 192.0.2.0/24^+
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: fe80::/10^-
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+mp-members: 2001:db8::/32^129
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 0x0A000000/8
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 167772160/8
+mnt-by: TEST-MNT
+source: TEST
+
+route-set:      RS-FIELDS
+members: 192.0.2.0/24^+^-
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS65537
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        as65537
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS065537
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        65537
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        ASX
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS-1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS+5
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS 5
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1_000
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS4294967295
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS4294967296
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS99999999999999999999999999
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1.5
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS١٢
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        ASN65537
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS1 - AS2
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS1-AS2
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: as1 - as02
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS2 - AS1
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS1
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS1 - ASX
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: ASX - AS1
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: AS1 - AS2 - AS3
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-block: 1 - 2
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: as-test
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS65537:AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS065537:as-test:AS01
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS1:AS2
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST:ANY
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS1:AS2:AS3:AS4:AS5:AS-SIX
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-A:AS-B:AS-C:AS-D:AS-E
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST:
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: :AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST:RS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST:FOO
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST:1FOO
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-TEST_
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-T
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: as-te_st
+mnt-by: TEST-MNT
+source: TEST
+
+route-set: RS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+route-set: rs-test
+mnt-by: TEST-MNT
+source: TEST
+
+route-set: AS1:RS-X
+mnt-by: TEST-MNT
+source: TEST
+
+route-set: RS-TEST:AS-X
+mnt-by: TEST-MNT
+source: TEST
+
+route-set: FLTR-X
+mnt-by: TEST-MNT
+source: TEST
+
+filter-set: FLTR-TEST
+filter: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+filter-set: fltr-a:fltr-b
+filter: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+filter-set: RTRS-X
+filter: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+peering-set: PRNG-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: PRNG-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+peering-set: RTRS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: RTRS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+notify: a@example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a.b+c@example.net
+nic-hdl: P-TEST
+notify: a.b+c@example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[192.0.2.1]
+nic-hdl: P-TEST
+notify: a@[192.0.2.1]
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[2001:db8::1]
+nic-hdl: P-TEST
+notify: a@[2001:db8::1]
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[IPv6:2001:db8::1]
+nic-hdl: P-TEST
+notify: a@[IPv6:2001:db8::1]
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@b@c
+nic-hdl: P-TEST
+notify: a@b@c
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: @example.net
+nic-hdl: P-TEST
+notify: @example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@
+nic-hdl: P-TEST
+notify: a@
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a b@example.net
+nic-hdl: P-TEST
+notify: a b@example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@exa mple.net
+nic-hdl: P-TEST
+notify: a@exa mple.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@exämple.net
+nic-hdl: P-TEST
+notify: a@exämple.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: äb@example.net
+nic-hdl: P-TEST
+notify: äb@example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[192.0.2.1
+nic-hdl: P-TEST
+notify: a@[192.0.2.1
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[1.2.3]
+nic-hdl: P-TEST
+notify: a@[1.2.3]
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@[٢.٢.٢.٢]
+nic-hdl: P-TEST
+notify: a@[٢.٢.٢.٢]
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: $!#%&"*+/=?^_`{|}~\.-@x
+nic-hdl: P-TEST
+notify: $!#%&"*+/=?^_`{|}~\.-@x
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@x\y
+nic-hdl: P-TEST
+notify: a@x\y
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@EXAMPLE.NET
+nic-hdl: P-TEST
+notify: a@EXAMPLE.NET
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 20240229
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 20230229
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 2024
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 202401011
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 20241301
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 2024011
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 20240100
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 00000101
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 2024 0101
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net  20240101
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: bad 20240101
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 202401 1
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 2024-01-01
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net ٢٠٢٤0101
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+changed: a@example.net 20241231 extra
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr.example.com
+local-as: AS1
+alias: rtr.example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: RTR.EXAMPLE.COM
+local-as: AS1
+alias: RTR.EXAMPLE.COM
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr
+local-as: AS1
+alias: rtr
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: -rtr.example.com
+local-as: AS1
+alias: -rtr.example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr-.example.com
+local-as: AS1
+alias: rtr-.example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr..example.com
+local-as: AS1
+alias: rtr..example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr.example.com.
+local-as: AS1
+alias: rtr.example.com.
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: rtr_x.example.com
+local-as: AS1
+alias: rtr_x.example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: 1.2.3.4
+local-as: AS1
+alias: 1.2.3.4
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: r.e
+local-as: AS1
+alias: r.e
+mnt-by: TEST-MNT
+source: TEST
+
+inet-rtr: ſtr.example.com
+local-as: AS1
+alias: ſtr.example.com
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https://example.net/x
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: HTTP://example.net
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: ftp://example.net
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https://
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https:example.net
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: example.net
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https:///path
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed:   https://example.net
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https://exa mple.net/?a#b
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: 1http://x
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: h+t.tp://x
+mnt-by: TEST-MNT
+source: TEST
+
+inet6num: 2001:db8::/48
+netname: N
+country: NL
+admin-c: P-TEST
+tech-c: P-TEST
+status: x
+geofeed: https://[2001:db8::1]/x
+mnt-by: TEST-MNT
+source: TEST
+
+mntner: TEST-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: TEST-MNT
+source: TEST
+
+mntner: test-mnt
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: test-mnt
+source: TEST
+
+mntner: T
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: T
+source: TEST
+
+mntner: 1TEST
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: 1TEST
+source: TEST
+
+mntner: TEST-
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: TEST-
+source: TEST
+
+mntner: TEST_X
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: TEST_X
+source: TEST
+
+mntner: AS-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: AS-MNT
+source: TEST
+
+mntner: RS-MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: RS-MNT
+source: TEST
+
+mntner: ANY
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: ANY
+source: TEST
+
+mntner: any
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: any
+source: TEST
+
+mntner: PEERAS
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: PEERAS
+source: TEST
+
+mntner: TE.ST
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: TE.ST
+source: TEST
+
+mntner: TEST MNT
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: TEST MNT
+source: TEST
+
+mntner: FLTR-X
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: FLTR-X
+source: TEST
+
+mntner: PRNG-X
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: PRNG-X
+source: TEST
+
+mntner: RTRS-X
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: RTRS-X
+source: TEST
+
+mntner: AS_X
+admin-c: P-TEST
+upd-to: a@example.net
+auth: PGPKEY-12345678
+mnt-by: AS_X
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+as-name: AS-EXAMPLE
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+as-name: RS-EXAMPLE
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+as-name: AS65537
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: P-TEST
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: p-test
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: p-test
+admin-c: p-test
+tech-c: p-test
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: AUTO-1
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: AUTO-1
+admin-c: AUTO-1
+tech-c: AUTO-1
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: AS-TEST
+admin-c: AS-TEST
+tech-c: AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: !!!
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: !!!
+admin-c: !!!
+tech-c: !!!
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: ANY
+admin-c: ANY
+tech-c: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+person: P
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: with space
+mnt-by: TEST-MNT
+source: TEST
+
+role: R
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: with space
+admin-c: with space
+tech-c: with space
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+admin-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+admin-c: p-test
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+admin-c: AS-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+admin-c: bad value
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+admin-c: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+member-of: AS-SET1, as-set2
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+member-of: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+member-of: NOTASET
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+member-of: AS1:AS-X
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        AS1
+as-name: TEST
+admin-c: P-TEST
+tech-c: P-TEST
+member-of: AS1
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+members: AS1, AS-X, as2:as-y
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+members: NOTASET
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+members: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+mbrs-by-ref: ANY
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+mbrs-by-ref: any
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+mbrs-by-ref: TEST-MNT, ANY
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+mbrs-by-ref: 
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+members: AS1,,AS2
+mnt-by: TEST-MNT
+source: TEST
+
+as-set: AS-REFS
+members: ,
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: RTRS-REFS
+members: rtr.example.com, RTRS-X
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: RTRS-REFS
+members: AS1
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: RTRS-REFS
+mp-members: bad_name
+mnt-by: TEST-MNT
+source: TEST
+
+rtr-set: RTRS-REFS
+members: RTRS-A:RTRS-B
+mnt-by: TEST-MNT
+source: TEST
+
+route:          192.0.2.0/24
+origin:         AS65537
+holes: 192.0.2.0/25
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin:         AS65537
+holes: 192.0.2.0/25, 192.0.2.1/32
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin:         AS65537
+holes: 192.0.2.1/24
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin:         AS65537
+holes: bad
+mnt-by:         TEST-MNT
+source:         TEST
+
+route:          192.0.2.0/24
+origin:         AS65537
+holes: 192.0.2.0/25,,
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/32
+origin:         AS65537
+holes: 2001:db8::/48
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/32
+origin:         AS65537
+holes: 2001:db8::1/32, ::/0
+mnt-by:         TEST-MNT
+source:         TEST
+
+route6:         2001:db8::/32
+origin:         AS65537
+holes: bad
+mnt-by:         TEST-MNT
+source:         TEST
+
+route: 192.0.2.0/24
+origin: as065537
+descr: control  chars and ‍ zwj ­ shy
+remarks:  line sep and  nel
+mnt-by:         TEST-MNT
+source:         TEST
+
+inet-rtr: rtr.example.com
+local-as: 65537
+mnt-by: TEST-MNT
+source: TEST

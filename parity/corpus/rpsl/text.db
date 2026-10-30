@@ -1,0 +1,78 @@
+ï»¿person: BOM Person
+address: x
+phone: +1
+e-mail: a@example.net
+nic-hdl: BOM1-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+
+route:          192.0.2.0/24
+% a percent comment
+descr:          d
+# a hash comment
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+route:          192.0.2.0/24
+descr:          first
+   
+	
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+route:          192.0.2.0/24 # inline comment
+origin:         AS65537 #c
+descr: # only comment
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+% comment between objects
+# another
+
+
+route6:         2001:db8::/32
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+route:          198.51.100.0/24
+descr:          crlf object
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+route:          198.51.100.0/24descr:          lone cr splits lines
+origin: AS65537
+mnt-by: TEST-MNT
+source: TEST
+
+
+route:          203.0.113.0/24
+descr:          bad ÿþ bytes â‚ and Ã
+remarks: í € surrogate
+origin:         AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+
+person: Bad Bytes
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: BADÿ-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+
+route: 192.0.2.0/24  	
+origin: AS65537	
+mnt-by: TEST-MNT 
+source: TEST   
