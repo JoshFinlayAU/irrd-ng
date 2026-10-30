@@ -1,0 +1,14 @@
+person:    [mandatory]  [single]    [look-up key]
+address:   [mandatory]  [multiple]  []
+phone:     [mandatory]  [multiple]  []
+fax-no:    [optional]   [multiple]  []
+e-mail:    [mandatory]  [multiple]  []
+nic-hdl:   [mandatory]  [single]    [primary/look-up key]
+remarks:   [optional]   [multiple]  []
+notify:    [optional]   [multiple]  []
+mnt-by:    [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:   [optional]   [multiple]  []
+source:    [mandatory]  [single]    []
+
+
+

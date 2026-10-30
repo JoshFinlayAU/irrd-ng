@@ -1,0 +1,14 @@
+peering-set:   [mandatory]  [single]    [primary/look-up key]
+descr:         [optional]   [multiple]  []
+peering:       [optional]   [multiple]  []
+mp-peering:    [optional]   [multiple]  []
+admin-c:       [optional]   [multiple]  [look-up key, strong references role/person]
+tech-c:        [optional]   [multiple]  [look-up key, strong references role/person]
+remarks:       [optional]   [multiple]  []
+notify:        [optional]   [multiple]  []
+mnt-by:        [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:       [optional]   [multiple]  []
+source:        [mandatory]  [single]    []
+
+
+

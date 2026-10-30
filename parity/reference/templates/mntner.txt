@@ -1,0 +1,15 @@
+mntner:    [mandatory]  [single]    [primary/look-up key]
+descr:     [optional]   [multiple]  []
+admin-c:   [mandatory]  [multiple]  [look-up key, strong references role/person]
+tech-c:    [optional]   [multiple]  [look-up key, strong references role/person]
+upd-to:    [mandatory]  [multiple]  []
+mnt-nfy:   [optional]   [multiple]  []
+auth:      [mandatory]  [multiple]  []
+remarks:   [optional]   [multiple]  []
+notify:    [optional]   [multiple]  []
+mnt-by:    [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:   [optional]   [multiple]  []
+source:    [mandatory]  [single]    []
+
+
+

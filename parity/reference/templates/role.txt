@@ -1,0 +1,17 @@
+role:      [mandatory]  [single]    [look-up key]
+trouble:   [optional]   [multiple]  []
+address:   [mandatory]  [multiple]  []
+phone:     [mandatory]  [multiple]  []
+fax-no:    [optional]   [multiple]  []
+e-mail:    [mandatory]  [multiple]  []
+admin-c:   [optional]   [multiple]  [look-up key, strong references role/person]
+tech-c:    [optional]   [multiple]  [look-up key, strong references role/person]
+nic-hdl:   [mandatory]  [single]    [primary/look-up key]
+remarks:   [optional]   [multiple]  []
+notify:    [optional]   [multiple]  []
+mnt-by:    [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:   [optional]   [multiple]  []
+source:    [mandatory]  [single]    []
+
+
+

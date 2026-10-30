@@ -1,0 +1,13 @@
+[package]
+name = "import-v4"
+description = "One-shot, read-only migration from an IRRd 4.5 PostgreSQL database."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

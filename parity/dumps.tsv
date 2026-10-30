@@ -1,0 +1,15 @@
+# source	url	note
+RADB	ftp://ftp.radb.net/radb/dbase/radb.db.gz	HTTPS on ftp.radb.net times out (2026-10-31); FTP works
+RIPE-NONAUTH	https://ftp.ripe.net/ripe/dbase/ripe-nonauth.db.gz
+ARIN	https://ftp.arin.net/pub/rr/arin.db.gz
+AFRINIC	https://ftp.afrinic.net/pub/dbase/afrinic.db.gz
+LACNIC	https://ftp.lacnic.net/lacnic/irr/lacnic.db.gz
+APNIC-ROUTE	https://ftp.apnic.net/apnic/whois/apnic.db.route.gz	APNIC publishes per class; route, route6, aut-num, as-set, route-set, mntner are enough for parity
+APNIC-ROUTE6	https://ftp.apnic.net/apnic/whois/apnic.db.route6.gz
+APNIC-AUT-NUM	https://ftp.apnic.net/apnic/whois/apnic.db.aut-num.gz
+APNIC-AS-SET	https://ftp.apnic.net/apnic/whois/apnic.db.as-set.gz
+APNIC-ROUTE-SET	https://ftp.apnic.net/apnic/whois/apnic.db.route-set.gz
+APNIC-MNTNER	https://ftp.apnic.net/apnic/whois/apnic.db.mntner.gz
+ALTDB	ftp://ftp.altdb.net/pub/altdb/altdb.db.gz
+NTTCOM	ftp://rr1.ntt.net/nttcomRR/nttcom.db.gz
+# LEVEL3	ftp://rr.level3.net/pub/rr/level3.db.gz	unreachable on FTP and HTTPS from here and from irr1 (2026-10-31); re-check later

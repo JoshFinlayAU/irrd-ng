@@ -1,0 +1,13 @@
+[package]
+name = "nrtm"
+description = "NRTMv3 and NRTMv4 clients and servers, file imports and exports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

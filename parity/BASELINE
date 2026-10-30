@@ -1,0 +1,18 @@
+# IRRd v4 parity baseline. Bumping any line here is its own deliberate change
+# with a full parity run. See PLAN.md, "Baseline".
+irrd_version=4.5.4
+irrd_tag=v4.5.4
+irrd_commit=8e8080dab744a348b7d0e6efcb53f403301dd075
+irrd_released=2026-10-19
+irrd_wheel_sha256=0ee7a0d64d8aef7c8b7ee0d2f7a24ff96c4ff1aa37b8d443cd2f3445ff939929
+nrtm4_reference=draft-ietf-grow-nrtm-v4-08 (wire-identical to -07; v4 code is authoritative)
+
+# The v4 image is built from vendor/irrd-v4 at irrd_commit, with runtime
+# dependencies from its poetry.lock (hash-checked), on these bases.
+python_image=python:3.13-slim-trixie@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
+postgres_image=postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+redis_image=redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+mailpit_image=axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+
+# Matches the Kinetix reference irr1.sy5.infra.inktx.com as checked on
+# 2026-10-31: IRRd 4.5.4, Python 3.13.5, PostgreSQL 18.6, Redis 8.0.2.

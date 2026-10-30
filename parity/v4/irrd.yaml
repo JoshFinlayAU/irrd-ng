@@ -1,0 +1,51 @@
+# IRRd v4 reference configuration for the parity harness.
+#
+# irrd-ng runs with this same file, with the database_url and redis_url keys
+# accepted and ignored. Sources are added by the harness as suites need them.
+irrd:
+  database_url: postgresql://irrd:irrd@postgres/irrd
+  redis_url: redis://redis
+  piddir: /run/irrd
+  server:
+    http:
+      interface: 0.0.0.0
+      port: 8080
+      url: http://localhost:9080/
+      status_access_list: harness
+      event_stream_access_list: harness
+    whois:
+      interface: 0.0.0.0
+      port: 8043
+      max_connections: 10
+  access_lists:
+    harness:
+      - 0.0.0.0/0
+      - ::/0
+  auth:
+    gnupg_keyring: /var/lib/irrd/gnupg
+    override_password: $1$J6KycItM$MbPaBU6iFSGFV299Rk7Di0
+    set_creation:
+      COMMON:
+        prefix_required: true
+        autnum_authentication: opportunistic
+    password_hashers:
+      crypt-pw: legacy
+      md5-pw: legacy
+      bcrypt-pw: enabled
+  email:
+    from: irrd-v4@parity.invalid
+    smtp: mailpit:1025
+    footer: parity harness
+  rpki:
+    # Off in the base config. Phase 5 suites enable it with fixture ROAs
+    # and email.recipient_override pointed at the mail sink.
+    roa_source: null
+  log:
+    level: INFO
+  sources_default:
+    - TEST
+  sources:
+    TEST:
+      authoritative: true
+      keep_journal: true
+      nrtm_access_list: harness

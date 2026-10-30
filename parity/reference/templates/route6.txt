@@ -1,0 +1,22 @@
+route6:         [mandatory]  [single]    [primary/look-up key]
+descr:          [optional]   [multiple]  []
+origin:         [mandatory]  [single]    [primary key]
+holes:          [optional]   [multiple]  []
+member-of:      [optional]   [multiple]  [look-up key, weak references route-set]
+inject:         [optional]   [multiple]  []
+aggr-bndry:     [optional]   [single]    []
+aggr-mtd:       [optional]   [single]    []
+export-comps:   [optional]   [single]    []
+components:     [optional]   [single]    []
+admin-c:        [optional]   [multiple]  [look-up key, strong references role/person]
+tech-c:         [optional]   [multiple]  [look-up key, strong references role/person]
+geoidx:         [optional]   [multiple]  []
+roa-uri:        [optional]   [single]    []
+remarks:        [optional]   [multiple]  []
+notify:         [optional]   [multiple]  []
+mnt-by:         [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:        [optional]   [multiple]  []
+source:         [mandatory]  [single]    []
+
+
+

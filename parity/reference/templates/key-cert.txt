@@ -1,0 +1,15 @@
+key-cert:   [mandatory]  [single]    [primary/look-up key]
+method:     [optional]   [single]    []
+owner:      [optional]   [multiple]  []
+fingerpr:   [optional]   [single]    []
+certif:     [mandatory]  [multiple]  []
+remarks:    [optional]   [multiple]  []
+admin-c:    [optional]   [multiple]  [look-up key, strong references role/person]
+tech-c:     [optional]   [multiple]  [look-up key, strong references role/person]
+notify:     [optional]   [multiple]  []
+mnt-by:     [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:    [optional]   [multiple]  []
+source:     [mandatory]  [single]    []
+
+
+

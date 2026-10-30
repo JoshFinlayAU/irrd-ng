@@ -1,0 +1,3 @@
+[submodule "vendor/irrd-v4"]
+	path = vendor/irrd-v4
+	url = https://github.com/irrdnet/irrd.git

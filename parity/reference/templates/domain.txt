@@ -1,0 +1,17 @@
+domain:    [mandatory]  [single]    [primary/look-up key]
+descr:     [optional]   [multiple]  []
+admin-c:   [mandatory]  [multiple]  [look-up key, strong references role/person]
+tech-c:    [mandatory]  [multiple]  [look-up key, strong references role/person]
+zone-c:    [mandatory]  [multiple]  [look-up key, strong references role/person]
+nserver:   [optional]   [multiple]  []
+sub-dom:   [optional]   [multiple]  []
+dom-net:   [optional]   [multiple]  []
+refer:     [optional]   [single]    []
+remarks:   [optional]   [multiple]  []
+notify:    [optional]   [multiple]  []
+mnt-by:    [optional]   [multiple]  [look-up key, strong references mntner]
+changed:   [optional]   [multiple]  []
+source:    [mandatory]  [single]    []
+
+
+
