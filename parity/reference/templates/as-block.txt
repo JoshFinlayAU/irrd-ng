@@ -1,0 +1,12 @@
+as-block:   [mandatory]  [single]    [primary/look-up key]
+descr:      [optional]   [multiple]  []
+admin-c:    [mandatory]  [multiple]  [look-up key, strong references role/person]
+tech-c:     [mandatory]  [multiple]  [look-up key, strong references role/person]
+remarks:    [optional]   [multiple]  []
+notify:     [optional]   [multiple]  []
+mnt-by:     [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:    [optional]   [multiple]  []
+source:     [mandatory]  [single]    []
+
+
+

@@ -1,0 +1,128 @@
+### GET /
+HTTP/1.1 302 Found
+server: IRRd 4.5.4
+content-length: 0
+location: /ui/
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /v1/status/
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-length: 341
+content-type: text/plain; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /v1/whois/?q=!v
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-length: 21
+content-type: text/plain; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /graphql/
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-length: 1283
+content-type: text/html; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /metrics/
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-length: 1833
+content-type: text/plain; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /v1/event-stream/initial/
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-type: application/jsonl+json
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+transfer-encoding: chunked
+
+### GET /ui/
+HTTP/1.1 200 OK
+server: IRRd 4.5.4
+content-length: 3778
+content-type: text/html; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+
+### GET /nonexistent
+HTTP/1.1 404 Not Found
+server: IRRd 4.5.4
+content-length: 9
+content-type: text/plain; charset=utf-8
+vary: Cookie
+content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+permissions-policy: publickey-credentials-create=(self), publickey-credentials-get=(self), accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), screen-wake-lock=(), serial=(), usb=(), web-share=(), xr-spatial-tracking=()
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+origin-agent-cluster: ?1
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+x-permitted-cross-domain-policies: none
+

@@ -1,0 +1,41 @@
+# Differential parity harness: the pinned IRRd v4 and its dependencies.
+# Every image is pinned by digest. parity/BASELINE records the same pins.
+name: irrd-parity
+
+services:
+  postgres:
+    image: postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_USER: irrd
+      POSTGRES_PASSWORD: irrd
+      POSTGRES_DB: irrd
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    volumes: [pgdata:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "irrd"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+
+  mailpit:
+    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    ports: ["127.0.0.1:9025:8025"]
+
+  irrd-v4:
+    build:
+      context: ..
+      dockerfile: parity/v4/Dockerfile
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    volumes:
+      - ./v4/irrd.yaml:/etc/irrd/irrd.yaml:ro
+    ports:
+      - "127.0.0.1:9043:8043"
+      - "127.0.0.1:9080:8080"
+
+volumes:
+  pgdata:

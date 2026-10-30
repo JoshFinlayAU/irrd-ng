@@ -1,0 +1,49 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+repository = "https://github.com/JoshFinlayAU/irrd-ng"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+mimalloc = { version = "0.1.52", default-features = false }
+thiserror = "2.0.21"
+
+rpsl = { path = "crates/rpsl" }
+store = { path = "crates/store" }
+query = { path = "crates/query" }
+nrtm = { path = "crates/nrtm" }
+http = { path = "crates/http" }
+auth = { path = "crates/auth" }
+rpki = { path = "crates/rpki" }
+import-v4 = { path = "crates/import-v4" }
+config = { path = "crates/config" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+redundant_clone = "warn"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"
+strip = "none"
+debug = "line-tables-only"

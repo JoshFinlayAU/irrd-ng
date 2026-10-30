@@ -114,7 +114,7 @@ Each phase ends with its exit criteria met, CI green, and the parity suites for 
 ### Phase 0: Foundations
 
 1. `git init` in the spoke, `.gitignore`, first commit, push to the D1 remote.
-2. Apply the CLAUDE.md corrections above.
+2. Apply the CLAUDE.md corrections above, plus one found in Phase 0: v4 has no NRTMv4 HTTP routes; it writes the files for an external web server.
 3. Toolchain: pin `rust-toolchain.toml` to current stable (1.99.0 on this box today), add the musl and aarch64 targets, install zig, cargo-zigbuild and cargo-nextest, and put `~/.cargo/bin` on PATH for sessions (it is installed but not on PATH now). Record versions in memory.
 4. Cargo workspace with every crate as a skeleton, `#![deny(unsafe_code)]` outside `store`, mimalloc, a `messages.rs` per crate, workspace lints.
 5. `vendor/irrd-v4` as a read-only submodule pinned to v4.5.4.
@@ -128,7 +128,7 @@ Each phase ends with its exit criteria met, CI green, and the parity suites for 
 ### Phase 1: Config and RPSL core
 
 1. `config`: the full `irrd.yaml` model including sources, `access_lists`, `source_aliases`, `compatibility` and per-class `auth.set_creation`. v4's defaults, identical validation error strings, identical unknown-key handling, Postgres and Redis keys accepted with a single startup notice, and each key tagged as SIGHUP-reloadable or restart-only.
-2. `rpsl`: the parser (continuation lines, comments, case rules, verbatim text), all 20 object classes, every field type (prefixes, ASNs with the asdot option, set names, auth hashes, dates, emails), strict and non-strict modes, normalisation, templates for `-t`, and key-cert parsing with PGP.
+2. `rpsl`: the parser (continuation lines, comments, case rules, verbatim text), all 19 object classes, every field type (prefixes, ASNs with the asdot option, set names, auth hashes, dates, emails), strict and non-strict modes, normalisation, templates for `-t`, and key-cert parsing with PGP.
 
 **Exit:** the ported v4 RPSL tests pass, and every object in every cached dump parses to the same fields, messages and normalised text as v4.
 

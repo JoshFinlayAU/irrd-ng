@@ -1,0 +1,22 @@
+aut-num:      [mandatory]  [single]    [primary/look-up key]
+as-name:      [mandatory]  [single]    []
+descr:        [optional]   [multiple]  []
+member-of:    [optional]   [multiple]  [look-up key, weak references as-set]
+import:       [optional]   [multiple]  []
+mp-import:    [optional]   [multiple]  []
+import-via:   [optional]   [multiple]  []
+export:       [optional]   [multiple]  []
+mp-export:    [optional]   [multiple]  []
+export-via:   [optional]   [multiple]  []
+default:      [optional]   [multiple]  []
+mp-default:   [optional]   [multiple]  []
+admin-c:      [mandatory]  [multiple]  [look-up key, strong references role/person]
+tech-c:       [mandatory]  [multiple]  [look-up key, strong references role/person]
+remarks:      [optional]   [multiple]  []
+notify:       [optional]   [multiple]  []
+mnt-by:       [optional]   [multiple]  [look-up key, strong references mntner]
+changed:      [optional]   [multiple]  []
+source:       [mandatory]  [single]    []
+
+
+

@@ -1,0 +1,21 @@
+inet-rtr:    [mandatory]  [single]    [primary/look-up key]
+descr:       [optional]   [multiple]  []
+alias:       [optional]   [multiple]  []
+local-as:    [mandatory]  [single]    []
+ifaddr:      [optional]   [multiple]  []
+interface:   [optional]   [multiple]  []
+peer:        [optional]   [multiple]  []
+mp-peer:     [optional]   [multiple]  []
+member-of:   [optional]   [multiple]  [look-up key, weak references rtr-set]
+rs-in:       [optional]   [single]    []
+rs-out:      [optional]   [single]    []
+admin-c:     [optional]   [multiple]  [look-up key, strong references role/person]
+tech-c:      [optional]   [multiple]  [look-up key, strong references role/person]
+remarks:     [optional]   [multiple]  []
+notify:      [optional]   [multiple]  []
+mnt-by:      [mandatory]  [multiple]  [look-up key, strong references mntner]
+changed:     [optional]   [multiple]  []
+source:      [mandatory]  [single]    []
+
+
+

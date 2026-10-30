@@ -1,0 +1,13 @@
+[package]
+name = "http"
+description = "REST endpoints, GraphQL and the event stream."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

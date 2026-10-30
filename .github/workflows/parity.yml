@@ -1,0 +1,58 @@
+name: parity
+
+# Tier 1 differential parity against the pinned IRRd v4 (see PLAN.md).
+# Real IRR dumps are fetched into a weekly cache and never committed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tier1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - name: Baseline pin
+        run: parity/check-baseline.sh
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the v4 reference image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: parity/v4/Dockerfile
+          tags: irrd-ng-parity/irrd-v4:4.5.4
+          load: true
+          cache-from: type=gha,scope=irrd-v4
+          cache-to: type=gha,scope=irrd-v4,mode=max
+      - name: Week number for the dump cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: parity/.cache/*.db.gz
+          key: irr-dumps-${{ steps.week.outputs.week }}-${{ hashFiles('parity/dumps.tsv') }}
+          restore-keys: irr-dumps-
+      - name: Fetch dumps
+        run: MAX_AGE_DAYS=7 parity/fetch-dumps.sh
+      - name: Cut fixtures
+        run: python3 -I parity/tools/cut_fixtures.py parity/.cache
+      - name: Start v4
+        run: parity/up.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f parity/compose.yaml logs --tail 200
+      - name: Stop
+        if: always()
+        run: parity/down.sh --volumes

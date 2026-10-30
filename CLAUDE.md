@@ -12,11 +12,11 @@ These surfaces must behave **exactly like v4**. Any difference is a bug unless i
 
 1. **Wire protocols**
    - whois on TCP 43, both query styles:
-     - IRRd style: `!g !6 !i !a !j !m !o !n !r !s !t !v !!`, plus multi-command / keepalive mode.
-     - RIPE style: `-i -l -L -M -x -s -T -k -g`, and so on.
+     - IRRd style: `!g !6 !i !a !e !j !J !m !o !n !r !s !t !v !!`, the `!fno-rpki-filter`, `!fno-scope-filter` and `!fno-route-preference-filter` overrides, plus multi-command / keepalive mode.
+     - RIPE style: `-i -l -L -M -x -s -a -T -t -k -K -V -q -g`, free-text search, and `-F`/`-r`, which v4 accepts and ignores.
    - Byte-identical responses, including `A<len>`/`C`/`D`/`F` framing, error strings, trailing newlines and object/attribute ordering.
    - NRTMv3 serving (`-g`) and mirroring client.
-   - NRTMv4 client and server (as present in 4.5).
+   - NRTMv4 client and server (as present in 4.5). v4 writes the NRTMv4 files to `nrtm4_server_local_path` for an external web server to publish; it has no NRTMv4 HTTP routes of its own.
    - Email submission (`irrd_submit_email` on stdin) and its reply mails.
 2. **HTTP APIs** (web UI excluded, see below):
    - `/v1/whois/`
@@ -24,8 +24,10 @@ These surfaces must behave **exactly like v4**. Any difference is a bug unless i
    - `/v1/status/`
    - `/v1/suspension/`
    - `/graphql`, with the same schema, field names, nullability and error shapes
-   - the event stream WebSocket
-   - NRTMv4 HTTP endpoints
+   - the event stream WebSocket (`/v1/event-stream/`) and its initial download (`/v1/event-stream/initial/`)
+   - `/metrics/` (Prometheus, new in 4.5, behind `server.http.status_access_list`)
+   - `/` keeps v4's 302 to `/ui/`; `/ui/` itself waits for the web UI phase
+   - response headers too: v4 sends `server: IRRd 4.5.4` and a fixed set of security headers (`parity/reference/http-headers.txt`)
 3. **`irrd.yaml`**: same keys, defaults, validation errors and SIGHUP reload semantics. Unknown or removed keys get the same treatment v4 gives them. Postgres/Redis keys (`database_url`, `redis_url`, …) are accepted and ignored, with a single startup notice.
 4. **CLI tools**: same binary names, flags, exit codes and output:
    - `irrd`
@@ -35,10 +37,12 @@ These surfaces must behave **exactly like v4**. Any difference is a bug unless i
    - `irrd_mirror_force_reload`
    - `irrd_set_last_modified_auth`
    - `irrd_expire_journal`
-   - `irrctl`
+   - `irrdctl` (`user_mfa_clear`, `user_change_override`, and `nrtm4 client-clear-known-keys / generate-private-key / server-show-public-key`)
+   - `irr_rpsl_submit`
+   - `irrd_load_pgp_keys`
    - `irrd_database_upgrade`/`downgrade`. These become no-ops or schema checks for the embedded store, and must exit 0 in the same situations as v4.
 
-   Ship these as one multicall binary with argv[0] dispatch, plus symlinks.
+   That is all 12 console scripts v4 installs. Ship them as one multicall binary, `irrd-ng`, with argv[0] dispatch plus symlinks. `irrd-ng <tool> ...` also works, and `irrd-ng import` is the v4 migration.
 
 Also in scope, with semantics as in v4:
 - RPSL parsing, validation and auth (CRYPT-PW, MD5-PW, BCRYPT-PW, PGPKEY, API keys)
@@ -50,7 +54,7 @@ Also in scope, with semantics as in v4:
 
 **Deferred, not in phase 1:** the v4 web UI (user accounts, 2FA, mntner migration). Don't build it yet. Do keep its data from v4 (users, auth, API keys) intact through the import so a later phase can serve it.
 
-Before saying "v4 does X", check the v4 source at the pinned tag (`vendor/irrd-v4/`, a read-only checkout) or the differential harness. Don't rely on memory or the docs alone.
+Before saying "v4 does X", check the v4 source at the pinned tag (`vendor/irrd-v4/`, a read-only git submodule; `parity/check-baseline.sh` verifies it) or the differential harness. Don't rely on memory or the docs alone.
 
 ## Output Testing
 
@@ -69,7 +73,7 @@ To avoid the overhead of running our own fully loaded and synchronised IRRd serv
   - `hyper`/`axum` for HTTP
   - `async-graphql` for GraphQL, with the schema checked against the v4 SDL dump
   - a maintained serde YAML crate for `irrd.yaml`
-  - `lettre` or the local sendmail binary, matching v4 config, for mail
+  - `lettre` as an SMTP client for mail. v4 sends through `email.smtp` with smtplib; it has no sendmail path
 - **Allocator:** `mimalloc` globally. musl's malloc is far too slow for this workload.
 - **Targets (Linux only):**
   - `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`: static, the primary release artefacts
@@ -90,12 +94,14 @@ crates/
   rpki/        # ROA import, validation, scope filter, route preference
   import-v4/   # Postgres → store migration
   config/      # irrd.yaml model + validation
-  cli/         # multicall binary: irrd, irrd_*, irrctl
+  cli/         # multicall binary: irrd, irrdctl, irrd_*, irr_rpsl_submit
 parity/        # differential harness, query corpus, baseline pin
 bench/         # criterion + load-generator scenarios
 ```
-
 ## How to run / build / test
+
+The Rust tools live in `~/.cargo/bin` and zig in `~/.local/bin`, neither on the non-interactive PATH: prefix commands with `export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH`.
+
 
 Before claiming a change works, run these:
 
@@ -119,6 +125,7 @@ cargo zigbuild --release --target aarch64-unknown-linux-musl
 Run locally:
 
 ```sh
+ln -sf irrd-ng target/release/irrd    # the multicall binary picks the tool from its name
 ./target/release/irrd --config dev/irrd.yaml --foreground
 whois -h 127.0.0.1 -p 8043 '!iAS-EXAMPLE,1'
 bgpq4 -h 127.0.0.1:8043 -S RADB AS-EXAMPLE    # real-client smoke test
@@ -135,7 +142,10 @@ parity/down.sh
 ```
 
 How the harness works:
-- It uses real dumps (RADB, RIPE non-auth, ALTDB, NTTCOM, LEVEL3, …), cached in `parity/.cache/`. They are git-ignored and never committed.
+- It uses real dumps (`parity/dumps.tsv`: RADB, RIPE non-auth, ARIN, AFRINIC, LACNIC, APNIC, ALTDB, NTTCOM), fetched by `parity/fetch-dumps.sh` into `parity/.cache/`. They are git-ignored and never committed. LEVEL3 is unreachable as of 2026-10-31.
+- Tier 1 fixtures are cut deterministically from those dumps by `parity/tools/cut_fixtures.py`, so no real registry data enters git and CI rebuilds the same fixtures from its weekly dump cache.
+- The v4 reference listens on 127.0.0.1:9043 (whois) and :9080 (HTTP), with Mailpit capturing its mail on :9025. irrd-ng uses 8043.
+- `parity/reference/` holds material extracted from the pinned v4: the GraphQL SDL, `-t` templates, a catalogue of every user-facing string (`v4-strings.tsv`), config keys with their reload behaviour (`v4-config-keys.tsv`) and HTTP headers. Copy messages from there or from the source, never retype them. Some v4 messages have bugs (a missing f-string prefix, missing spaces) that must be reproduced verbatim.
 - The corpus is replayed against both servers and responses are byte-diffed.
 - Mutation suites send identical submissions and NRTM streams to both, then compare responses, notification mails and journal contents.
 - New query corpora come from anonymised real query logs and bgpq4/peval invocations.

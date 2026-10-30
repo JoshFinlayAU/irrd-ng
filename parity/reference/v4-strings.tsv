@@ -1,0 +1,489 @@
+file	line	kind	text
+irrd/conf/__init__.py	661	raise	get_setting() called before configuration was initialised
+irrd/conf/__init__.py	138	raise	Errors found in configuration, unable to start: {errors}
+irrd/conf/__init__.py	204	error	Errors found in configuration, continuing with current settings: {errors}
+irrd/conf/__init__.py	247	info	Configuration successfully (re)loaded from {self.user_config_path} in PID {os.getpid()}
+irrd/conf/__init__.py	279	append	Setting database_url is required.
+irrd/conf/__init__.py	282	append	Setting redis_url is required.
+irrd/conf/__init__.py	285	append	Setting piddir is required and must point to an existing directory.
+irrd/conf/__init__.py	288	append	Setting route_object_preference.update_timer must be a number.
+irrd/conf/__init__.py	291	append	Setting download_timeout must be a number.
+irrd/conf/__init__.py	299	append	Setting email.from is required and must be an email address.
+irrd/conf/__init__.py	301	append	Setting email.smtp is required.
+irrd/conf/__init__.py	305	append	Setting email.recipient_override must be an email address if set.
+irrd/conf/__init__.py	309	append	Setting server.http.url is missing or invalid.
+irrd/conf/__init__.py	326	append	Settings user and group must both be defined, or neither.
+irrd/conf/__init__.py	329	append	Setting auth.gnupg_keyring is required.
+irrd/conf/__init__.py	332	append	Setting auth.irrd_internal_migration_enabled must be a bool.
+irrd/conf/__init__.py	584	append	Setting sources_default contains unknown sources: {', '.join(unknown_default_sources)}
+irrd/conf/__init__.py	588	append	Setting rpki.roa_import_timer must be set to a number.
+irrd/conf/__init__.py	598	append	Invalid log.level: {config.get('log.level')}. Valid settings for log.level are `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+irrd/conf/__init__.py	605	append	Setting log.logging_config_path can not be combined withlog.logfile_path or log.level
+irrd/conf/__init__.py	615	append	Access lists {', '.join(unresolved_access_lists)} referenced in settings, but not defined.
+irrd/conf/__init__.py	180	raise	Unknown setting {setting_name}
+irrd/conf/__init__.py	275	append	Unknown setting key: {key}
+irrd/conf/__init__.py	323	append	Setting {setting} must be a string, if defined.
+irrd/conf/__init__.py	338	append	Setting auth.webui_auth_failure_rate_limit is missing or invalid.
+irrd/conf/__init__.py	345	append	Setting auth.set_creation.{set_name}.prefix_required must be a bool
+irrd/conf/__init__.py	351	append	Setting auth.set_creation.{set_name}.autnum_authentication must be one of {valid_auth} if set
+irrd/conf/__init__.py	361	append	Setting auth.password_hashers.{hasher_name} must be one of {valid_hasher_availability}
+irrd/conf/__init__.py	394	append	Unknown key(s) under source {name}: {', '.join(unknown_keys)}
+irrd/conf/__init__.py	398	append	Setting sources contains reserved source name: {RPKI_IRR_PSEUDO_SOURCE}
+irrd/conf/__init__.py	400	append	Invalid source name: {name}
+irrd/conf/__init__.py	404	append	Setting suspension_enabled for source {name} can not be enabled without enabling authoritative.
+irrd/conf/__init__.py	419	append	Setting nrtm4_client_notification_file_url for source {name} is not a valid https or file URL.
+irrd/conf/__init__.py	427	append	Setting keep_journal for source {name} can not be enabled unless either authoritative is enabled, or all three of nrtm_host/nrtm_port/import_serial_source, or nrtm4_client_notification_file_url.
+irrd/conf/__init__.py	433	append	Setting nrtm_host for source {name} can not be enabled without setting import_serial_source.
+irrd/conf/__init__.py	439	append	Setting nrtm4_client_notification_file_url for source {name} must be set together with nrtm4_client_initial_public_key.
+irrd/conf/__init__.py	453	append	Settings nrtm_host/import_serial_source for {name} can not both be set together with nrtm4_client_notification_file_url.
+irrd/conf/__init__.py	461	append	Setting authoritative for source {name} can not be enabled when either nrtm_host, import_source, or nrtm4_client_notification_file_url are set.
+irrd/conf/__init__.py	472	append	When setting any nrtm4_server setting, all of {'/'.join(nrtm4_server_keys)} must be set for source {name}.
+irrd/conf/__init__.py	477	append	NRTMv4 server requires keep_journal to be set for for source {name}.
+irrd/conf/__init__.py	499	append	Setting nrtm4_server_local_path for source {name} is required and must point to an existing directory.
+irrd/conf/__init__.py	511	append	nrtm4_server_snapshot_frequency for source {name} must be between 1 and 24 hours of {int(NRTM4_SERVER_DELTA_EXPIRY_TIME.total_seconds())} seconds
+irrd/conf/__init__.py	525	append	Source {name} can not have authoritative, import_source, nrtm_host, or NRTMv4 client or server set when readonly_standby is enabled.
+irrd/conf/__init__.py	553	append	Duplicate value(s) {','.join(duplicates)} for source setting {key}.
+irrd/conf/__init__.py	559	append	RPKI-aware mode is enabled and authoritative sources are configured, but rpki.notify_invalid_enabled is not set. Set to true or false.DANGER: care is required with this setting in testing setups with live data, as it may send bulk emails to real resource contacts unless email.recipient_override is also set. Read documentation carefully.
+irrd/conf/__init__.py	569	append	Invalid source alias name: {alias_name}
+irrd/conf/__init__.py	572	append	Source alias name {alias_name} conflicts with an already configured real source.
+irrd/conf/__init__.py	183	raise	Unknown setting {setting_name}
+irrd/conf/__init__.py	375	append	Invalid item in prefix scopefilter: {prefix}: {ve}.
+irrd/conf/__init__.py	386	append	Invalid item in asn scopefilter: {asn}.
+irrd/conf/__init__.py	541	append	Setting {field_name} for source {name} must be a number.
+irrd/conf/__init__.py	577	append	Source alias {alias_name} contains reference to unknown source {aliased_source}.
+irrd/conf/__init__.py	268	append	Unknown setting key: {subkey}
+irrd/conf/__init__.py	369	append	Invalid item in access list {name}: {ve}.
+irrd/conf/__init__.py	448	append	Invalid value for setting nrtm4_client_initial_public_key for source {name}: {ve}
+irrd/conf/__init__.py	484	append	Invalid value for setting nrtm4_server_private_key for source {name}: {ve}
+irrd/conf/__init__.py	492	append	Invalid value for setting nrtm4_server_private_key_next for source {name}: {ve}
+irrd/daemon/main.py	222	debug	Main process waiting for child processes to terminate
+irrd/daemon/main.py	240	info	Main process exiting
+irrd/daemon/main.py	91	critical	Unable to start: when not running in the foreground, you must set either log.logfile_path or log.logging_config_path in the settings
+irrd/daemon/main.py	124	info	IRRd attempting to secure PID
+irrd/daemon/main.py	150	warning	Running on Mac OS, disabling proxy usage by setting no_proxy=*
+irrd/daemon/main.py	236	info	Some processes left alive after SIGTERM, send SIGKILL to child processes {[c.pid for c in children]}
+irrd/daemon/main.py	119	critical	Unable to start: user and group must be defined in settings when starting IRRd as root
+irrd/daemon/main.py	204	info	Main process received SIGTERM, sent SIGTERM to child processes {[c.pid for c in children]}
+irrd/daemon/main.py	127	info	IRRd {__version__} starting, PID {os.getpid()}, PID file in {piddir}
+irrd/daemon/main.py	139	error	Failed to start IRRd, unable to lock PID file irrd.pid in {piddir}: {pfe}
+irrd/daemon/main.py	141	error	Error occurred in main process, terminating. Error follows:
+irrd/daemon/main.py	185	info	Main process received SIGHUP with valid config, sent SIGHUP to child processes {[c.pid for c in children]}
+irrd/daemon/main.py	107	critical	Unable to start: logfile {staged_logfile_path} not writable by UID {uid} / GID {gid}
+irrd/mirroring/jobs.py	25	debug	Signalling preload reload: last transaction completed {current_time}, previous known last transaction was {self.last_time}
+irrd/mirroring/jobs.py	32	error	An exception occurred while attempting to check transaction timing, signalling preload reload anyways: {exc}
+irrd/mirroring/jobs.py	40	error	Failed to send preload reload signal: {exc}
+irrd/mirroring/mirror_runners_export.py	102	info	Export for {self.source} complete at serial {serial}, stored in {filename_export} / {filename_serial}
+irrd/mirroring/mirror_runners_export.py	39	info	Starting a source export for {self.source} to {export_destination}
+irrd/mirroring/mirror_runners_export.py	47	info	Starting an unfiltered source export for {self.source} to {export_destination_unfiltered}
+irrd/mirroring/mirror_runners_export.py	55	error	An exception occurred while attempting to run an export for {self.source}: {exc}
+irrd/mirroring/mirror_runners_import.py	86	debug	Most recent mirrored serial for {self.source}: {serial_newest_mirror}, force_reload: {force_reload}, nrtm enabled: {nrtm_enabled}
+irrd/mirroring/mirror_runners_import.py	140	info	Running full RPSL import of {self.source} from {import_sources}, serial from {import_serial_source}
+irrd/mirroring/mirror_runners_import.py	235	info	Running full ROA import from: {roa_source}, SLURM {slurm_source}
+irrd/mirroring/mirror_runners_import.py	253	info	ROA import from {roa_source}, SLURM {slurm_source}, imported {len(roa_importer.roa_objs)} ROAs, running validator
+irrd/mirroring/mirror_runners_import.py	352	info	Retrieving NRTM updates for {self.source} from serial {serial_start} on {nrtm_host}:{nrtm_port}
+irrd/mirroring/mirror_runners_import.py	356	debug	Received NRTM response for {self.source}: {response.strip()}
+irrd/mirroring/mirror_runners_import.py	136	info	Skipping full RPSL import for {self.source}, import_source not set.
+irrd/mirroring/mirror_runners_import.py	216	info	RPKI status updated for all routes, {len(objs_now_valid)} newly valid, {len(objs_now_invalid)} newly invalid, {len(objs_now_not_found)} newly not_found routes, {notified} emails sent to contacts of newly invalid authoritative objects
+irrd/mirroring/mirror_runners_import.py	280	info	Scopefilter status updated for all routes, {len(rpsl_objs_now_in_scope)} newly in scope, {len(rpsl_objs_now_out_scope_as)} newly out of scope AS, {len(rpsl_objs_now_out_scope_prefix)} newly out of scope prefix
+irrd/mirroring/mirror_runners_import.py	311	info	route preference update commit complete
+irrd/mirroring/mirror_runners_import.py	335	debug	Skipping NRTM updates for {self.source}, nrtm_host not set.
+irrd/mirroring/mirror_runners_import.py	70	error	An error occurred while attempting a mirror update or initial import for {self.source}: {ose}
+irrd/mirroring/mirror_runners_import.py	75	error	An exception occurred while attempting a mirror update or initial import for {self.source}: {exc}
+irrd/mirroring/mirror_runners_import.py	154	info	Current newest serial seen from mirror for {self.source} is {serial_newest_mirror}, import_serial is {import_serial}, cancelling import.
+irrd/mirroring/mirror_runners_import.py	224	error	An error occurred while attempting a ROA import: {ose}
+irrd/mirroring/mirror_runners_import.py	226	error	An exception occurred while attempting a ROA import: {rpe}
+irrd/mirroring/mirror_runners_import.py	228	error	An exception occurred while attempting a ROA import: {exc}
+irrd/mirroring/mirror_runners_import.py	288	error	An exception occurred while attempting a scopefilter status update: {exc}
+irrd/mirroring/mirror_runners_import.py	314	error	An exception occurred while attempting a route preference status update: {exc}
+irrd/mirroring/nrtm4/nrtm4_client.py	198	raise	{self.source}: No valid signature found for any known keys{''.join(error_messages)}
+irrd/mirroring/nrtm4/nrtm4_client.py	88	info	{self.source}: Loaded snapshot at version {unf.snapshot.version}, deferring deltas to next run
+irrd/mirroring/nrtm4/nrtm4_client.py	99	info	{self.source}: Update Notification File signing key rotated from {self.last_status.current_key} to {used_key}
+irrd/mirroring/nrtm4/nrtm4_client.py	122	raise	NRTM4 client called for a source without a Update Notification File URL
+irrd/mirroring/nrtm4/nrtm4_client.py	248	raise	Update Notification File {self.source}/{unf.session_id} has matching session ID, but version {unf.version} is older than local version {last_version}
+irrd/mirroring/nrtm4/nrtm4_client.py	255	info	{self.source}: Deltas from current version {last_version} not available on server, reloading from snapshot
+irrd/mirroring/nrtm4/nrtm4_client.py	92	info	{self.source}: Updating from deltas, starting from version {next_delta_version}
+irrd/mirroring/nrtm4/nrtm4_client.py	95	info	{self.source}: Up to date at version {unf.version}
+irrd/mirroring/nrtm4/nrtm4_client.py	230	info	{self.source}: Forced reload flag set, reloading from snapshot
+irrd/mirroring/nrtm4/nrtm4_client.py	235	info	{self.source}: No previous known session ID or version, reloading from snapshot
+irrd/mirroring/nrtm4/nrtm4_client.py	241	info	{self.source}: Session ID has changed from {self.last_status.session_id} to {unf.session_id}, reloading from snapshot
+irrd/mirroring/nrtm4/nrtm4_client.py	410	raise	Delta file {self.source}/{header.session_id}/{header.version} contained invalid entry: {ke}: {delta_item}
+irrd/mirroring/nrtm4/nrtm4_client.py	280	raise	{self.source}: Reference {current_file_reference} has filename '{current_file_details[0]}' with hash '{current_file_details[1]}' in current Update Notification File, but had filename '{previous_file_details[0]}' with hash '{previous_file_details[1]}' in a previous Update Notification File. Server is rewriting history.
+irrd/mirroring/nrtm4/nrtm4_client.py	373	raise	Delta file {self.source}/{unf.session_id}/{delta.version} did not contain any entries.
+irrd/mirroring/nrtm4/nrtm4_server.py	126	debug	{self.source}: NRTMv4 server starting update in {self.path}
+irrd/mirroring/nrtm4/nrtm4_server.py	112	debug	{self.source}: NRTMv4 server update cancelled, status changes locked by other server
+irrd/mirroring/nrtm4/nrtm4_server.py	121	debug	{self.source}: NRTMv4 server update cancelled, as force_reload is set - waiting on new import
+irrd/mirroring/nrtm4/nrtm4_server.py	129	error	{self.source}: integrity check failed, discarding existing session
+irrd/mirroring/nrtm4/nrtm4_server.py	140	info	{self.source}: No current session ID in database, starting new NRTMv4 session with ID {self.status.session_id}
+irrd/mirroring/nrtm4/nrtm4_server.py	196	debug	{self.source}: Generating a new snapshot at version {self.status.version}
+irrd/mirroring/nrtm4/nrtm4_server.py	214	info	{self.source}: Created snapshot {snapshot_version} for global serial {self.max_serial_global} in {self.status.last_snapshot_filename}
+irrd/mirroring/nrtm4/nrtm4_server.py	58	error	{self.source}: An exception occurred during an NRTMv4 server update: {exc}
+irrd/mirroring/nrtm4/nrtm4_server.py	101	debug	{self.source}: NRTMv4 server found no current status yet, possibly new source, exiting
+irrd/mirroring/nrtm4/nrtm4_server.py	168	info	{self.source}: Created delta {self.status.version} for global serial {serial_global_start}-{self.max_serial_global} in {filename}
+irrd/mirroring/nrtm4/nrtm4_server.py	189	debug	{self.source}: Not creating a snapshot, as a snapshot runner is already active
+irrd/mirroring/nrtm4/nrtm4_server.py	280	debug	{self.source}: Expired older delta {delta['version']}
+irrd/mirroring/nrtm4/nrtm4_server.py	290	debug	{self.source}: Removed dangling delta file {file_path.name}
+irrd/mirroring/nrtm4/nrtm4_server.py	409	error	{self.source}: missing file {filename} in {self.path} in integrity check
+irrd/mirroring/nrtm4/nrtm4_server.py	392	raise	Unknown journal action: {journal_entry}
+irrd/mirroring/nrtm4/nrtm4_types.py	57	return	{self.session_id}/S{self.version}
+irrd/mirroring/nrtm4/nrtm4_types.py	66	return	{self.session_id}/D{self.version}
+irrd/mirroring/nrtm4/nrtm4_types.py	123	raise	Update Notification File version {self.version} should have version {expected_unf_version} based on Snapshot and Delta versions
+irrd/mirroring/nrtm4/nrtm4_types.py	140	raise	Update Notification File is older than 24 hours, timestamp {timestamp.isoformat()}
+irrd/mirroring/nrtm4/nrtm4_types.py	38	raise	Mismatch in {key} field: expected {expected_value}, found {value}
+irrd/mirroring/nrtm4/nrtm4_types.py	132	raise	Deltas in Update Notification File do not have contiguous serials.
+irrd/mirroring/nrtm4/nrtm4_types.py	152	raise	Update Notification File has invalid next_signing_key {next_signing_key}: {ve}
+irrd/mirroring/nrtm_generator.py	52	return	% Warning: there are no updates available
+irrd/mirroring/nrtm_generator.py	116	append	%START Version: {version} {source} {serial_start_requested}-{serial_end_display}\n
+irrd/mirroring/nrtm_generator.py	133	append	%END {source}
+irrd/mirroring/nrtm_generator.py	34	raise	No journal kept for this source, unable to serve NRTM queries
+irrd/mirroring/nrtm_generator.py	44	raise	Start of the serial range ({serial_start_requested}) must be lower or equal to end of the serial range ({serial_end_requested})
+irrd/mirroring/nrtm_generator.py	56	raise	Serials {serial_start_requested} - {serial_start_available} do not exist
+irrd/mirroring/nrtm_generator.py	61	raise	Serials {serial_end_available} - {serial_end_requested} do not exist
+irrd/mirroring/nrtm_generator.py	68	return	% Warning: there are no newer updates available
+irrd/mirroring/nrtm_generator.py	78	raise	Serial range requested exceeds maximum range of {range_limit}
+irrd/mirroring/nrtm_generator.py	40	raise	There are no journal entries for this source.
+irrd/mirroring/nrtm_generator.py	102	raise	Requesting serials older than {days_limit} days will be rejected
+irrd/mirroring/nrtm_generator.py	71	raise	Serials {serial_end_available} - {serial_start_requested} do not exist
+irrd/mirroring/nrtm_generator.py	93	raise	There are no journal entries greater than or equal to this serial {serial_start_requested}.
+irrd/mirroring/nrtm_operation.py	132	return	{self.source}/{self.origin_identifier}/{self.operation.value}
+irrd/mirroring/nrtm_operation.py	51	raise	Operation must have object text or pk/class
+irrd/mirroring/nrtm_operation.py	79	raise	NRTMOperation called with neither object_text nor object_class
+irrd/mirroring/nrtm_operation.py	87	critical	Parsing errors occurred while processing NRTM operation {str(self)}. This operation is ignored, causing potential data inconsistencies. A new operation for this update, without errors, will still be processed and cause the inconsistency to be resolved. Parser error messages: {errors}; original object text follows:\n{self.object_text}
+irrd/mirroring/nrtm_operation.py	72	info	Ignoring NRTM operation {str(self)}: {exc}
+irrd/mirroring/parsers.py	142	info	{prefix}: {self.obj_parsed} objects read, {obj_successful} objects inserted, ignored {self.obj_errors} due to errors, ignored {self.obj_ignored_class} due to object_class_filter
+irrd/mirroring/parsers.py	172	debug	Starting file import of {self.source} from {self.filename}
+irrd/mirroring/parsers.py	217	debug	Starting update import for {self.source} from {self.filename}
+irrd/mirroring/parsers.py	292	info	File update for {self.source}: {self.obj_parsed} objects read, {obj_successful} objects processed, {self.obj_new} objects newly inserted, {self.obj_deleted} objects newly deleted, {self.obj_retained} objects retained, of which {self.obj_modified} modified, ignored {self.obj_errors} due to errors, ignored {self.obj_ignored_class} due to object_class_filter, source {self.filename}
+irrd/mirroring/parsers.py	409	debug	Found valid start line for {self.source}, range {self.first_serial}-{self.last_serial}
+irrd/mirroring/parsers.py	153	warning	Ignored {self.obj_unknown} objects found in import for {self.source} due to unknown object classes: {unknown_formatted}
+irrd/mirroring/parsers.py	96	critical	Parsing errors occurred while importing from file for {self.source}. This object is ignored, causing potential data inconsistencies. A new operation for this update, without errors, will still be processed and cause the inconsistency to be resolved. Parser error messages: {obj.messages.errors()}; original object text follows:\n{rpsl_text}
+irrd/mirroring/parsers.py	134	raise	Unknown object class: {e.rpsl_object_class}
+irrd/mirroring/retrieval.py	46	raise	Invalid URL: {url} - scheme {url_parsed.scheme} is not supported
+irrd/mirroring/retrieval.py	71	info	Downloaded {url}
+irrd/mirroring/retrieval.py	84	info	Downloaded (and gunzipped if applicable) {url} to {destination.name}
+irrd/mirroring/retrieval.py	138	raise	Invalid hash in {filename}: expected {expected_hash}, found {file_hash.hexdigest()}
+irrd/mirroring/retrieval.py	115	debug	Local file is expected to be gzipped, gunzipping from {path}
+irrd/mirroring/retrieval.py	100	raise	Failed to download {url}: {str(error)}
+irrd/mirroring/retrieval.py	107	raise	Failed to download {url}: {r.status_code}: {str(r.content)}
+irrd/mirroring/scheduler.py	183	info	MirrorScheduler terminating children
+irrd/mirroring/scheduler.py	201	error	Failed to close {process_name} (pid {process.pid}), possible resource leak: {e}
+irrd/routepref/routepref.py	166	info	route preference updated for all routes: {common_log}
+irrd/routepref/routepref.py	169	info	route preference updated for a subset of {len(filter_prefixes)} added/removed/changed routes: {common_log}
+irrd/rpki/importer.py	232	return	{self.prefix_str}AS{self.asn}/ML{self.max_length}
+irrd/rpki/notifications.py	127	warning	Unable to send RPKI invalid notification to {email}: {e}
+irrd/rpsl/auth.py	34	return	bcrypt cost factor must be {BCRYPT_MAX_ROUNDS} or lower
+irrd/rpsl/auth.py	32	return	invalid bcrypt hash
+irrd/rpsl/fields.py	503	error	Invalid {'/'.join(self.permitted_schemes)} URL: {value}
+irrd/rpsl/fields.py	655	error	Invalid auth attribute: {value}: supported options are {hashers}, PGPKEY-xxxxxxxx and {RPSL_MNTNER_AUTH_INTERNAL} for migrated objects
+irrd/rpsl/fields.py	670	error	Set names can have a maximum of five components.
+irrd/rpsl/fields.py	675	error	Invalid set name {value}: at least one component must be an actual set name (i.e. start with {prefix_display})
+irrd/rpsl/fields.py	709	info	Set name {value} was reformatted as {parsed_value}
+irrd/rpsl/fields.py	153	error	Invalid address prefix: {value}
+irrd/rpsl/fields.py	167	info	Address prefix {value} was reformatted as {parsed_ip_str}
+irrd/rpsl/fields.py	188	error	Invalid address prefix: {value}
+irrd/rpsl/fields.py	202	info	Address prefix {value} was reformatted as {parsed_ip_str}
+irrd/rpsl/fields.py	242	error	Invalid address range: {value}: IP version mismatch
+irrd/rpsl/fields.py	245	error	Invalid address range: {value}: first IP is higher than second IP
+irrd/rpsl/fields.py	253	info	Address range {value} was reformatted as {parsed_value}
+irrd/rpsl/fields.py	273	raise	Invalid IP version: {ip_version}
+irrd/rpsl/fields.py	357	info	Route set member {value} was reformatted as {parsed_ip_str}
+irrd/rpsl/fields.py	379	info	AS number {value} was reformatted as {parsed_str}
+irrd/rpsl/fields.py	392	error	Invalid AS range: {value}: does not contain a hyphen
+irrd/rpsl/fields.py	405	error	Invalid AS range: {value}: first AS is higher then second AS
+irrd/rpsl/fields.py	410	info	AS range {value} was reformatted as {parsed_value}
+irrd/rpsl/fields.py	447	error	Invalid e-mail address: {value}
+irrd/rpsl/fields.py	466	error	Invalid e-mail address: {email}
+irrd/rpsl/fields.py	486	error	Invalid DNS name: {value}
+irrd/rpsl/fields.py	553	error	Invalid name: {value}: contains invalid characters, does not start with a letter, or does not end in a letter/digit
+irrd/rpsl/fields.py	682	error	Invalid set name {value}: component {component} is a reserved word
+irrd/rpsl/fields.py	692	error	Invalid set {value}: component {component} is not a valid AS number nor a valid set name
+irrd/rpsl/fields.py	697	error	Invalid set {value}: component {component} is not a valid AS number, nor does it start with {prefix_display}
+irrd/rpsl/fields.py	160	error	Invalid address prefix: {value}: {clean_error}
+irrd/rpsl/fields.py	195	error	Invalid address prefix: {value}: {clean_error}
+irrd/rpsl/fields.py	238	error	Invalid address range: {value}: {clean_error}
+irrd/rpsl/fields.py	283	error	Missing range operator in value: {value}
+irrd/rpsl/fields.py	298	info	Route set member {value} was reformatted as {result_value}
+irrd/rpsl/fields.py	306	info	Route set member {value} was reformatted as {result_value}
+irrd/rpsl/fields.py	316	error	Value is neither a valid set name nor a valid prefix: {address}: {clean_error}
+irrd/rpsl/fields.py	322	error	Invalid range operator {range_operator} in value: {value}
+irrd/rpsl/fields.py	328	error	Invalid range operator: operator length ({single_range}) must be equal to or longer than prefix length ({ip.prefixlen()}) {value}
+irrd/rpsl/fields.py	337	error	Invalid range operator: operator start ({start_range}) must be equal to or longer than prefix length ({ip.prefixlen()}) {value}
+irrd/rpsl/fields.py	343	error	Invalid range operator: operator end ({end_range}) must be equal to or longer than operator start ({start_range}) {value}
+irrd/rpsl/fields.py	543	error	Invalid name: {value}: this is a reserved word
+irrd/rpsl/fields.py	649	error	Invalid auth attribute: {value}: {bcrypt_error}
+irrd/rpsl/fields.py	472	error	Invalid changed date: {date}: {ve}
+irrd/rpsl/fields.py	548	error	Invalid name: {value}: {prefix} is a reserved prefix
+irrd/rpsl/parser.py	495	return	{self.rpsl_object_class}/{self.pk()}/{source}
+irrd/rpsl/parser.py	136	raise	RPSL object has no known source
+irrd/rpsl/parser.py	233	append	primary/look-up key
+irrd/rpsl/parser.py	279	error	Line {line_no + 1}: encountered empty line in the middle of object: [{line}]
+irrd/rpsl/parser.py	235	append	primary key
+irrd/rpsl/parser.py	292	error	Line {line_no + 1}: line is neither continuation nor valid attribute [{line}]
+irrd/rpsl/parser.py	302	error	Line {line_no + 1}: encountered malformed attribute name: [{current_attr}]
+irrd/rpsl/parser.py	341	error	Unrecognised attribute {attr_name} on object {self.rpsl_object_class}
+irrd/rpsl/parser.py	345	error	Attribute "{attr_name}" on object {self.rpsl_object_class} occurs multiple times, but is only allowed once
+irrd/rpsl/parser.py	351	error	Mandatory attribute "{attr_required}" on object {self.rpsl_object_class} is missing
+irrd/rpsl/parser.py	360	error	Primary key attribute "{attr_pk}" on object {self.rpsl_object_class} is missing
+irrd/rpsl/parser.py	237	append	look-up key
+irrd/rpsl/parser.py	432	raise	Parsing of {parsed_value.value} reads {attr_value} for {attr},but value {existing_attr_value} is already set.
+irrd/rpsl/rpsl_objects.py	49	raise	unknown object class: {rpsl_object_class}
+irrd/rpsl/rpsl_objects.py	399	error	Invalid object name {actual_object_name}: does not match key fingerprint {fingerprint_formatted}, expected object name {expected_object_name}
+irrd/rpsl/rpsl_objects.py	466	error	Either all password auth hashes in a submitted mntner must be dummy objects, or none.
+irrd/rpsl/rpsl_objects.py	67	error	{self.rpsl_object_class} names must be hierarchical and the first component must be an AS number, e.g. "AS65537:{self.pk_asn_segment}": {str(ve)}
+irrd/scopefilter/validators.py	46	raise	Scope Filter validator must be provided asn or prefix
+irrd/scripts/irr_rpsl_submit.py	202	return	Network error
+irrd/scripts/irr_rpsl_submit.py	220	return	Connection refused
+irrd/scripts/irr_rpsl_submit.py	235	return	Could not resolve host
+irrd/scripts/irr_rpsl_submit.py	262	return	Response error
+irrd/scripts/irr_rpsl_submit.py	308	debug	Args are: %s
+irrd/scripts/irr_rpsl_submit.py	317	debug	Input: ===\n%s\n===\n
+irrd/scripts/irr_rpsl_submit.py	488	debug	URL is %s
+irrd/scripts/irr_rpsl_submit.py	530	debug	url: %s
+irrd/scripts/irr_rpsl_submit.py	555	debug	Submitting to %s; method %s}; headers %s; data %s
+irrd/scripts/irr_rpsl_submit.py	729	debug	raw args: %s
+irrd/scripts/irr_rpsl_submit.py	731	debug	adjusted args: %s
+irrd/scripts/irr_rpsl_submit.py	754	debug	====START RESPONSE BODY====:\n%s\n====ENE RESPONSE BODY====\n
+irrd/scripts/irr_rpsl_submit.py	99	debug	Calling XBasic.exit_value because {self.__class__.__name__} did not define its own
+irrd/scripts/irr_rpsl_submit.py	535	raise	No RPSL objects were found after processing input.
+irrd/scripts/irr_rpsl_submit.py	686	raise	Empty input! Specify at least on RPSL object.
+irrd/scripts/irr_rpsl_submit.py	727	debug	enabled debug level for logging
+irrd/scripts/irr_rpsl_submit.py	328	debug	HTTP problem: %s = %s
+irrd/scripts/irr_rpsl_submit.py	523	raise	choose_url did not get a host or url in the command-line arguments
+irrd/scripts/irr_rpsl_submit.py	723	raise	Error processing command-line arguments: {error.message}
+irrd/scripts/irr_rpsl_submit.py	595	debug	detected override password
+irrd/scripts/irr_rpsl_submit.py	597	raise	override encountered twice with different values
+irrd/scripts/irrd_control.py	95	info	cleared two-factor authentication for user {user.email} ({user.pk})
+irrd/scripts/irrd_control.py	137	info	override {enabled_str} for user {user.email} ({user.pk})
+irrd/scripts/irrd_control.py	178	info	{source}: known NRTMv4 client keys removed
+irrd/scripts/irrd_control.py	64	raise	User has no two-factor methods enabled.
+irrd/scripts/irrd_control.py	114	raise	User has no two-factor methods enabled, which is required to add override.
+irrd/scripts/irrd_control.py	118	raise	User already has override permission.
+irrd/scripts/irrd_control.py	121	raise	User already has no override permission.
+irrd/scripts/irrd_control.py	164	raise	Source {source} is not configured as an NRTMv4 client
+irrd/scripts/irrd_control.py	168	raise	No current known keys for source {source}
+irrd/scripts/irrd_control.py	204	raise	Source {source} is not configured as an NRTMv4 server
+irrd/scripts/irrd_control.py	221	raise	No user found for {email}.
+irrd/scripts/irrd_control.py	35	raise	Unable to run this command, because readonly_standby is set.
+irrd/scripts/submit_email.py	28	critical	An exception occurred while attempting to process the following email: {data}
+irrd/server/access_check.py	51	info	Rejecting request, IP not in access list {access_list_name}: {client_ip}
+irrd/server/access_check.py	44	info	Rejecting request, access list empty or undefined: {client_ip}
+irrd/server/access_check.py	29	error	Rejecting request as client IP could not be read from {ip}: {e}
+irrd/server/graphql/resolvers.py	167	return	members
+irrd/server/graphql/resolvers.py	78	raise	Your query must be more specific.
+irrd/server/graphql/resolvers.py	199	raise	Access to journal denied for source {rpsl_object['source']}
+irrd/server/graphql/schema_builder.py	76	raise	Invalid ASN: {value}; must be numeric
+irrd/server/graphql/schema_builder.py	83	raise	Invalid IP: {value}: {clean_ip_value_error(ve)}
+irrd/server/graphql/schema_generator.py	283	return	String
+irrd/server/graphql/schema_generator.py	282	return	[String!]
+irrd/server/graphql/schema_generator.py	142	append	ASNPrefixes
+irrd/server/graphql/schema_generator.py	143	append	AsSetPrefixes
+irrd/server/graphql/schema_generator.py	144	append	SetMembers
+irrd/server/graphql/schema_generator.py	145	append	RPKIStatus
+irrd/server/graphql/schema_generator.py	146	append	ScopeFilterStatus
+irrd/server/graphql/schema_generator.py	147	append	RoutePreferenceStatus
+irrd/server/http/app.py	269	info	Running in testing mode, disabling CSRF.
+irrd/server/http/app.py	276	warning	server.http.url is not https://; the session cookie will be sent without the Secure flag and without the __Host- prefix. Set server.http.url to your external https:// URL for any production deployment.
+irrd/server/http/app.py	88	critical	HTTP worker failed to initialise preloader, database or rate limiter, unable to start, terminating IRRd, traceback follows: {e}
+irrd/server/http/app.py	96	error	Failed to terminate IRRd, unable to find main process PID
+irrd/server/http/endpoints_api.py	66	info	{client_str}: sent answer to HTTP query, elapsed {elapsed}s, {length} chars: {query}
+irrd/server/http/endpoints_api.py	31	return	Access denied
+irrd/server/http/endpoints_api.py	41	return	Access denied
+irrd/server/http/endpoints_api.py	53	return	Missing required query parameter "q"
+irrd/server/http/event_stream.py	173	debug	event stream {host}: received {data}
+irrd/server/http/event_stream.py	255	info	event stream {self.host}: sending entries from global serial {self.after_global_serial}
+irrd/server/http/event_stream.py	258	debug	event stream {self.host}: initial send complete, waiting for new events
+irrd/server/http/event_stream.py	304	debug	event stream {self.host}: sent new changes up to global serial {self.after_global_serial}
+irrd/server/http/event_stream.py	44	return	Access denied
+irrd/server/http/event_stream.py	85	debug	event stream {self.host}: received request for initial download, copying data to temporary file {temp_csv.name}
+irrd/server/http/metrics_generator.py	87	append	irrd_object_class_total{source="{stat['source']}", object_class="{stat['object_class']}"} {stat['count']}
+irrd/server/http/metrics_generator.py	109	append	irrd_last_rpsl_data_update_seconds{source="{stat['source']}"} {int(diff.total_seconds())}
+irrd/server/http/metrics_generator.py	124	append	irrd_last_rpsl_data_update_timestamp{source="{stat['source']}"} {int(stat['rpsl_data_updated'].timestamp())}
+irrd/server/http/metrics_generator.py	143	append	irrd_last_update_seconds{source="{stat['source']}"} {int(diff.total_seconds())}
+irrd/server/http/metrics_generator.py	158	append	irrd_last_update_timestamp{source="{stat['source']}"} {int(stat['updated'].timestamp())}
+irrd/server/http/metrics_generator.py	177	append	irrd_last_error_seconds{source="{stat['source']}"} {int(diff.total_seconds())}
+irrd/server/http/metrics_generator.py	192	append	irrd_last_error_timestamp{source="{stat['source']}"} {int(stat['last_error_timestamp'].timestamp())}
+irrd/server/http/metrics_generator.py	205	append	{metric_key}{source="{stat['source']}"} {stat[status_key]}
+irrd/server/http/status_generator.py	171	return	\n                NRTMv4 client Update Notification File URL: {nrtm4_notification_file_url}\n                
+irrd/server/http/status_generator.py	198	return	\n                No NRTM configured.\n                
+irrd/server/http/status_generator.py	180	return	\n                    NRTM host: {nrtm_host} port {nrtm_port}\n                    Mirrorable: {mirrorable_str}\n                    Oldest journal serial number: {mirror_serial_oldest}\n                    Newest journal serial number: {mirror_serial_newest}\n                    Last export at serial number: {mirror_export_serial}\n                    
+irrd/server/http/status_generator.py	188	return	\n                    NRTM host: {nrtm_host} port {nrtm_port}\n                    Remote status query unsupported or query failed\n                    
+irrd/server/http/status_generator.py	193	return	\n                    NRTM host: {nrtm_host} port {nrtm_port}\n                    Unable to reach remote server for status query\n                    
+irrd/server/query_resolver.py	65	raise	One or more selected sources are unavailable.
+irrd/server/query_resolver.py	430	raise	Unknown object class: {object_class}
+irrd/server/whois/query_parser.py	403	return	IRRd -- version {__version__}
+irrd/server/whois/query_parser.py	517	info	{self.client_str}: user agent set to: {user_agent}
+irrd/server/whois/query_parser.py	128	raise	Missing IRRD command
+irrd/server/whois/query_parser.py	137	raise	Missing parameter for {command} query
+irrd/server/whois/query_parser.py	222	raise	Invalid value for timeout: {timeout}
+irrd/server/whois/query_parser.py	258	raise	Missing required set name for A query
+irrd/server/whois/query_parser.py	525	raise	Unrecognised parameter: {param}
+irrd/server/whois/query_parser.py	577	raise	Invalid NRTM version: {version}
+irrd/server/whois/query_parser.py	581	raise	Unknown source: {source}
+irrd/server/whois/query_parser.py	588	raise	Access denied
+irrd/server/whois/query_parser.py	111	info	{self.client_str}: encountered parsing error while parsing query "{query}": {exc}
+irrd/server/whois/query_parser.py	118	error	An exception occurred while processing whois query "{query}": {exc}
+irrd/server/whois/query_parser.py	217	raise	Invalid value for timeout: {timeout}
+irrd/server/whois/query_parser.py	328	raise	Invalid argument for object lookup: {parameter}
+irrd/server/whois/query_parser.py	352	raise	Invalid input for route search: {parameter}
+irrd/server/whois/query_parser.py	364	raise	Invalid route search option: {option}
+irrd/server/whois/query_parser.py	478	raise	Invalid input for route search: {parameter}
+irrd/server/whois/query_parser.py	564	raise	Invalid parameter: must contain three elements
+irrd/server/whois/query_parser.py	574	raise	Invalid serial range: {serial_range}
+irrd/server/whois/query_parser.py	91	info	{self.client_str}: encountered parsing error while parsing query "{query}": {exc}
+irrd/server/whois/query_parser.py	100	error	An exception occurred while processing whois query "{query}": {exc}
+irrd/server/whois/query_parser.py	456	raise	Missing argument for flag/search: {command}
+irrd/server/whois/query_parser.py	454	raise	Unrecognised flag/search: {command}
+irrd/server/whois/query_parser.py	204	raise	Unrecognised command: {command}
+irrd/server/whois/query_response.py	68	raise	Unable to formulate response for {self.response_type} / {self.mode}: {self.result}
+irrd/server/whois/query_response.py	97	return	utf-8
+irrd/server/whois/server.py	34	info	Starting whois server on TCP {address}
+irrd/server/whois/server.py	89	error	Error while handling request from {client_address}
+irrd/server/whois/server.py	231	info	{self.client_str}: sent answer to query, elapsed {elapsed}s, {len(response_bytes)} bytes: {query}
+irrd/server/whois/server.py	244	return	server.whois.access_list
+irrd/server/whois/server.py	46	info	Whois server shutting down
+irrd/server/whois/server.py	206	debug	{self.client_str}: processing query: {query}
+irrd/server/whois/server.py	219	debug	{self.client_str}: closed connection per request
+irrd/server/whois/server.py	236	debug	{self.client_str}: auto-closed connection
+irrd/server/whois/server.py	134	critical	Whois worker failed to initialise preloader or database, unable to start, terminating IRRd, traceback follows: {e}
+irrd/server/whois/server.py	142	error	Failed to terminate IRRd, unable to find main process PID
+irrd/server/whois/server.py	159	error	Failed to handle whois connection, traceback follows: {e}
+irrd/storage/database_handler.py	857	info	force_reload flag set for {source}, serial synchronisation will be {synchronised_serials} for current settings, actual reload process wll take place in next scheduled importer run
+irrd/storage/database_handler.py	673	raise	Attempt to suspend obect with PK {pk_uuid} which does not exist
+irrd/storage/database_handler.py	928	error	Attempted to remove/suspend object {user_identifier}, but no database row matched
+irrd/storage/database_handler.py	194	error	Exception occurred while committing changes, rolling back
+irrd/storage/database_handler.py	745	error	Exception occurred while executing statement: {stmt}, rolling back
+irrd/storage/models.py	105	return	<Setting/{self.name}>
+irrd/storage/models.py	179	return	<{self.rpsl_pk}/{self.source}/{self.pk}>
+irrd/storage/models.py	235	return	<{self.source}/{self.serial}/{self.operation}/{self.rpsl_pk}>
+irrd/storage/models.py	258	return	<{self.rpsl_pk}/{self.source}/{self.pk}>
+irrd/storage/models.py	345	return	<{self.prefix}/{self.asn}>
+irrd/storage/models.py	369	return	<ProtectedRPSLName/{self.protected_name}/{self.source}/{self.pk}>
+irrd/storage/models.py	392	return	AuthPermission<{self.pk}, user {self.user_id}, mntner {self.mntner_id}>
+irrd/storage/models.py	448	return	AuthUser<{self.pk}, {self.email}>
+irrd/storage/models.py	522	return	<{self.token}/{self.name}/{self.mntner.rpsl_mntner_pk if self.mntner else None}>
+irrd/storage/models.py	581	return	AuthMntner<{self.pk}, {self.rpsl_mntner_pk}>
+irrd/storage/models.py	639	return	<{self.pk}/{self.description()}>
+irrd/storage/models.py	669	raise	Field names of lookup fields do not match expected set. Indexes may be missing. Expected: {expected_lookup_field_names}, actual: {lookup_field_names()}
+irrd/storage/models.py	644	return	{self.rpsl_target_request_type.value} of {self.rpsl_target_object_class} {self.rpsl_target_pk} in {self.rpsl_target_source}
+irrd/storage/models.py	650	return	<unknown>
+irrd/storage/preload.py	260	info	Starting preload store manager
+irrd/storage/preload.py	410	error	Failed to update preload store due to redis connection error, attempting new reload in 5s: {rce}
+irrd/storage/preload.py	483	debug	Starting preload store update from thread {self}
+irrd/storage/preload.py	169	raise	Invalid IP version: {ip_version}
+irrd/storage/preload.py	498	info	Completed preload store update from thread {self}, notified workers
+irrd/storage/preload.py	519	debug	Completed updating preload route store from thread {self}
+irrd/storage/preload.py	295	error	Failed to empty preload store due to redis connection error, queries may have outdated results until full reload is completed (max 30s): {rce}
+irrd/storage/preload.py	466	critical	Updating preload store failed, retrying in 5s, traceback follows: {exc}
+irrd/storage/preload.py	525	debug	Completed updating preload as-set store from thread {self}
+irrd/storage/preload.py	530	debug	Completed updating preload route-set store from thread {self}
+irrd/storage/preload.py	63	error	Failed redis pubsub connection, attempting reconnect and reload in 5s: {rce}
+irrd/storage/preload.py	68	error	Error while loading in-memory preload, attempting reconnect and reload in 5s,traceback follows: {exc}
+irrd/storage/preload.py	140	return	as-set
+irrd/storage/preload.py	147	return	route-set
+irrd/storage/preload.py	281	error	Failed redis pubsub connection, attempting reconnect and reload in 5s: {rce}
+irrd/storage/preload.py	276	debug	Reload requested through redis channel for {message}
+irrd/storage/queries.py	44	return	{self.__class__.__name__}: {self.statement}\nPARAMS: {self.statement.compile().params}
+irrd/storage/queries.py	145	raise	This query was frozen - no more filters can be applied.
+irrd/storage/queries.py	207	raise	Invalid lookup attribute: {attr_name}
+irrd/storage/queries.py	217	append	parsed_data ? :lookup_attr_name{counter}
+irrd/storage/queries.py	221	append	parsed_data->:lookup_attr_name{counter} ? :lookup_attr_value{counter}
+irrd/updates/email.py	33	critical	No from address was found while attempting to parse the following update e-mail - update not processed: {email_txt}\n
+irrd/updates/email.py	25	critical	An exception occurred while attempting to parse the following update e-mail: {email_txt}\n--- traceback for {exc} follows:
+irrd/updates/email.py	41	warning	Unable to extract message body from e-mail {msg.message_id} from {msg.message_from}
+irrd/updates/email.py	57	info	Processed e-mail {msg.message_id} from {msg.message_from}: {handler.status()}
+irrd/updates/email.py	59	debug	Report for e-mail {msg.message_id} from {msg.message_from}: {handler.submitter_report_human()}
+irrd/updates/email.py	68	critical	An exception occurred while attempting to process the following update: {email_txt}\n--- traceback for {exc} follows:
+irrd/updates/email.py	86	warning	Unable to extract a single reply address from From header {msg.message_from} in e-mail {msg.message_id} - submission was processed, but no reply sent
+irrd/updates/email.py	93	critical	An exception occurred while attempting to send a reply to an update: {subject}\n{reply_content}\n --- traceback for {exc} follows:
+irrd/updates/handler.py	219	return	FAILED
+irrd/updates/handler.py	150	info	Processing change requests for {objects}, metadata is {self.request_meta}
+irrd/updates/handler.py	210	info	Message was signed with key {key_id}, but key was not found in the database. Treating message as unsigned. Message metadata: {self.request_meta}
+irrd/updates/handler.py	218	return	SUCCESS
+irrd/updates/parser.py	364	debug	{id(self)}: Authentication check succeeded
+irrd/updates/parser.py	398	debug	{id(self)}: Reference check succeeded
+irrd/updates/parser.py	639	debug	{id(self)}: Authentication check succeeded, override valid
+irrd/updates/parser.py	147	append	Can not delete object: no object found for this key in this database.
+irrd/updates/parser.py	150	debug	{id(self)}: Request attempts to delete object {self.rpsl_obj_new}, but no existing object found.
+irrd/updates/parser.py	166	debug	{id(self)}: Did not find existing version for object {self.rpsl_obj_new}, request is CREATE
+irrd/updates/parser.py	188	raise	ChangeRequest can only be saved in status PROCESSING
+irrd/updates/parser.py	190	info	{id(self)}: Saving change for {self.rpsl_obj_new}: deleting current object
+irrd/updates/parser.py	271	raise	Notification reports can only be made for changes that are valid or have failed authorisation.
+irrd/updates/parser.py	361	debug	{id(self)}: Authentication check failed: {list(self._auth_result.error_messages)}
+irrd/updates/parser.py	391	debug	{id(self)}: Reference check failed: {list(references_result.error_messages)}
+irrd/updates/parser.py	423	debug	{id(self)}: Protected name check succeeded
+irrd/updates/parser.py	450	debug	{id(self)}: Conflicting ROAs found
+irrd/updates/parser.py	459	debug	{id(self)}: No conflicting ROAs found
+irrd/updates/parser.py	533	debug	{id(self)}: Processing new SuspensionRequest for object {self.rpsl_obj_new}: request {id(self)}
+irrd/updates/parser.py	546	debug	{id(self)}: source of suspension request is {source}, does not have suspension support enabled, request rejected
+irrd/updates/parser.py	550	append	This instance is not authoritative for source {source} or suspension is not enabled
+irrd/updates/parser.py	556	debug	{id(self)}: suspension is for invalid object class, rejected
+irrd/updates/parser.py	557	append	Suspensions/reactivations can only be done on mntner objects
+irrd/updates/parser.py	565	raise	SuspensionRequest can only be saved in status PROCESSING
+irrd/updates/parser.py	636	append	Invalid authentication: override password invalid or missing
+irrd/updates/parser.py	637	debug	{id(self)}: Authentication check failed: override did not pass
+irrd/updates/parser.py	124	debug	{id(self)}: change is for non-authoritative source {source}, rejected
+irrd/updates/parser.py	125	append	This instance is not authoritative for source {source}
+irrd/updates/parser.py	132	debug	{id(self)}: change is for object class {self.rpsl_obj_new.rpsl_object_class}, not in object_class_filter, rejected
+irrd/updates/parser.py	136	append	Can not make changes to {self.rpsl_obj_new.rpsl_object_class.lower()} objects in this database
+irrd/updates/parser.py	172	debug	{id(self)}: Retrieved existing version for object {self.rpsl_obj_current}, request is MODIFY/DELETE
+irrd/updates/parser.py	199	append	Submitted object was identical to current object, no change recorded.
+irrd/updates/parser.py	200	info	{id(self)}: Not saving change for {self.rpsl_obj_new}: identical to current object
+irrd/updates/parser.py	205	info	{id(self)}: Saving change for {self.rpsl_obj_new}: inserting/updating current object
+irrd/updates/parser.py	340	debug	{id(self)}: Rules check failed: {rules_result.error_messages}
+irrd/updates/parser.py	415	debug	{id(self)}: Protected name check failed: {list(references_result.error_messages)}
+irrd/updates/parser.py	568	info	{id(self)}: Suspending mntner {self.rpsl_obj_new}
+irrd/updates/parser.py	574	info	{id(self)}: Reactivating mntner {self.rpsl_obj_new}
+irrd/updates/suspension.py	37	info	{log_prelude}: Starting suspension for {suspended_mntner}
+irrd/updates/suspension.py	115	info	{log_prelude}: Starting reactivation for for {reactivated_mntner}
+irrd/updates/suspension.py	35	raise	Not authoritative for source {source}
+irrd/updates/suspension.py	61	info	{log_prelude}: error: {msg}
+irrd/updates/suspension.py	80	info	{log_prelude}: Suspending {row['object_class']}/{row['rpsl_pk']}
+irrd/updates/suspension.py	113	raise	Not authoritative for source {source}
+irrd/updates/suspension.py	127	info	{log_prelude}: error: {msg}
+irrd/updates/suspension.py	142	info	{log_prelude}: error: {msg}
+irrd/updates/suspension.py	177	info	{log_prelude}: Restoring object {reactivating_obj}
+irrd/updates/suspension.py	75	info	{log_prelude}: Skipping suspension of {row['object_class']}/{row['rpsl_pk']} because of remaining active mntners {mntners_active}
+irrd/updates/suspension.py	162	info	{log_prelude}: {msg}
+irrd/updates/validators.py	382	debug	Checking auth for new object {rpsl_obj_new}, mntners in new object: {mntners_new}
+irrd/updates/validators.py	369	info	Found valid override password.
+irrd/updates/validators.py	392	debug	Checking auth for current object {rpsl_obj_current}, mntners in current object: {mntners_current}
+irrd/updates/validators.py	461	info	Authenticated by valid override from internally authenticated user {self._internal_authenticated_user}
+irrd/updates/validators.py	406	debug	Checking auth for related object {related_object_class} / {related_pk} with mntners {related_mntner_list}
+irrd/updates/validators.py	473	info	Ignoring override passwords: more than {MAX_CREDENTIALS_PER_SUBMISSION} distinct values in submission
+irrd/updates/validators.py	495	info	Ignoring override password, auth.override_password not set.
+irrd/updates/validators.py	579	info	Authenticated through internally authenticated user {self._internal_authenticated_user}
+irrd/updates/validators.py	612	info	Authenticated through API token {api_token.pk} on mntner {rpsl_pk}
+irrd/updates/validators.py	424	debug	Object {rpsl_obj_new} submitted with dummy hash values and single password, replacing all hashes with currently supplied password.
+irrd/updates/validators.py	595	info	Ignoring API key in submission: not a valid UUID
+irrd/updates/validators.py	482	info	Found invalid override password, ignoring.
+irrd/updates/validators.py	488	info	Found invalid override password, ignoring.
+irrd/updates/validators.py	491	error	Exception occurred while checking override password as both bcrypt and salted MD5 (possible misconfigured hash?)
+irrd/utils/crypto.py	31	raise	ECKey is a public key, but must be a private key
+irrd/utils/crypto.py	37	return	ascii
+irrd/utils/crypto.py	44	return	ascii
+irrd/utils/email.py	81	debug	Sending email to {recipient}, subject {subject}
+irrd/utils/email.py	77	error	Not sending e-mail {subject}: {recipient} is not a single valid recipient
+irrd/utils/pgp.py	78	info	checked PGP signature, response: {log_message}
+irrd/utils/pgp.py	81	info	Found valid PGP signature, pubkey fingerprint {result.pubkey_fingerprint}, fingerprint {result.fingerprint}
+irrd/utils/process_support.py	53	append	\n## Thread: {thread_name}({thread_id}) ##\n
+irrd/utils/process_support.py	27	critical	Essential IRRd subprocess encountered a fatal error, traceback follows, shutting down: {e}
+irrd/utils/test_utils.py	183	raise	Unknown query in MockDatabaseHandler: {query}
+irrd/utils/text.py	18	raise	Auth hash removal only supported for strings
+irrd/utils/validators.py	52	raise	Invalid AS number {value}: valid range is 0-4294967295
+irrd/utils/validators.py	15	raise	Invalid AS number {value}: must start with "AS"
+irrd/utils/validators.py	88	raise	You must describe each object with either "object_text" or "attributes"
+irrd/utils/validators.py	35	raise	Invalid AS number {value}: high order value out of range
+irrd/utils/validators.py	38	raise	Invalid AS number {value}: low order value out of range
+irrd/utils/validators.py	23	raise	Invalid AS number {value}: number is not valid asdot format
+irrd/utils/validators.py	28	raise	Invalid AS number {value}: high order value missing or invalid
+irrd/utils/validators.py	32	raise	Invalid AS number {value}: low order value missing or invalid
+irrd/utils/validators.py	46	raise	Invalid AS number {value}: number part is not numeric
+irrd/utils/whois_client.py	28	debug	Running whois query {query.strip()} on {host} port {port}
+irrd/utils/whois_client.py	49	return	utf-8
+irrd/utils/whois_client.py	63	debug	Running IRRD whois query {query.strip()} on {host} port {port}
+irrd/utils/whois_client.py	113	return	utf-8
+irrd/utils/whois_client.py	106	raise	Data receiving ended without a valid IRRD-format response, query {query},received: {buffer.decode('ascii', 'ignore')}
+irrd/utils/whois_client.py	110	raise	Unable to receive all expected {expected_data_length} bytes
+irrd/utils/whois_client.py	132	raise	Source status query on {host}:{port} failed: empty response
+irrd/utils/whois_client.py	137	raise	Received invalid source {match_source}, expecting {source}, in status: {remote_status}
+irrd/utils/whois_client.py	42	warning	Whois query {query.strip()} timed out on {host} port {port}
+irrd/utils/whois_client.py	77	warning	Whois query {query.strip()} timed out on {host} port {port}
