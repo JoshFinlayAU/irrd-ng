@@ -4,7 +4,7 @@
 use std::fmt;
 
 use crate::classes::{self, ClassDef};
-use crate::fields::{FieldParseResult, ParseCtx, PASSWORD_HASH_DUMMY_VALUE, Uncaught};
+use crate::fields::{FieldParseResult, PASSWORD_HASH_DUMMY_VALUE, ParseCtx, Uncaught};
 use crate::ipy::Ip;
 use crate::messages;
 use crate::parser_state::Messages;
@@ -71,7 +71,7 @@ pub struct ObjectAttr {
 pub enum ParseError {
     /// `UnknownRPSLObjectClassException`: the first attribute is not one of
     /// the 19 classes. Matching is case-sensitive, as in v4.
-    #[error("unknown object class: {class}")]
+    #[error("{}", messages::unknown_object_class(class))]
     UnknownClass {
         /// The class as found in the text.
         class: String,
@@ -133,7 +133,10 @@ pub struct RpslObject {
 /// `rpsl_object_from_text(text, strict_validation, default_source)`.
 ///
 /// `text` should already be stripped, as v4's callers do.
-pub fn rpsl_object_from_text(text: &str, options: &ParseOptions<'_>) -> Result<RpslObject, ParseError> {
+pub fn rpsl_object_from_text(
+    text: &str,
+    options: &ParseOptions<'_>,
+) -> Result<RpslObject, ParseError> {
     let first = text.split_once(':').map_or(text, |(a, _)| a);
     let class_name = py::strip(first);
     let Some(class) = classes::class_by_name(class_name) else {
@@ -179,7 +182,11 @@ pub(crate) fn normalise_rpsl_value(value: &str) -> String {
 }
 
 impl RpslObject {
-    fn parse(class: &'static ClassDef, text: &str, options: &ParseOptions<'_>) -> Result<RpslObject, ParseError> {
+    fn parse(
+        class: &'static ClassDef,
+        text: &str,
+        options: &ParseOptions<'_>,
+    ) -> Result<RpslObject, ParseError> {
         let mut obj = RpslObject {
             class,
             strict: options.strict,
@@ -217,12 +224,11 @@ impl RpslObject {
             }
             let first = line.chars().next().unwrap_or(' ');
             if !matches!(first, ' ' | '+' | '\t') {
-                if let Some(attr) = current.take() {
-                    if !attr.name.is_empty()
-                        && !self.class.discarded_fields.contains(&attr.name.as_str())
-                    {
-                        self.object_data.push(attr);
-                    }
+                if let Some(attr) = current.take()
+                    && !attr.name.is_empty()
+                    && !self.class.discarded_fields.contains(&attr.name.as_str())
+                {
+                    self.object_data.push(attr);
                 }
                 if !line.contains(':') {
                     self.messages
@@ -253,10 +259,11 @@ impl RpslObject {
                 attr.continuation_chars.push(first);
             }
         }
-        if let Some(attr) = current {
-            if !attr.name.is_empty() && !self.class.discarded_fields.contains(&attr.name.as_str()) {
-                self.object_data.push(attr);
-            }
+        if let Some(attr) = current
+            && !attr.name.is_empty()
+            && !self.class.discarded_fields.contains(&attr.name.as_str())
+        {
+            self.object_data.push(attr);
         }
     }
 
@@ -395,15 +402,20 @@ impl RpslObject {
                 self.extract_metadata(&parsed, allow_invalid_metadata)?;
             }
         }
-        if self.parsed_value("source").is_none() {
-            if let Some(source) = &self.default_source {
-                self.parsed_data.push(("source", Value::Str(source.clone())));
-            }
+        if self.parsed_value("source").is_none()
+            && let Some(source) = &self.default_source
+        {
+            self.parsed_data
+                .push(("source", Value::Str(source.clone())));
         }
         Ok(())
     }
 
-    fn extract_metadata(&mut self, parsed: &FieldParseResult, allow_invalid: bool) -> Result<(), ParseError> {
+    fn extract_metadata(
+        &mut self,
+        parsed: &FieldParseResult,
+        allow_invalid: bool,
+    ) -> Result<(), ParseError> {
         let value = &parsed.value;
         fn check<T: fmt::Display + Copy>(
             slot: &mut Option<T>,
@@ -414,22 +426,58 @@ impl RpslObject {
             allow_invalid: bool,
         ) -> Result<(), ParseError> {
             if let Some(n) = new {
-                if let Some(existing) = slot.as_ref() {
-                    if truthy(existing) && !allow_invalid {
-                        return Err(ParseError::Uncaught(messages::metadata_already_set(
-                            value, &n, name, existing,
-                        )));
-                    }
+                if let Some(existing) = slot.as_ref()
+                    && truthy(existing)
+                    && !allow_invalid
+                {
+                    return Err(ParseError::Uncaught(messages::metadata_already_set(
+                        value, &n, name, existing,
+                    )));
                 }
                 *slot = Some(n);
             }
             Ok(())
         }
-        check(&mut self.ip_first, parsed.ip_first, |_| true, "ip_first", value, allow_invalid)?;
-        check(&mut self.ip_last, parsed.ip_last, |_| true, "ip_last", value, allow_invalid)?;
-        check(&mut self.asn_first, parsed.asn_first, |v| *v != 0, "asn_first", value, allow_invalid)?;
-        check(&mut self.asn_last, parsed.asn_last, |v| *v != 0, "asn_last", value, allow_invalid)?;
-        check(&mut self.prefix, parsed.prefix, |_| true, "prefix", value, allow_invalid)?;
+        check(
+            &mut self.ip_first,
+            parsed.ip_first,
+            |_| true,
+            "ip_first",
+            value,
+            allow_invalid,
+        )?;
+        check(
+            &mut self.ip_last,
+            parsed.ip_last,
+            |_| true,
+            "ip_last",
+            value,
+            allow_invalid,
+        )?;
+        check(
+            &mut self.asn_first,
+            parsed.asn_first,
+            |v| *v != 0,
+            "asn_first",
+            value,
+            allow_invalid,
+        )?;
+        check(
+            &mut self.asn_last,
+            parsed.asn_last,
+            |v| *v != 0,
+            "asn_last",
+            value,
+            allow_invalid,
+        )?;
+        check(
+            &mut self.prefix,
+            parsed.prefix,
+            |_| true,
+            "prefix",
+            value,
+            allow_invalid,
+        )?;
         check(
             &mut self.prefix_length,
             parsed.prefix_length,
@@ -521,8 +569,9 @@ impl RpslObject {
             .unwrap_or_default();
         let formatted = format_fingerprint(&fingerprint);
         if expected != actual {
-            self.messages
-                .error(messages::key_cert_name_mismatch(&actual, &formatted, &expected));
+            self.messages.error(messages::key_cert_name_mismatch(
+                &actual, &formatted, &expected,
+            ));
             return Ok(());
         }
         let uids = keyring.uids(&fingerprint);
@@ -534,7 +583,12 @@ impl RpslObject {
 
     /// `_update_attribute_value`: replace every occurrence of `attribute`
     /// with `new_values`, inserted from the second line of the object.
-    fn update_attribute_value(&mut self, attribute: &'static str, new_values: Vec<String>, flatten: bool) {
+    fn update_attribute_value(
+        &mut self,
+        attribute: &'static str,
+        new_values: Vec<String>,
+        flatten: bool,
+    ) {
         let parsed = if flatten {
             Value::Str(new_values.join("\n"))
         } else {
@@ -679,7 +733,8 @@ impl RpslObject {
             .filter(|f| f.kind.strong())
             .filter_map(|f| {
                 let data = self.parsed_value(f.name)?;
-                data.is_truthy().then_some((f.name, f.kind.referring(), data))
+                data.is_truthy()
+                    .then_some((f.name, f.kind.referring(), data))
             })
             .collect()
     }
@@ -698,13 +753,21 @@ impl RpslObject {
     /// for authoritative sources without
     /// `authoritative_retain_last_modified`, existing `last-modified` lines
     /// are replaced with one for `last_modified` (Unix seconds, UTC).
-    pub fn render_rpsl_text_with_last_modified(&self, last_modified: i64, settings: &RpslSettings) -> String {
+    pub fn render_rpsl_text_with_last_modified(
+        &self,
+        last_modified: i64,
+        settings: &RpslSettings,
+    ) -> String {
         let source = self.source().map(|s| s.to_owned()).unwrap_or_default();
         let s = settings.sources.get(&source).copied().unwrap_or_default();
         let replace = s.authoritative && !s.authoritative_retain_last_modified;
         let mut out = self.render(Some(last_modified), replace);
         if replace {
-            out.push_str(&format!("{:<width$}", "last-modified:", width = RPSL_ATTRIBUTE_TEXT_WIDTH));
+            out.push_str(&format!(
+                "{:<width$}",
+                "last-modified:",
+                width = RPSL_ATTRIBUTE_TEXT_WIDTH
+            ));
             out.push_str(&format_last_modified(last_modified));
             out.push('\n');
         }
@@ -712,7 +775,8 @@ impl RpslObject {
     }
 
     fn render(&self, _last_modified: Option<i64>, drop_last_modified: bool) -> String {
-        let mut output = String::with_capacity(self.object_data.iter().map(|a| a.value.len() + 20).sum());
+        let mut output =
+            String::with_capacity(self.object_data.iter().map(|a| a.value.len() + 20).sum());
         for attr in &self.object_data {
             if drop_last_modified && attr.name == "last-modified" {
                 continue;
@@ -732,11 +796,7 @@ impl RpslObject {
                     }
                     output.push_str(line);
                 } else {
-                    let mut c = attr
-                        .continuation_chars
-                        .get(idx - 1)
-                        .copied()
-                        .unwrap_or('+');
+                    let mut c = attr.continuation_chars.get(idx - 1).copied().unwrap_or('+');
                     if line.is_empty() {
                         c = '+';
                     }
@@ -805,6 +865,7 @@ impl fmt::Display for RpslObject {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use crate::py::{self, IntError, PyInt};
+use crate::py::{self, PyInt};
 
 const MAX_IPV4_ADDRESS: u128 = 0xffff_ffff;
 const MAX_IPV6_ADDRESS: u128 = u128::MAX;
@@ -144,31 +144,28 @@ fn int_to_ip(ip: u128, version: u8) -> IpResult<String> {
 /// `parseAddress(ipstr, ipversion)`.
 fn parse_address(ipstr: &str, ipversion: u8) -> IpResult<(u128, u8)> {
     let hexval = py::parse_int(ipstr, 16).ok();
-    let intval = match py::parse_int(ipstr, 10) {
-        Ok(v) => Some(v),
-        Err(IntError::Invalid | IntError::TooManyDigits(_)) => None,
-    };
+    let intval = py::parse_int(ipstr, 10).ok();
 
-    if ipstr.starts_with("0x") {
-        if let Some(hv) = &hexval {
-            let Some(v) = hv.to_u128() else {
-                return err(format!(
-                    "IP Address can't be larger than {MAX_IPV6_ADDRESS:x}: {}",
-                    hv.hex()
-                ));
-            };
-            return Ok((v, if v <= MAX_IPV4_ADDRESS { 4 } else { 6 }));
-        }
+    if ipstr.starts_with("0x")
+        && let Some(hv) = &hexval
+    {
+        let Some(v) = hv.to_u128() else {
+            return err(format!(
+                "IP Address can't be larger than {MAX_IPV6_ADDRESS:x}: {}",
+                hv.hex()
+            ));
+        };
+        return Ok((v, if v <= MAX_IPV4_ADDRESS { 4 } else { 6 }));
     }
 
     if ipstr.contains(':') {
         return Ok((parse_address_ipv6(ipstr)?, 6));
     }
-    if ipstr.chars().count() == 32 {
-        if let Some(hv) = &hexval {
-            // 32 hex digits fit; a sign or whitespace only makes it shorter.
-            return Ok((hv.to_u128().unwrap_or(0), 6));
-        }
+    if ipstr.chars().count() == 32
+        && let Some(hv) = &hexval
+    {
+        // 32 hex digits fit; a sign or whitespace only makes it shorter.
+        return Ok((hv.to_u128().unwrap_or(0), 6));
     }
     let small_int = intval
         .as_ref()
@@ -254,10 +251,10 @@ fn parse_address_ipv6(ipstr: &str) -> IpResult<u128> {
     }
 
     if items.last().is_some_and(|last| last.contains('.')) {
-        if let Some(fp) = fill_pos {
-            if fp > items.len() - 1 {
-                return err(format!("{r}: Invalid IPv6 address: '::' after IPv4"));
-            }
+        if let Some(fp) = fill_pos
+            && fp > items.len() - 1
+        {
+            return err(format!("{r}: Invalid IPv6 address: '::' after IPv4"));
         }
         let last = items.pop().unwrap_or_default();
         let (value, _) = parse_address(&last, 0)?;
@@ -528,12 +525,12 @@ fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
     if n.len() > h.len() {
         return None;
     }
-    (0..=h.len() - n.len()).find(|&i| {
-        haystack.is_char_boundary(i) && h[i..i + n.len()].eq_ignore_ascii_case(n)
-    })
+    (0..=h.len() - n.len())
+        .find(|&i| haystack.is_char_boundary(i) && h[i..i + n.len()].eq_ignore_ascii_case(n))
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -170,7 +170,10 @@ static AS_SET: ClassDef = set_class(
     &[
         f("as-set", FieldKind::SetName { prefix: "AS-" }).pkl(),
         DESCR,
-        f("members", weak_list(&["aut-num", "as-set"])).lookup().opt().mult(),
+        f("members", weak_list(&["aut-num", "as-set"]))
+            .lookup()
+            .opt()
+            .mult(),
         f("mbrs-by-ref", MBRS_BY_REF).lookup().opt().mult(),
         ADMIN_C_OPT,
         TECH_C_OPT,
@@ -261,7 +264,10 @@ static INET_RTR: ClassDef = class(
         f("interface", TEXT).opt().mult(),
         f("peer", TEXT).opt().mult(),
         f("mp-peer", TEXT).opt().mult(),
-        f("member-of", weak_list(&["rtr-set"])).lookup().opt().mult(),
+        f("member-of", weak_list(&["rtr-set"]))
+            .lookup()
+            .opt()
+            .mult(),
         f("rs-in", TEXT).opt(),
         f("rs-out", TEXT).opt(),
         ADMIN_C_OPT,
@@ -450,7 +456,10 @@ static ROUTE: ClassDef = route_class(
         DESCR,
         f("origin", FieldKind::AsNumber).pk(),
         f("holes", FieldKind::Ipv4Prefixes).opt().mult(),
-        f("member-of", weak_list(&["route-set"])).lookup().opt().mult(),
+        f("member-of", weak_list(&["route-set"]))
+            .lookup()
+            .opt()
+            .mult(),
         f("inject", TEXT).opt().mult(),
         f("aggr-bndry", TEXT).opt(),
         f("aggr-mtd", TEXT).opt(),
@@ -499,7 +508,10 @@ static ROUTE6: ClassDef = route_class(
         DESCR,
         f("origin", FieldKind::AsNumber).pk(),
         f("holes", FieldKind::Ipv6Prefixes).opt().mult(),
-        f("member-of", weak_list(&["route-set"])).lookup().opt().mult(),
+        f("member-of", weak_list(&["route-set"]))
+            .lookup()
+            .opt()
+            .mult(),
         f("inject", TEXT).opt().mult(),
         f("aggr-bndry", TEXT).opt(),
         f("aggr-mtd", TEXT).opt(),
@@ -584,7 +596,10 @@ pub fn references_strong_inbound(class: &str) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
     for c in OBJECT_CLASSES {
         for field in c.fields {
-            if field.kind.strong() && field.kind.referring().contains(&class) && !out.contains(&field.name) {
+            if field.kind.strong()
+                && field.kind.referring().contains(&class)
+                && !out.contains(&field.name)
+            {
                 out.push(field.name);
             }
         }

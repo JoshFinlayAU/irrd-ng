@@ -2,6 +2,8 @@
 //! corpus in `parity/corpus/rpsl/` (see `make_corpus.py` and `regen.sh`
 //! there), and for v4's own `irrd/utils/rpsl_samples.py`.
 
+#![allow(clippy::unwrap_used, clippy::panic)]
+
 mod common;
 
 use std::path::{Path, PathBuf};
@@ -43,15 +45,23 @@ fn synthetic_corpus_matches_v4() {
         })
         .collect();
     names.sort();
-    assert!(names.len() >= 8, "corpus files missing from {}", dir.display());
+    assert!(
+        names.len() >= 8,
+        "corpus files missing from {}",
+        dir.display()
+    );
     let mut ok = true;
     for name in names {
-        let db = std::fs::read(dir.join(format!("{name}.db"))).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let db =
+            std::fs::read(dir.join(format!("{name}.db"))).unwrap_or_else(|e| panic!("{name}: {e}"));
         let rows = common::read_jsonl(&dir.join(format!("expected.{name}.jsonl")));
         let tally = common::compare_file(&db, &rows, 10);
         ok &= report(&name, &tally);
     }
-    assert!(ok, "irrd-ng differs from v4 on the synthetic corpus, see above");
+    assert!(
+        ok,
+        "irrd-ng differs from v4 on the synthetic corpus, see above"
+    );
 }
 
 #[test]
@@ -65,5 +75,8 @@ fn rpsl_samples_match_v4() {
         let text = row["text"].as_str().unwrap_or_default();
         common::compare_row(row, text, &settings, &keyring, &mut tally, 10);
     }
-    assert!(report("samples", &tally), "irrd-ng differs from v4 on rpsl_samples.py");
+    assert!(
+        report("samples", &tally),
+        "irrd-ng differs from v4 on rpsl_samples.py"
+    );
 }

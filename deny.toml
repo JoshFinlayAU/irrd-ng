@@ -12,6 +12,14 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Both come in through sequoia-openpgp's RustCrypto backend (rpsl crate) and
+# concern timing side channels in operations on secret keys. irrd-ng only
+# verifies signatures on public keys from public data, so neither applies.
+# No release reachable from sequoia-openpgp 2.4 fixes them.
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack: private-key decryption timing; we only verify signatures" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 constant-time issues; no secret material is processed" },
+]
 
 [licenses]
 version = 2
@@ -23,7 +31,11 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # xxhash-rust, via sequoia-openpgp (rpsl crate).
+    "BSL-1.0",
     "ISC",
+    # sequoia-openpgp and buffered-reader (key-cert PGP handling, rpsl crate).
+    "LGPL-2.0-or-later",
     "MIT",
     "MPL-2.0",
     "Unicode-3.0",

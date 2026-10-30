@@ -177,12 +177,22 @@ pub(crate) struct ParseCtx<'s> {
 }
 
 impl FieldDef {
-    pub(crate) fn parse(&self, value: &str, messages: &mut Messages, ctx: &ParseCtx<'_>) -> FieldResult {
+    pub(crate) fn parse(
+        &self,
+        value: &str,
+        messages: &mut Messages,
+        ctx: &ParseCtx<'_>,
+    ) -> FieldResult {
         parse_kind(&self.kind, value, messages, ctx)
     }
 }
 
-fn parse_kind(kind: &FieldKind, value: &str, messages: &mut Messages, ctx: &ParseCtx<'_>) -> FieldResult {
+fn parse_kind(
+    kind: &FieldKind,
+    value: &str,
+    messages: &mut Messages,
+    ctx: &ParseCtx<'_>,
+) -> FieldResult {
     let strict = ctx.strict;
     Ok(match kind {
         FieldKind::Text => Some(FieldParseResult::value(strip_nonprintable(value))),
@@ -224,8 +234,16 @@ fn parse_kind(kind: &FieldKind, value: &str, messages: &mut Messages, ctx: &Pars
         FieldKind::GenericName {
             allowed_prefixes,
             non_strict_allow_any,
-        } => parse_generic_name(value, messages, strict, allowed_prefixes, *non_strict_allow_any),
-        FieldKind::Reference { referring, .. } => return parse_reference(referring, value, messages, ctx),
+        } => parse_generic_name(
+            value,
+            messages,
+            strict,
+            allowed_prefixes,
+            *non_strict_allow_any,
+        ),
+        FieldKind::Reference { referring, .. } => {
+            return parse_reference(referring, value, messages, ctx);
+        }
         FieldKind::ReferenceList {
             referring,
             allow_kw_any,
@@ -238,7 +256,9 @@ fn parse_kind(kind: &FieldKind, value: &str, messages: &mut Messages, ctx: &Pars
                     ..Default::default()
                 }));
             }
-            return parse_list(value, messages, |v, m| parse_reference(referring, v, m, ctx));
+            return parse_list(value, messages, |v, m| {
+                parse_reference(referring, v, m, ctx)
+            });
         }
         FieldKind::Auth => parse_auth(value, messages, ctx),
     })
@@ -398,14 +418,15 @@ fn match_range_operator(op: &str) -> Option<RangeOperator<'_>> {
         let n = s.chars().count();
         (1..=3).contains(&n) && s.chars().all(py::is_re_digit)
     };
-    if let Some((a, b)) = body.split_once('-') {
-        if digits13(a) && digits13(b) {
-            return Some(RangeOperator {
-                start: Some(a),
-                end: Some(b),
-                single: None,
-            });
-        }
+    if let Some((a, b)) = body.split_once('-')
+        && digits13(a)
+        && digits13(b)
+    {
+        return Some(RangeOperator {
+            start: Some(a),
+            end: Some(b),
+            single: None,
+        });
     }
     if body == "-" || body == "+" {
         return Some(RangeOperator {
@@ -451,18 +472,18 @@ fn parse_route_set_member(
 
     let mut set_messages = Messages::default();
     let set_result = parse_set_name(&["RS-", "AS-"], address, &mut set_messages, strict);
-    if let Some(r) = set_result {
-        if !set_messages.has_errors() {
-            let mut result_value = r.value;
-            if !range_operator.is_empty() {
-                result_value.push('^');
-                result_value.push_str(range_operator);
-            }
-            if result_value != value {
-                messages.info(messages::route_set_member_reformatted(value, &result_value));
-            }
-            return Some(FieldParseResult::value(result_value));
+    if let Some(r) = set_result
+        && !set_messages.has_errors()
+    {
+        let mut result_value = r.value;
+        if !range_operator.is_empty() {
+            result_value.push('^');
+            result_value.push_str(range_operator);
         }
+        if result_value != value {
+            messages.info(messages::route_set_member_reformatted(value, &result_value));
+        }
+        return Some(FieldParseResult::value(result_value));
     }
     if let Ok((parsed_str, _)) = parse_as_number(address, false, false, false) {
         let mut result_value = parsed_str;
@@ -493,23 +514,27 @@ fn parse_route_set_member(
             return None;
         };
         let prefixlen = i128::from(ip.prefixlen());
-        if let Some(single) = m.single {
-            if small_int(single) < prefixlen {
-                messages.error(messages::range_operator_length(single, ip.prefixlen(), value));
-                return None;
-            }
+        if let Some(single) = m.single
+            && small_int(single) < prefixlen
+        {
+            messages.error(messages::range_operator_length(
+                single,
+                ip.prefixlen(),
+                value,
+            ));
+            return None;
         }
-        if let Some(start) = m.start {
-            if small_int(start) < prefixlen {
-                messages.error(messages::range_operator_start(start, ip.prefixlen(), value));
-                return None;
-            }
+        if let Some(start) = m.start
+            && small_int(start) < prefixlen
+        {
+            messages.error(messages::range_operator_start(start, ip.prefixlen(), value));
+            return None;
         }
-        if let (Some(end), Some(start)) = (m.end, m.start) {
-            if small_int(end) < small_int(start) {
-                messages.error(messages::range_operator_end(end, start, value));
-                return None;
-            }
+        if let (Some(end), Some(start)) = (m.end, m.start)
+            && small_int(end) < small_int(start)
+        {
+            messages.error(messages::range_operator_end(end, start, value));
+            return None;
         }
     }
 
@@ -557,9 +582,8 @@ fn parse_as_block(value: &str, messages: &mut Messages) -> Option<FieldParseResu
         messages.error(messages::as_range_no_hyphen(value));
         return None;
     };
-    let parsed = parse_as_number(py::strip(as1_raw), false, false, false).and_then(|a| {
-        Ok((a, parse_as_number(py::strip(as2_raw), false, false, false)?))
-    });
+    let parsed = parse_as_number(py::strip(as1_raw), false, false, false)
+        .and_then(|a| Ok((a, parse_as_number(py::strip(as2_raw), false, false, false)?)));
     let ((as1_str, as1), (as2_str, as2)) = match parsed {
         Ok(v) => v,
         Err(e) => {
@@ -636,11 +660,11 @@ fn parse_changed(value: &str, messages: &mut Messages) -> Option<FieldParseResul
         messages.error(messages::invalid_email(email));
         return None;
     }
-    if let Some(date) = date.filter(|d| !d.is_empty()) {
-        if let Err(e) = strptime_ymd(date) {
-            messages.error(messages::invalid_changed_date(date, &e));
-            return None;
-        }
+    if let Some(date) = date.filter(|d| !d.is_empty())
+        && let Err(e) = strptime_ymd(date)
+    {
+        messages.error(messages::invalid_changed_date(date, &e));
+        return None;
     }
     Some(FieldParseResult::value(value.to_owned()))
 }
@@ -682,8 +706,7 @@ fn parse_url(value: &str, messages: &mut Messages) -> FieldResult {
         }
     }
     let mut netloc = "";
-    if url.starts_with("//") {
-        let rest = &url[2..];
+    if let Some(rest) = url.strip_prefix("//") {
         let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         netloc = &rest[..end];
         if netloc.contains('[') != netloc.contains(']') {
@@ -765,7 +788,11 @@ fn parse_reference(
 }
 
 /// `RPSLAuthField.parse`.
-fn parse_auth(value: &str, messages: &mut Messages, ctx: &ParseCtx<'_>) -> Option<FieldParseResult> {
+fn parse_auth(
+    value: &str,
+    messages: &mut Messages,
+    ctx: &ParseCtx<'_>,
+) -> Option<FieldParseResult> {
     let hashers = ctx.settings.password_hashers(!ctx.strict);
     let upper_value = py::upper(value);
     let has_valid_beginning = hashers.iter().any(|h| {

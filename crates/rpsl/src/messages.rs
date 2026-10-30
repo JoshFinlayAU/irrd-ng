@@ -55,9 +55,7 @@ pub(crate) fn metadata_already_set(
     attr: &str,
     existing: &dyn Display,
 ) -> String {
-    format!(
-        "Parsing of {value} reads {attr_value} for {attr},but value {existing} is already set."
-    )
+    format!("Parsing of {value} reads {attr_value} for {attr},but value {existing} is already set.")
 }
 
 /// parser.py:136 (raised as `ValueError`).

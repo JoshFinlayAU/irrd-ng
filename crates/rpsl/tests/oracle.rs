@@ -6,6 +6,8 @@
 //! exactly as v4 does in both strict and non-strict mode. Without the
 //! variables the test is skipped: the dumps are real data and never in git.
 
+#![allow(clippy::unwrap_used, clippy::panic)]
+
 mod common;
 
 use std::path::PathBuf;
@@ -27,7 +29,11 @@ fn rpsl_matches_v4_oracle() {
         .filter(|p| p.to_string_lossy().ends_with(".rpsl.jsonl"))
         .collect();
     entries.sort();
-    assert!(!entries.is_empty(), "no *.rpsl.jsonl in {}", oracle_dir.display());
+    assert!(
+        !entries.is_empty(),
+        "no *.rpsl.jsonl in {}",
+        oracle_dir.display()
+    );
 
     let max_examples: usize = std::env::var("IRRD_NG_ORACLE_EXAMPLES")
         .ok()
