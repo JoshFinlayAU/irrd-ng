@@ -261,3 +261,17 @@ pub(crate) fn storage_keys_ignored(keys: &str) -> String {
         "Settings {keys} are accepted for compatibility with IRRd v4 and ignored: irrd-ng uses its embedded store."
     )
 }
+
+/// `getattr(PasswordHasherAvailability, setting.upper())` on a value that
+/// is not a member, as `irrd/rpsl/auth.py` raises it.
+pub(crate) fn no_hasher_availability(name: &str) -> String {
+    format!(
+        "type object 'PasswordHasherAvailability' has no attribute {}",
+        crate::str_repr(name)
+    )
+}
+
+/// `setting.upper()` in `irrd/rpsl/auth.py` on a value that is not a string.
+pub(crate) fn no_upper(type_name: &str) -> String {
+    format!("'{type_name}' object has no attribute 'upper'")
+}
