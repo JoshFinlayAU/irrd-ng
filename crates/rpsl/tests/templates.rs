@@ -4,6 +4,8 @@
 //! the RIPE-style response framing (three newlines), which belongs to the
 //! query layer. The body must be byte-identical.
 
+#![allow(clippy::unwrap_used, clippy::panic)]
+
 use std::path::Path;
 
 #[test]
@@ -17,6 +19,11 @@ fn templates_match_v4() {
         let body = expected
             .strip_suffix("\n\n\n")
             .unwrap_or_else(|| panic!("{}: unexpected framing", path.display()));
-        assert_eq!(class.generate_template(), body, "template for {}", class.name);
+        assert_eq!(
+            class.generate_template(),
+            body,
+            "template for {}",
+            class.name
+        );
     }
 }

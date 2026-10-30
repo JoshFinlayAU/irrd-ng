@@ -12,14 +12,26 @@
 //!
 //! let settings = RpslSettings::default();
 //! let keyring = Keyring::new();
-//! let options = ParseOptions { strict: false, default_source: None, settings: &settings, keyring: &keyring };
+//! let options = ParseOptions {
+//!     strict: false,
+//!     default_source: None,
+//!     settings: &settings,
+//!     keyring: &keyring,
+//! };
 //! let obj = rpsl_object_from_text(
-//!     "route: 192.0.2.0/24\norigin: as65537\nsource: test",
+//!     "route: 192.0.02.0/24\norigin: as65537\nsource: test",
 //!     &options,
-//! ).unwrap();
+//! )
+//! .unwrap();
 //! assert_eq!(obj.pk(), "192.0.2.0/24AS65537");
-//! assert_eq!(obj.messages().all().len(), 1); // INFO: AS number reformatted
-//! assert_eq!(obj.render_rpsl_text(), "route:          192.0.2.0/24\norigin:         AS65537\nsource:         test\n");
+//! assert_eq!(
+//!     obj.messages().infos().collect::<Vec<_>>(),
+//!     ["Address prefix 192.0.02.0/24 was reformatted as 192.0.2.0/24"]
+//! );
+//! assert_eq!(
+//!     obj.render_rpsl_text(),
+//!     "route:          192.0.2.0/24\norigin:         AS65537\nsource:         test\n"
+//! );
 //! ```
 
 #![deny(unsafe_code)]

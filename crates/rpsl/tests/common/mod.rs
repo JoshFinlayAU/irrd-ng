@@ -5,9 +5,10 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use rpsl::{Keyring, ParseError, ParseOptions, RpslObject, RpslSettings, Value, rpsl_object_from_text};
+use rpsl::{
+    Keyring, ParseError, ParseOptions, RpslObject, RpslSettings, Value, rpsl_object_from_text,
+};
 use serde_json::{Map, Value as Json, json};
-
 
 fn value_json(v: &Value) -> Json {
     match v {
@@ -46,7 +47,10 @@ fn object_json(obj: &RpslObject) -> Json {
     }
     m.insert("parsed_data".into(), Json::Object(pd));
     m.insert("rendered".into(), json!(obj.render_rpsl_text()));
-    m.insert("ip_first".into(), json!(obj.ip_first.map(|i| i.to_string())));
+    m.insert(
+        "ip_first".into(),
+        json!(obj.ip_first.map(|i| i.to_string())),
+    );
     m.insert("ip_last".into(), json!(obj.ip_last.map(|i| i.to_string())));
     m.insert("ip_version".into(), json!(obj.ip_version()));
     m.insert("prefix".into(), json!(obj.prefix.map(|i| i.to_string())));
@@ -71,7 +75,12 @@ fn object_json(obj: &RpslObject) -> Json {
 
 /// Parse `paragraph` the way the oracle does and render the result in the
 /// oracle's JSON shape.
-pub fn parse_json(paragraph: &str, strict: bool, settings: &RpslSettings, keyring: &Keyring) -> Json {
+pub fn parse_json(
+    paragraph: &str,
+    strict: bool,
+    settings: &RpslSettings,
+    keyring: &Keyring,
+) -> Json {
     let options = ParseOptions {
         strict,
         default_source: None,
@@ -191,7 +200,14 @@ pub fn compare_file(db: &[u8], rows: &[Json], max_examples: usize) -> Tally {
                 ));
             }
         }
-        compare_row(row, expected_para, &settings, &keyring, &mut tally, max_examples);
+        compare_row(
+            row,
+            expected_para,
+            &settings,
+            &keyring,
+            &mut tally,
+            max_examples,
+        );
     }
     tally
 }

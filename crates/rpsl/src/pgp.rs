@@ -192,9 +192,7 @@ fn is_begin_line(line: &[u8]) -> bool {
     let Some(body) = rest.strip_suffix(b"-----") else {
         return false;
     };
-    ARMOR_TYPES_IMPORTABLE
-        .iter()
-        .any(|t| body == t.as_bytes())
+    ARMOR_TYPES_IMPORTABLE.iter().any(|t| body == t.as_bytes())
 }
 
 fn radix64_value(b: u8) -> Option<u32> {
@@ -339,7 +337,6 @@ fn dearmor(input: &[u8]) -> Dearmored {
             i += 1;
         }
         i += 1;
-
     }
     out
 }
@@ -443,7 +440,9 @@ fn import(input: &[u8], keys: &mut Vec<StoredKey>, now: u64) -> ImportResult {
 }
 
 fn keys_last_fpr(keys: &[StoredKey], idx: usize) -> String {
-    keys.get(idx).map(|k| k.fingerprint.clone()).unwrap_or_default()
+    keys.get(idx)
+        .map(|k| k.fingerprint.clone())
+        .unwrap_or_default()
 }
 
 /// python-gnupg's `IMPORT_OK` text: every `ok_reason` whose bits are set,
@@ -643,10 +642,7 @@ fn import_keyblock(block: Vec<Packet>, now: u64) -> BlockOutcome {
         any_valid_uid = true;
         let created = sig_time(latest);
         if expiry.is_none_or(|(t, _)| created >= t) {
-            expiry = Some((
-                created,
-                latest.key_validity_period().map(|d| d.as_secs()),
-            ));
+            expiry = Some((created, latest.key_validity_period().map(|d| d.as_secs())));
         }
         kept.push(StoredUid {
             value: u.value.clone(),
@@ -756,8 +752,7 @@ fn reorder_primary(uids: &mut Vec<StoredUid>) {
                 Some(b) => {
                     let bu = &uids[b];
                     if u.created > bu.created
-                        || (u.created == bu.created
-                            && cmp_user_ids(&u.value, &bu.value).is_gt())
+                        || (u.created == bu.created && cmp_user_ids(&u.value, &bu.value).is_gt())
                     {
                         Some(i)
                     } else {
@@ -906,12 +901,16 @@ fn unescape_hex(s: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
     fn import_ok_texts_match_python_gnupg() {
-        assert_eq!(import_ok_text(1), "Not actually changed\nEntirely new key\n");
+        assert_eq!(
+            import_ok_text(1),
+            "Not actually changed\nEntirely new key\n"
+        );
         assert_eq!(import_ok_text(0), "Not actually changed\n");
     }
 

@@ -29,8 +29,8 @@ pub fn parse_as_number(
         if parts.len() != 2 {
             return Err(messages::asn_asdot_format(value));
         }
-        let high = py::parse_int(parts[0], 10)
-            .map_err(|_| messages::asn_asdot_high_invalid(value))?;
+        let high =
+            py::parse_int(parts[0], 10).map_err(|_| messages::asn_asdot_high_invalid(value))?;
         let low =
             py::parse_int(parts[1], 10).map_err(|_| messages::asn_asdot_low_invalid(value))?;
         let high = high.to_i128();
@@ -73,9 +73,9 @@ pub(crate) fn strptime_ymd(data: &str) -> Result<(), String> {
     if chars.len() < 4 || !chars[..4].iter().all(|&c| py::is_re_digit(c)) {
         return no_match();
     }
-    let year: u32 = chars[..4]
-        .iter()
-        .fold(0, |acc, &c| acc * 10 + u32::from(py::decimal_value(c).unwrap_or(0)));
+    let year: u32 = chars[..4].iter().fold(0, |acc, &c| {
+        acc * 10 + u32::from(py::decimal_value(c).unwrap_or(0))
+    });
     let rest = &chars[4..];
     let ascii = |i: usize, set: &dyn Fn(char) -> bool| rest.get(i).is_some_and(|&c| set(c));
 
@@ -89,7 +89,9 @@ pub(crate) fn strptime_ymd(data: &str) -> Result<(), String> {
             (ascii(0, &|c| c == '0') && ascii(1, &|c| ('1'..='9').contains(&c)))
                 .then(|| digit(rest[1]))
         }),
-        (1, &|| ascii(0, &|c| ('1'..='9').contains(&c)).then(|| digit(rest[0]))),
+        (1, &|| {
+            ascii(0, &|c| ('1'..='9').contains(&c)).then(|| digit(rest[0]))
+        }),
     ];
     for (mlen, mfn) in month_alts {
         let Some(month) = mfn() else { continue };
@@ -109,14 +111,12 @@ pub(crate) fn strptime_ymd(data: &str) -> Result<(), String> {
             ),
             (
                 2,
-                (at(0, &|c| c == '0') && at(1, &|c| ('1'..='9').contains(&c)))
-                    .then(|| digit(d[1])),
+                (at(0, &|c| c == '0') && at(1, &|c| ('1'..='9').contains(&c))).then(|| digit(d[1])),
             ),
             (1, at(0, &|c| ('1'..='9').contains(&c)).then(|| digit(d[0]))),
             (
                 2,
-                (at(0, &|c| c == ' ') && at(1, &|c| ('1'..='9').contains(&c)))
-                    .then(|| digit(d[1])),
+                (at(0, &|c| c == ' ') && at(1, &|c| ('1'..='9').contains(&c))).then(|| digit(d[1])),
             ),
         ];
         for (dlen, day) in day_alts {
@@ -146,7 +146,7 @@ fn days_in_month(year: u32, month: u32) -> u32 {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
         _ => {
-            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+            if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) {
                 29
             } else {
                 28
@@ -156,6 +156,7 @@ fn days_in_month(year: u32, month: u32) -> u32 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

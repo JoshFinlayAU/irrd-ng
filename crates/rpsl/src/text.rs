@@ -150,6 +150,7 @@ pub fn remove_auth_hashes(input: &str) -> Cow<'_, str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

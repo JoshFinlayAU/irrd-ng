@@ -139,7 +139,11 @@ pub(crate) fn lower(s: &str) -> Cow<'_, str> {
         } else if c == '\u{3a3}' {
             let before = i > 0 && cased(chars[i - 1]);
             let after = chars.get(i + 1).is_some_and(|&n| cased(n));
-            out.push(if before && !after { '\u{3c2}' } else { '\u{3c3}' });
+            out.push(if before && !after {
+                '\u{3c2}'
+            } else {
+                '\u{3c3}'
+            });
         } else if let Some(m) = map_lookup(&tables::LOWER, c) {
             out.push_str(m);
         } else {
@@ -388,13 +392,8 @@ pub(crate) fn re_ic_alpha(c: char) -> bool {
     c.is_ascii_alphabetic() || (!c.is_ascii() && tables::IGNORECASE_A_Z.contains(&(c as u32)))
 }
 
-/// Does `rest` satisfy a Python `$` at this point (end, or a single final `\n`).
-#[inline]
-pub(crate) fn re_dollar(rest: &str) -> bool {
-    rest.is_empty() || rest == "\n"
-}
-
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -33,7 +33,11 @@ pub(crate) fn generate(class: &ClassDef) -> String {
         }
         let referring = field.kind.referring();
         if !referring.is_empty() {
-            let reference_type = if field.kind.strong() { "strong" } else { "weak" };
+            let reference_type = if field.kind.strong() {
+                "strong"
+            } else {
+                "weak"
+            };
             metadata.push(format!(
                 "{reference_type} references {}",
                 referring.join("/")
