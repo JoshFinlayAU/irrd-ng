@@ -8,6 +8,15 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+num-bigint.workspace = true
+num-traits.workspace = true
+p256.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+unicode-general-category.workspace = true
+
+[dev-dependencies]
 
 [lints]
 workspace = true

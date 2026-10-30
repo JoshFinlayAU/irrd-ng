@@ -1,0 +1,46 @@
+{"file": "c01-irrd-string.yaml", "errors": null, "exception": "ValueError: dictionary update sequence element #0 has length 1; 2 is required"}
+{"file": "c02-irrd-int.yaml", "errors": null, "exception": "TypeError: 'int' object is not iterable"}
+{"file": "c03-non-string-key.yaml", "errors": null, "exception": "TypeError: expected string or bytes-like object, got 'int'"}
+{"file": "c04-dotted-key.yaml", "errors": null, "exception": "ValueError: a.b is not a valid key inside a DottedCollection!"}
+{"file": "c05-sources-null.yaml", "errors": null, "exception": "AttributeError: 'NoneType' object has no attribute 'keys'"}
+{"file": "c06-source-null.yaml", "errors": null, "exception": "AttributeError: 'NoneType' object has no attribute 'keys'"}
+{"file": "c07-recipient-override-null.yaml", "errors": null, "exception": "TypeError: argument of type 'NoneType' is not iterable"}
+{"file": "c08-set-creation-null.yaml", "errors": null, "exception": "AttributeError: 'NoneType' object has no attribute 'items'"}
+{"file": "c09-password-hasher-int.yaml", "errors": null, "exception": "AttributeError: 'int' object has no attribute 'lower'"}
+{"file": "c10-access-list-null.yaml", "errors": null, "exception": "TypeError: 'NoneType' object is not iterable"}
+{"file": "c11-access-list-float.yaml", "errors": null, "exception": "TypeError: Unsupported data type: <class 'float'>"}
+{"file": "c12-asn-negative-int.yaml", "errors": null, "exception": "AttributeError: 'int' object has no attribute 'split'"}
+{"file": "c13-snapshot-frequency-string.yaml", "errors": null, "exception": "TypeError: '<=' not supported between instances of 'float' and 'str'"}
+{"file": "c14-http-url-int.yaml", "errors": null, "exception": "AttributeError: 'int' object has no attribute 'decode'"}
+{"file": "c15-nrtm4-url-int.yaml", "errors": null, "exception": "AttributeError: 'int' object has no attribute 'decode'"}
+{"file": "c16-invalid-utf8.yaml", "errors": null, "exception": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 22: invalid start byte"}
+{"file": "c17-rsa-key.yaml", "errors": null, "exception": "InvalidKeyTypeError: invalid_key_type: Not a key of: 'EC'"}
+{"file": "c18-encrypted-key.yaml", "errors": null, "exception": "TypeError: Password was not given but private key is encrypted"}
+{"file": "c19-server-list.yaml", "errors": null, "exception": "ValueError: invalid literal for int() with base 10: 'whois'"}
+{"file": "c20-int-tag-not-a-number.yaml", "errors": null, "exception": "ValueError: invalid literal for int() with base 10: 'abc'"}
+{"file": "c21-invalid-date.yaml", "errors": null, "exception": "ValueError: month must be in 1..12"}
+{"file": "c22-sources-default-mapping-item.yaml", "errors": null, "exception": "TypeError: unhashable type: 'DottedDict'"}
+{"file": "c23-nrtm-access-list-mapping.yaml", "errors": null, "exception": "TypeError: unhashable type: 'DottedDict'"}
+{"file": "c24-ed25519-key.yaml", "errors": null, "exception": "InvalidKeyTypeError: invalid_key_type: Not a key of: 'EC'"}
+{"file": "c25-ssh-encrypted-key.yaml", "errors": null, "exception": "TypeError: Key is password-protected, but password was not provided."}
+{"file": "c26-asn-timestamp.yaml", "errors": null, "exception": "AttributeError: 'datetime.datetime' object has no attribute 'split'"}
+{"file": "c27-sources-list.yaml", "errors": null, "exception": "AttributeError: 'DottedList' object has no attribute 'keys'"}
+{"file": "c28-auth-list.yaml", "errors": null, "exception": "IndexError: cannot get gnupg_keyring in ['x']"}
+{"file": "c29-sources-default-null.yaml", "errors": null, "exception": "TypeError: 'NoneType' object is not iterable"}
+{"file": "c30-source-alias-null.yaml", "errors": null, "exception": "TypeError: 'NoneType' object is not iterable"}
+{"file": "c31-int-tag-empty.yaml", "errors": null, "exception": "IndexError: string index out of range"}
+{"file": "c32-bool-tag-invalid.yaml", "errors": null, "exception": "KeyError: 'maybe'"}
+{"file": "c33-recursive-alias.yaml", "errors": null, "exception": "RecursionError: maximum recursion depth exceeded"}
+{"file": "c34-duplicate-local-path-int.yaml", "errors": null, "exception": "TypeError: sequence item 0: expected str instance, int found"}
+{"file": "c35-nrtm4-url-bad-ipv6.yaml", "errors": null, "exception": "ValueError: Invalid IPv6 URL"}
+{"file": "c36-hasher-null.yaml", "errors": null, "exception": "AttributeError: 'NoneType' object has no attribute 'lower'"}
+{"file": "c37-autnum-int.yaml", "errors": null, "exception": "AttributeError: 'int' object has no attribute 'lower'"}
+{"file": "c38-set-creation-params-list.yaml", "errors": null, "exception": "AttributeError: 'DottedList' object has no attribute 'get'"}
+{"file": "c39-asn-list-with-dash.yaml", "errors": null, "exception": "AttributeError: 'DottedList' object has no attribute 'split'"}
+{"file": "c40-asn-null.yaml", "errors": null, "exception": "TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"}
+{"file": "c41-access-list-dotted-key.yaml", "errors": null, "exception": "ValueError: 10.0.0.0/8 is not a valid key inside a DottedCollection!"}
+{"file": "c42-asn-negative-inf.yaml", "errors": null, "exception": "AttributeError: 'float' object has no attribute 'split'"}
+{"file": "c43-irrd-flow-sequence.yaml", "errors": null, "exception": "ValueError: dictionary update sequence element #0 has length 1; 2 is required"}
+{"file": "c44-omap-prefix.yaml", "errors": null, "exception": "TypeError: Unsupported data type: <class 'tuple'>"}
+{"file": "c45-irrd-verbatim-str.yaml", "errors": null, "exception": "ValueError: dictionary update sequence element #0 has length 1; 2 is required"}
+{"file": "c46-asn-inf.yaml", "errors": null, "exception": "OverflowError: cannot convert float infinity to integer"}

@@ -1,0 +1,35 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    XY:
+      nrtm4_server_private_key: '-----BEGIN OPENSSH PRIVATE KEY-----
+
+        b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABBoYOkvBD
+
+        wDr1nC0m0pxZxCAAAAGAAAAAEAAABoAAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlz
+
+        dHAyNTYAAABBBKnYohc5ueQTdANV5wafRvDZrF1leGcnMjoFJGtpqEgYy2jahB5El6EI71
+
+        fhss88jcQAitlpC5EuI06UG6nZsFsAAACwx17+eddeqsl+76mpLUwCsTNNAvWyGH1+O+NO
+
+        S4V0atdKHWHyEAWSq5URr4E4S2saZoz2c121GPQAatH+8OGIKt3W5ICFJrGWO5ygcC7asw
+
+        nyuK8RuvrsV5JVxcFd85HrcTM2+0ZVbrMZePVvUQLSylj9BXn5O6/JXC7gG/yS9tJlG18d
+
+        ZpZOAmBC2eTfnY5aOa4pKwyzxcQK51g52XBnImlDnziRtrMvWoj2TOWsqw4=
+
+        -----END OPENSSH PRIVATE KEY-----
+
+        '

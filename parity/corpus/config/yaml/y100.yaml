@@ -1,0 +1,14 @@
+irrd:
+  database_url: potgresql://irrd@localhost/irrd
+  redis_url: redis//localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    irrd_internal_migration_enabled: on
+    authenticate_parnts_route_creation: No
+    gnupg_keyring: /tmp/g

@@ -1,0 +1,33 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  scopefilter:
+    asns:
+    - invalid
+    - 10-invalid
+    - 10-20
+    - '23456'
+    - 65536
+    - 1-2-3
+    - '-5'
+    - 1.5
+    - '1_000'
+    - ' 7 '
+    - AS65000
+    - true
+    - nan
+    - .nan
+    - ''
+    - 5-
+    - ٣

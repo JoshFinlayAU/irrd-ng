@@ -1,0 +1,1 @@
+irrd: !<tag:yaml.org,2002:map> {database_url: !<tag:yaml.org,2002:str> 5}

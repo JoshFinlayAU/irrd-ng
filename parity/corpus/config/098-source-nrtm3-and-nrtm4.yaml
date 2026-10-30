@@ -1,0 +1,29 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    TESTDB:
+      nrtm4_client_notification_file_url: https://example.net/unf.json
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+      nrtm_host: 192.0.2.1
+      import_serial_source: ftp://x/serial
+      keep_journal: true

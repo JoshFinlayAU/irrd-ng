@@ -1,0 +1,29 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    XY:
+      nrtm4_client_initial_public_key: '-----BEGIN PUBLIC KEY-----
+
+        MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC1PSiXEfsO1QCWGIxPXng+utqV
+
+        QDaw1KEzf7Gtpxd0syDuGz5UFa68eEZckDh5J+FzVuVM7LZ4tv7AsP1zacrm2H16
+
+        dRsAyA7B4/GM9irKcVItR2E3RRwVPIcDqEUlIjqGjduT3pf5sFmfM3/ZsBd7E/JC
+
+        BDuxP40IBsvfXrsAKwIDAQAB
+
+        -----END PUBLIC KEY-----
+
+        '

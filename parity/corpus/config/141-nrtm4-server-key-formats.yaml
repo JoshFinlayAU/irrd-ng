@@ -1,0 +1,151 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+    notify_invalid_enabled: false
+  sources:
+    PKCS8:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWCtdP+QZMVKYpn3e
+
+        7cr/va97R3qJSuy1NlVaGy2rh2yhRANCAAQspoxBvygF3edDcRIs+TB8mZIAhzYM
+
+        Nt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP6Rez5Pmx
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /tmp
+      keep_journal: true
+      authoritative: true
+    SEC1:
+      nrtm4_server_private_key: '-----BEGIN EC PRIVATE KEY-----
+
+        MHcCAQEEIFgrXT/kGTFSmKZ93u3K/72ve0d6iUrstTZVWhstq4dsoAoGCCqGSM49
+
+        AwEHoUQDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2DDbfu0ofoocKgnihO3oOQjuF
+
+        Gu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END EC PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /usr
+      keep_journal: true
+      authoritative: true
+    P384:
+      nrtm4_server_private_key: '-----BEGIN PRIVATE KEY-----
+
+        MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDBurBpCNNDPsD/1JLKU
+
+        cksghaAufRSQGRb2SzwloxalxfGKwl7FrzZOQvWqq4f6KPmhZANiAASpatdnRQtl
+
+        sdbhPVO5fMvTjGWrLJYQZI5BnRQ8/VhFIc+0DfImeBvwMHTNSxyHgKeFLTDM2/Ay
+
+        wnfzXppK3whO6xiPtNZufF1n5RWTlNKeRMlWUU0M3hHcuVg8B2VygmI=
+
+        -----END PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /etc
+      keep_journal: true
+      authoritative: true
+    K256:
+      nrtm4_server_private_key: '-----BEGIN EC PRIVATE KEY-----
+
+        MHQCAQEEIBxS79c/kHRqmhkoQ96sbPPJ8UQXQ1ef/vZhoBnKAymyoAcGBSuBBAAK
+
+        oUQDQgAEMuGO25X+dsGpWS5WOU/opuUuQxCfI6tDp0MSZigmaZv9lwMuf7Zr0y3i
+
+        ySPD9kI346/hym0MgqwtfPNKpWJwfg==
+
+        -----END EC PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /var
+      keep_journal: true
+      authoritative: true
+    SSHPRIV:
+      nrtm4_server_private_key: '-----BEGIN OPENSSH PRIVATE KEY-----
+
+        b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
+
+        1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQRtwDgGp4EI9NnhwRA6fXg/79FTYh8n
+
+        9llVfWZmkOFozOUphzHcm9ipPpYHpSneXPJCHUmup6eu1PCYz2ZZSNPVAAAAsP7EKv7+xC
+
+        r+AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBG3AOAangQj02eHB
+
+        EDp9eD/v0VNiHyf2WVV9ZmaQ4WjM5SmHMdyb2Kk+lgelKd5c8kIdSa6np67U8JjPZllI09
+
+        UAAAAhALUn9jvxU54j4B1t2S8xD8Rzhh/hiJEXgeQQGvOlUhekAAAAEmNsYXVkZUBjbGF1
+
+        ZGUtY29kZQECAwQF
+
+        -----END OPENSSH PRIVATE KEY-----
+
+        '
+      nrtm4_server_local_path: /dev
+      keep_journal: true
+      authoritative: true
+    PUB:
+      nrtm4_server_private_key: '-----BEGIN PUBLIC KEY-----
+
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELKaMQb8oBd3nQ3ESLPkwfJmSAIc2
+
+        DDbfu0ofoocKgnihO3oOQjuFGu9yikyE1rlaufo2Up0p04/7T+kXs+T5sQ==
+
+        -----END PUBLIC KEY-----
+
+        '
+      nrtm4_server_local_path: /proc
+      keep_journal: true
+      authoritative: true
+    SSHPUB:
+      nrtm4_server_private_key: 'ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBG3AOAangQj02eHBEDp9eD/v0VNiHyf2WVV9ZmaQ4WjM5SmHMdyb2Kk+lgelKd5c8kIdSa6np67U8JjPZllI09U= claude@claude-code
+
+        '
+      nrtm4_server_local_path: /sys
+      keep_journal: true
+      authoritative: true
+    CERT:
+      nrtm4_server_private_key: '-----BEGIN CERTIFICATE-----
+
+        MIIBbTCCAROgAwIBAgIUd4YVmOurYLxfH/ZAGGCPXyG+UrYwCgYIKoZIzj0EAwIw
+
+        DDEKMAgGA1UEAwwBeDAeFw0yNjEwMzAyMjQ3MjVaFw0zNjEwMjcyMjQ3MjVaMAwx
+
+        CjAIBgNVBAMMAXgwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQspoxBvygF3edD
+
+        cRIs+TB8mZIAhzYMNt+7Sh+ihwqCeKE7eg5CO4Ua73KKTITWuVq5+jZSnSnTj/tP
+
+        6Rez5Pmxo1MwUTAdBgNVHQ4EFgQUKdyus1zT6nmazNxrYiAy9YyvluIwHwYDVR0j
+
+        BBgwFoAUKdyus1zT6nmazNxrYiAy9YyvluIwDwYDVR0TAQH/BAUwAwEB/zAKBggq
+
+        hkjOPQQDAgNIADBFAiEAqDvO38f0heSMa6CasrpywkioLvWG9rpYjG8h4RDIXEEC
+
+        ICrxlIhhfmafFNlddJjQb13v9biu5CCWgszURzD7Ox1j
+
+        -----END CERTIFICATE-----
+
+        '
+      nrtm4_server_local_path: /usr/bin
+      keep_journal: true
+      authoritative: true
+    GARBAGE:
+      nrtm4_server_private_key: garbage-key
+      nrtm4_server_local_path: /usr/lib
+      keep_journal: true
+      authoritative: true

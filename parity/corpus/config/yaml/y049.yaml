@@ -1,0 +1,8 @@
+irrd:
+  readonly_standby: true
+  piddir: /nonexistent-irrd-ng/does-not-exist
+  user: a
+  download_timeout: not-number
+  server:
+    whois:
+      accss_list:

@@ -1,0 +1,2 @@
+irrd:
+  readonly_standby: !!bool maybe

@@ -1,0 +1,24 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+  sources:
+    TESTDB:
+      nrtm_port: not a number
+      import_timer: foo
+      export_timer: -1
+      route_object_preference: 1.5
+      nrtm_query_serial_range_limit: '10'
+      nrtm_query_serial_days_limit: null
+      nrtm3_client_timeout: ten
+      nrtm4_server_snapshot_frequency: 7200

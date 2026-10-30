@@ -1,0 +1,2 @@
+irrd:
+  donlad_timeout: !!int ''

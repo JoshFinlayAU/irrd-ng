@@ -1,0 +1,4 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  readonly_s?tandby: yes
+ 

@@ -1,0 +1,90 @@
+irrd:
+  readonly_standby: true
+  piddir: /nonexistent-irrd-ng/does-not-exist
+  user: a
+  download_timeout: not-number
+  server:
+    whois:
+      access_list: doesnotexist
+    http:
+      url: 💩
+      status_access_list:
+      - foo
+  email:
+    footer:
+      a: 1
+    recipient_override: invalid-mail
+  access_lists:
+    bad-list:
+    - 192.0.22.1
+  auth:
+    irrd_internal_migration_enabled: invalid
+    webui_auth_failure_rate_limit: invalid
+    set_creation:
+      as-set:
+        prefix_required: not-a-bool
+        autnum_authentication: unknown-value
+      not-a-real-set:
+        prefix_required: true
+    password_hashers:
+      unknown-hasher: legacy
+      crypt-pw: invalid-setting
+  route_object_preference:
+    update_timer: not-a-number
+  rpki:
+    roa_source: https://example.com/roa.json
+    roa_import_timer: foo
+    notify_invalid_subject: []
+    notify_invalid_header: []
+  scopefilter:
+    prefixes:
+    - invalid-prefix
+    asns:
+    - invalid
+    - 10-invalid
+  sources_default:
+  - DOESNOTEXIST-DB
+  sources:
+    TESTDB:
+      keep_journal: true
+      import_timer: foo
+      export_timer: bar
+      nrtm_host: 192.0.2.1
+      unknown: true
+      suspension_enabled: true
+      nrtm_query_serial_range_limit: not-a-number
+      nrtm4_client_initial_public_key: invalid
+      nrtm4_server_private_key: invalid
+      nrtm4_server_private_key_next: invalid
+      nrtm4_server_local_path: /nonexistent-irrd-ng/invalid
+      nrtm4_server_snapshot_frequency: 216000
+    TESTDB2:
+      authoritative: true
+      nrtm_host: 192.0.2.1
+      nrtm_port: not a number
+      nrtm_access_list: invalid-list
+      nrtm_query_serial_range_limit: not-a-number
+      nrtm4_client_notification_file_url: http://invalid
+      nrtm4_server_local_path: /nonexistent-irrd-ng/invalid
+      nrtm3_client_timeout: ten
+    TESTDB3:
+      keep_journal: false
+      authoritative: true
+      import_source: 192.0.2.1
+      nrtm_access_list_unfiltered: invalid-list
+      route_object_preference: not-a-number
+    RPKI: {}
+    lowercase: {}
+    invalid char: {}
+  source_aliases:
+    SOURCE-ALIAS:
+    - TESTDB-NOTEXIST
+    TESTDB2:
+    - TESTDB
+    invalid name:
+    - TESTDB
+  log:
+    level: INVALID
+    logging_config_path: path
+    unknZown: true
+  unknown_setting: false

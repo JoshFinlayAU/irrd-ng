@@ -1,0 +1,14 @@
+a: &x 10.0.0.0/8
+irrd:
+  acces_lists: {l: [*x, *x]}
+  database_url: post{resql://irrd@localhost/irrd
+  redis_url: reds://localhost
+  piddir: /tmp
+  ?erver:
+    http:
+      url: https//irrd.example.net/
+  email:
+    from: irrd@example.net
+    smp: localhost
+  auh:
+    gnupg_keying

@@ -1,0 +1,27 @@
+irrd:
+  database_url: postgresql://irrd@localhost/irrd
+  redis_url: redis://localhost
+  piddir: /tmp
+  server:
+    http:
+      url: https://irrd.example.net/
+  email:
+    from: irrd@example.net
+    smtp: localhost
+  auth:
+    gnupg_keyring: /tmp/gnupg
+  rpki:
+    roa_source: null
+    notify_invalid_enabled: true
+  readonly_standby: true
+  sources:
+    AUTH:
+      authoritative: true
+    EXPORT:
+      export_destination: /tmp
+    UNFILTERED:
+      export_destination_unfiltered: /tmp
+    MIRROR:
+      import_source: ftp://x/db
+    PLAIN:
+      keep_journal: false
