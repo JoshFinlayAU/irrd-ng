@@ -1,0 +1,22 @@
+# Build output
+/target/
+**/*.rs.bk
+
+# Parity harness caches: real IRR dumps, never committed
+/parity/.cache/
+/parity/out/
+
+# Local-only data and notes
+/backups/
+/memory/
+.env
+.env.*
+*.pem
+*.key
+
+# Tooling
+/.claude/
+/.agents/
+.idea/
+.vscode/
+*.swp
