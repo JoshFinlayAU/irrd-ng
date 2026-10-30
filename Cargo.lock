@@ -327,6 +327,7 @@ dependencies = [
  "num-traits",
  "p256 0.14.0",
  "regex",
+ "rpsl",
  "thiserror",
  "tracing",
  "unicode-general-category",
