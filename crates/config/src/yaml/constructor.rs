@@ -365,9 +365,14 @@ impl Constructor<'_> {
         if let Some(v) = self.scalars.get(&id) {
             return Ok(v.clone());
         }
-        if stack.contains(&id) || stack.len() > RECURSION_LIMIT {
-            // A self-referencing collection: Python builds it, and v4 then
-            // recurses into it until the interpreter gives up.
+        if stack.contains(&id) {
+            // A collection containing itself. Python builds it; v4 only
+            // trips over it if it is inside the `irrd` mapping.
+            return Ok(Value::Recursive {
+                mapping: matches!(self.nodes[id].value, NodeValue::Mapping(_)),
+            });
+        }
+        if stack.len() > RECURSION_LIMIT {
             return Err(recursion_error());
         }
         stack.push(id);

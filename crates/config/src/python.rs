@@ -41,6 +41,10 @@ impl PyException {
     }
 
     pub(crate) fn attribute_error(value: &Value, attribute: &str) -> Self {
+        if let Value::Dict(_) = value {
+            // DottedDict's __getattr__ is its __getitem__.
+            return Self::new("KeyError", str_repr(attribute));
+        }
         Self::new(
             "AttributeError",
             format!(
@@ -102,6 +106,11 @@ pub enum Value {
     /// document order.
     Set(Vec<Value>),
     Dict(Dict),
+    /// A collection that contains itself, at the point where it recurs
+    /// (YAML anchors allow this). Python prints it as `{...}` or `[...]`.
+    Recursive {
+        mapping: bool,
+    },
 }
 
 /// A Python `dict`: insertion ordered, keys compared with Python equality.
@@ -188,7 +197,8 @@ impl Value {
             Value::List(_) => "DottedList",
             Value::Tuple(_) => "tuple",
             Value::Set(_) => "set",
-            Value::Dict(_) => "DottedDict",
+            Value::Dict(_) | Value::Recursive { mapping: true } => "DottedDict",
+            Value::Recursive { mapping: false } => "DottedList",
         }
     }
 
@@ -218,13 +228,14 @@ impl Value {
             Value::Date { .. } | Value::DateTime(_) => true,
             Value::List(l) | Value::Tuple(l) | Value::Set(l) => !l.is_empty(),
             Value::Dict(d) => !d.is_empty(),
+            Value::Recursive { .. } => true,
         }
     }
 
     /// Whether `hash(value)` succeeds.
     pub fn is_hashable(&self) -> bool {
         match self {
-            Value::List(_) | Value::Set(_) | Value::Dict(_) => false,
+            Value::List(_) | Value::Set(_) | Value::Dict(_) | Value::Recursive { .. } => false,
             Value::Tuple(items) => items.iter().all(Value::is_hashable),
             _ => true,
         }
@@ -332,6 +343,8 @@ impl Value {
                     write_seq(out, "{", "}", items);
                 }
             }
+            Value::Recursive { mapping: true } => out.push_str("{...}"),
+            Value::Recursive { mapping: false } => out.push_str("[...]"),
             Value::Dict(d) => {
                 out.push('{');
                 for (i, (k, v)) in d.iter().enumerate() {

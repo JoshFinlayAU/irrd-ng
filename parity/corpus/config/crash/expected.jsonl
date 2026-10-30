@@ -44,3 +44,7 @@
 {"file": "c44-omap-prefix.yaml", "errors": null, "exception": "TypeError: Unsupported data type: <class 'tuple'>"}
 {"file": "c45-irrd-verbatim-str.yaml", "errors": null, "exception": "ValueError: dictionary update sequence element #0 has length 1; 2 is required"}
 {"file": "c46-asn-inf.yaml", "errors": null, "exception": "OverflowError: cannot convert float infinity to integer"}
+{"file": "c47-hasher-mapping.yaml", "errors": null, "exception": "KeyError: 'lower'"}
+{"file": "c48-key-mapping.yaml", "errors": null, "exception": "TypeError: 'str' object cannot be interpreted as an integer"}
+{"file": "c49-url-mapping.yaml", "errors": null, "exception": "KeyError: 'decode'"}
+{"file": "c50-key-list-of-strings.yaml", "errors": null, "exception": "TypeError: 'str' object cannot be interpreted as an integer"}
