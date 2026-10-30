@@ -105,6 +105,11 @@ fn validate_initial(value: &Value) -> Result<(), PyException> {
     match value {
         Value::List(items) => items.iter().try_for_each(validate_initial),
         Value::Dict(d) => validate_initial_dict(d),
+        // DottedDict's validation recurses into it until Python gives up.
+        Value::Recursive { .. } => Err(PyException::new(
+            "RecursionError",
+            "maximum recursion depth exceeded",
+        )),
         _ => Ok(()),
     }
 }

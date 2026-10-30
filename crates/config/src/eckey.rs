@@ -41,17 +41,24 @@ fn not_ec() -> KeyError {
 
 /// `eckey_from_str(value, require_private)`.
 pub(crate) fn eckey_from_str(value: &Value, require_private: bool) -> Result<()> {
-    let raw: Vec<u8> = match value {
-        Value::Str(s) => s.as_bytes().to_vec(),
-        Value::Bytes(b) => b.clone(),
-        Value::Int(_) | Value::Float(_) | Value::Bool(_) => value.py_str().into_bytes(),
-        Value::Dict(_) => {
-            // joserfc imports a dict as a JWK; nobody puts one in irrd.yaml.
-            return Err(KeyError::Crash(PyException::new(
-                "KeyParameterError",
-                "JWK dict values are not supported by irrd-ng",
-            )));
-        }
+    let raw = to_bytes(value)?;
+    let private = import_from_bytes(&raw)?;
+    if require_private && !private {
+        return Err(value_error(messages::ECKEY_PUBLIC_NOT_PRIVATE));
+    }
+    Ok(())
+}
+
+/// joserfc's `to_bytes`: strings are encoded, numbers formatted, and
+/// anything else goes through Python's `bytes()`. A DottedDict is not a
+/// `dict` to joserfc, so it gets the `bytes()` treatment too.
+fn to_bytes(value: &Value) -> Result<Vec<u8>> {
+    let items = match value {
+        Value::Str(s) => return Ok(s.as_bytes().to_vec()),
+        Value::Bytes(b) => return Ok(b.clone()),
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) => return Ok(value.py_str().into_bytes()),
+        Value::List(items) | Value::Tuple(items) | Value::Set(items) => items.clone(),
+        Value::Dict(d) => d.keys().cloned().collect(),
         other => {
             return Err(KeyError::Crash(PyException::type_error(format!(
                 "cannot convert '{}' object to bytes",
@@ -59,11 +66,24 @@ pub(crate) fn eckey_from_str(value: &Value, require_private: bool) -> Result<()>
             ))));
         }
     };
-    let private = import_from_bytes(&raw)?;
-    if require_private && !private {
-        return Err(value_error(messages::ECKEY_PUBLIC_NOT_PRIVATE));
+    let mut out = Vec::with_capacity(items.len());
+    for item in &items {
+        let n = match item {
+            Value::Int(i) => i.clone(),
+            Value::Bool(b) => num_bigint::BigInt::from(u8::from(*b)),
+            other => {
+                return Err(KeyError::Crash(PyException::type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    other.type_name()
+                ))));
+            }
+        };
+        match u8::try_from(&n) {
+            Ok(b) => out.push(b),
+            Err(_) => return Err(value_error("bytes must be in range(0, 256)")),
+        }
     }
-    Ok(())
+    Ok(out)
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -375,6 +395,22 @@ impl Asn1Error {
             Asn1Error::InvalidValue => "invalid value".to_owned(),
         };
         format!("ASN.1 parsing error: {kind}")
+    }
+}
+
+impl Asn1Error {
+    /// `Debug` of a `rust-asn1` `ParseError` raised at the outer level
+    /// (no field locations), as cryptography's X.509 loader prints it.
+    fn debug(&self) -> String {
+        let kind = match self {
+            Asn1Error::ShortData(n) => format!("ShortData {{ needed: {n} }}"),
+            Asn1Error::InvalidTag => "InvalidTag".to_owned(),
+            Asn1Error::InvalidLength => "InvalidLength".to_owned(),
+            Asn1Error::UnexpectedTag(t) => format!("UnexpectedTag {{ actual: {t} }}"),
+            Asn1Error::ExtraData => "ExtraData".to_owned(),
+            Asn1Error::InvalidValue => "InvalidValue".to_owned(),
+        };
+        format!("ParseError {{ kind: {kind} }}")
     }
 }
 
@@ -777,7 +813,7 @@ fn load_pem_certificate(raw: &[u8]) -> Result<()> {
         }
         Ok(&start[..start.len() - t.data.len()])
     })
-    .map_err(|e| value_error(format!("error parsing asn1 value: {}", e.text())))?;
+    .map_err(|e| value_error(format!("error parsing asn1 value: {}", e.debug())))?;
     parse_spki(spki)
 }
 
@@ -916,7 +952,7 @@ fn load_ssh_private_key(raw: &[u8]) -> Result<()> {
         .ok_or_else(not_format)?;
     let ciphername = ssh_str(&mut data)?;
     let kdfname = ssh_str(&mut data)?;
-    let _kdfoptions = ssh_str(&mut data)?;
+    let kdfoptions = ssh_str(&mut data)?;
     if ssh_u32(&mut data)? != 1 {
         return Err(value_error("Only one key supported"));
     }
@@ -933,6 +969,41 @@ fn load_ssh_private_key(raw: &[u8]) -> Result<()> {
         return Err(value_error("Corrupt data: unparsed data"));
     }
     if ciphername != b"none" || kdfname != b"none" {
+        // (block length, AEAD tag length) of the ciphers cryptography knows.
+        let (block_len, tag_len) = match ciphername {
+            b"aes256-ctr" | b"aes256-cbc" => (16, None),
+            b"aes256-gcm@openssh.com" => (16, Some(16)),
+            other => {
+                return Err(value_error(format!(
+                    "Unsupported cipher: {}",
+                    bytes_repr(other)
+                )));
+            }
+        };
+        if kdfname != b"bcrypt" {
+            // Python shows the kdf name as a memoryview repr here.
+            return Err(value_error("Unsupported KDF"));
+        }
+        let edata = ssh_str(&mut data)?;
+        match tag_len {
+            Some(n) if data.len() != n => {
+                return Err(value_error("Corrupt data: invalid tag length for cipher"));
+            }
+            Some(_) => {}
+            None if !data.is_empty() => {
+                return Err(value_error("Corrupt data: unparsed data"));
+            }
+            None => {}
+        }
+        if edata.is_empty() || edata.len() % block_len != 0 {
+            return Err(value_error("Corrupt data: missing padding"));
+        }
+        let mut kbuf = kdfoptions;
+        ssh_str(&mut kbuf)?;
+        ssh_u32(&mut kbuf)?;
+        if !kbuf.is_empty() {
+            return Err(value_error("Corrupt data: unparsed data"));
+        }
         return Err(KeyError::Crash(PyException::type_error(
             "Key is password-protected, but password was not provided.",
         )));
