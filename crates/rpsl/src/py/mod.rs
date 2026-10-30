@@ -32,10 +32,10 @@ pub(crate) fn strip(s: &str) -> &str {
     s.trim_matches(is_space)
 }
 
-/// `str.lstrip()` with no arguments.
+/// `str.rstrip()` with no arguments.
 #[inline]
-pub(crate) fn lstrip(s: &str) -> &str {
-    s.trim_start_matches(is_space)
+pub(crate) fn rstrip(s: &str) -> &str {
+    s.trim_end_matches(is_space)
 }
 
 /// `str.isprintable()` for one character.

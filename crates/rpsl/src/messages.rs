@@ -364,4 +364,4 @@ pub(crate) fn date_year_out_of_range(year: u32) -> String {
 
 pub(crate) const GPG_NO_VALID_DATA: &str = "No valid data found";
 pub(crate) const GPG_OTHER_FAILURE: &str = "Other failure";
-pub(crate) const GPG_ENTIRELY_NEW_KEY: &str = "Entirely new key\n";
+pub(crate) const GPG_KEY_EXPIRED: &str = "Key expired";
