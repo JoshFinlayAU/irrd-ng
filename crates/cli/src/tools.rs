@@ -6,6 +6,8 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
+use crate::messages;
+
 pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
 const TOOLS: &[(&str, Tool)] = &[
@@ -37,7 +39,7 @@ fn not_implemented(args: &[OsString]) -> ExitCode {
         .first()
         .map(|a| a.to_string_lossy())
         .unwrap_or_default();
-    eprintln!("{name}: not implemented yet");
+    eprintln!("{}", messages::not_implemented(&name));
     ExitCode::from(1)
 }
 

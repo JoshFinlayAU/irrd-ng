@@ -46,6 +46,8 @@ jobs:
           restore-keys: irr-dumps-
       - name: Fetch dumps
         run: MAX_AGE_DAYS=7 parity/fetch-dumps.sh
+      - name: Fixture cutter tests
+        run: python3 -I -m unittest discover -s parity/tools
       - name: Cut fixtures
         run: python3 -I parity/tools/cut_fixtures.py parity/.cache
       - name: Start v4
