@@ -164,8 +164,8 @@ struct Dearmored {
     error: bool,
     /// gpg aborted reading (CRC error, malformed CRC, truncated armor).
     fatal: bool,
-    /// An armor ended at an END line without a CRC. gpg then looks for
-    /// more data, finds none and reports NODATA, after importing.
+    /// An armor's data ended without a `=` (at an END line or the end of
+    /// input). gpg then looks for more data, finds none and reports NODATA.
     nodata_after: bool,
 }
 
@@ -181,35 +181,6 @@ fn trim_trailing_ws(line: &[u8]) -> &[u8] {
         .rposition(|b| !matches!(b, b' ' | b'\t' | b'\r'))
         .map_or(0, |p| p + 1);
     &line[..end]
-}
-
-const ARMOR_HEAD_STRINGS: [&str; 7] = [
-    "PGP MESSAGE",
-    "PGP PUBLIC KEY BLOCK",
-    "PGP SIGNATURE",
-    "PGP SIGNED MESSAGE",
-    "PGP ARMORED FILE",
-    "PGP PRIVATE KEY BLOCK",
-    "PGP SECRET KEY BLOCK",
-];
-
-/// A BEGIN or END armor line of a known type, which ends the data of an
-/// armor block that has no CRC.
-fn is_armor_line(line: &[u8]) -> bool {
-    let line = trim_trailing_ws(line);
-    let Some(body) = line
-        .strip_prefix(b"-----")
-        .and_then(|r| r.strip_suffix(b"-----"))
-    else {
-        return false;
-    };
-    let Some(rest) = body
-        .strip_prefix(b"BEGIN ")
-        .or_else(|| body.strip_prefix(b"END "))
-    else {
-        return false;
-    };
-    ARMOR_HEAD_STRINGS.iter().any(|t| rest == t.as_bytes())
 }
 
 /// `is_armor_header` for the types `--import` accepts.
@@ -256,12 +227,14 @@ fn dearmor(input: &[u8]) -> Dearmored {
     let lines: Vec<&[u8]> = input.split(|&b| b == b'\n').collect();
     let mut out = Dearmored::default();
     let mut i = 0;
+    let mut armors = 0;
     while i < lines.len() {
         if !is_begin_line(lines[i]) {
             i += 1;
             continue;
         }
         out.found = true;
+        armors += 1;
         i += 1;
         // Header lines, up to an empty line. A line that is not a valid
         // "Key: value" header is logged as an error and read as data.
@@ -291,18 +264,21 @@ fn dearmor(input: &[u8]) -> Dearmored {
         let mut padded = false;
         let mut ended = false;
         // Data lines.
+        // gpg resets its CRC state only when the headers end with a blank
+        // line, so a later armor that starts with an invalid header line is
+        // checked against a CRC that still includes earlier data.
+        let stale_crc = first_data_from_header && armors > 1;
         'data: while i < lines.len() {
             let line = lines[i];
-            // Without a CRC, a BEGIN/END armor line ends the data. Any other
-            // line, including the invalid header line data started with, is
-            // radix64 (with its dashes skipped as invalid characters).
-            if !first_data_from_header && is_armor_line(line) {
+            // Without a '=', a line starting with "-----END" ends the data.
+            // Any other line, a BEGIN line included, is radix64, with its
+            // dashes skipped as invalid characters.
+            if line.starts_with(b"-----END") {
                 ended = true;
                 out.error = true;
                 out.nodata_after = true;
                 break;
             }
-            first_data_from_header = false;
             for (pos, &b) in line.iter().enumerate() {
                 match b {
                     b' ' | b'\t' | b'\r' => {}
@@ -320,7 +296,7 @@ fn dearmor(input: &[u8]) -> Dearmored {
                                 return out;
                             }
                             CrcRead::Value(v) => {
-                                if v != crc24(&block) {
+                                if stale_crc || v != crc24(&block) {
                                     out.fatal = true;
                                     return out;
                                 }
@@ -355,6 +331,7 @@ fn dearmor(input: &[u8]) -> Dearmored {
         if !padded && !ended {
             // End of input inside the data: "premature eof (no CRC)".
             out.error = true;
+            out.nodata_after = true;
         }
         out.data.extend_from_slice(&block);
         // Skip to the line after the END line, if any.
@@ -362,7 +339,7 @@ fn dearmor(input: &[u8]) -> Dearmored {
             i += 1;
         }
         i += 1;
-        let _ = ended;
+
     }
     out
 }
@@ -427,13 +404,14 @@ fn import(input: &[u8], keys: &mut Vec<StoredKey>, now: u64) -> ImportResult {
         result.results.push(messages::GPG_OTHER_FAILURE.to_owned());
         return result;
     }
-    let Some(packets) = parse_packets(&armor.data) else {
-        result.results.push(messages::GPG_OTHER_FAILURE.to_owned());
-        return result;
-    };
-
-    let mut error = armor.error;
-    let blocks = split_keyblocks(packets);
+    let (packets, packet_error) = parse_packets(&armor.data);
+    let mut error = armor.error || packet_error;
+    let mut blocks = split_keyblocks(packets);
+    if packet_error {
+        // gpg's read_block fails on the keyblock it was reading; the ones
+        // before it were already imported.
+        blocks.pop();
+    }
     let count = blocks.len();
     if count == 0 && armor.nodata_after {
         result.results.push(messages::GPG_NO_VALID_DATA.to_owned());
@@ -492,15 +470,23 @@ fn import_ok_text(reason: u32) -> String {
     out
 }
 
-fn parse_packets(data: &[u8]) -> Option<Vec<Packet>> {
+/// Parse packets until the first error. Returns the packets read and
+/// whether reading stopped on an error.
+fn parse_packets(data: &[u8]) -> (Vec<Packet>, bool) {
     let mut packets = Vec::new();
-    let mut ppr = PacketParser::from_bytes(data).ok()?;
+    let Ok(mut ppr) = PacketParser::from_bytes(data) else {
+        return (packets, true);
+    };
     while let PacketParserResult::Some(pp) = ppr {
-        let (packet, next) = pp.next().ok()?;
-        packets.push(packet);
-        ppr = next;
+        match pp.next() {
+            Ok((packet, next)) => {
+                packets.push(packet);
+                ppr = next;
+            }
+            Err(_) => return (packets, true),
+        }
     }
-    Some(packets)
+    (packets, false)
 }
 
 /// gpg's `read_block`: a keyblock starts at each primary key packet;

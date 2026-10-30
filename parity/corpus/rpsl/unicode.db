@@ -1,0 +1,88 @@
+person: Ünïcødé Persön
+address: Straße 1
+phone: 1
+e-mail: a@example.net
+nic-hdl: straße-TEST
+mnt-by: maß-mnt
+source: tést
+
+person: Dotless
+address: x
+phone: 1
+e-mail: ı@example.net
+nic-hdl: ıSTANBUL-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+person: Kelvin
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: KELVIN
+mnt-by: K-MNT
+source: TEST
+
+person: Ligature
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: ﬁx-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+K:  kelvin attribute
+route: 192.0.2.0/24
+origin: AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route: 192.0.2.0/24
+KEY: x
+ROUTEſ: y
+İ: z
+origin: AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route: 192.0.2.0/24
+ΑΣ: sigma
+origin: AS65537
+mnt-by:         TEST-MNT
+source:         TEST
+
+route: 192.0.2.0/24　
+origin: AS65537 
+descr: x 
+mnt-by:         TEST-MNT
+source:         TEST
+
+route: 192.0.2.0/24
+origin: AS65537
+descr: tab	inside
+remarks:  
+mnt-by:         TEST-MNT
+source:         TEST
+
+aut-num: AS١٢٣
+as-name: X
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num: AS𝟙𝟚
+as-name: X
+admin-c: P-TEST
+tech-c: P-TEST
+mnt-by: TEST-MNT
+source: TEST
+
+route: 192.0.2.0/24
+origin: AS65537
+mnt-by: ǅ-mnt, ǆ-MNT
+source: TEST
+
+route: 192.0.2.0/24
+origin: AS65537
+mnt-by: TEST-MNT
+source: ŉ-TEST

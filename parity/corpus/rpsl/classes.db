@@ -1,0 +1,293 @@
+as-block:       AS65536 - as065538
+descr:          block
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+as-set:         AS65537:AS-SETTEST
+descr:          set
+members:        AS65538, as65539, AS-OTHER
+members:        AS65540:AS-NESTED
+mbrs-by-ref:    TEST-MNT
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+as-set:         AS-ANYREF
+mbrs-by-ref:    ANY
+mnt-by: TEST-MNT
+source: TEST
+
+aut-num:        as065537
+as-name:        AS-EXAMPLE
+descr:          aut-num
+member-of:      AS-SETTEST
+import:         from AS65538 accept ANY
+mp-import:      afi ipv6 from AS1 accept ANY
+import-via:     AS1 from AS2 accept ANY
+export:         to AS65538 announce AS65537
+mp-export:      afi ipv6 to AS1 announce AS2
+export-via:     AS1 to AS2 announce AS3
+default:        to AS65538
+mp-default:     to AS65538
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+domain:         2.0.192.in-addr.arpa
+descr:          domain
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+zone-c:         PERSON-TEST
+nserver:        ns1.example.net
+sub-dom:        x
+dom-net:        192.0.2.0
+refer:          SIMPLE
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+filter-set:     fltr-settest
+descr:          filter
+filter:         { 192.0.2.0/24 }
+mp-filter:      { 2001:db8::/32 }
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+inet-rtr:       rtr.example.com
+descr:          router
+alias:          alias.example.com
+local-as:       AS65537
+ifaddr:         192.0.2.1 masklen 24
+interface:      2001:db8::1 masklen 64
+peer:           BGP4 192.0.2.2 asno(AS65538)
+mp-peer:        BGP4 2001:db8::2 asno(AS65538)
+member-of:      rtrs-settest
+rs-in:          from AS1 accept ANY
+rs-out:         to AS1 announce ANY
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+inet6num:       2001:db8::/48
+netname:        NET-TEST
+descr:          inet6num
+country:        NL
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+rev-srv:        ns.example.net
+status:         ASSIGNED
+geofeed:        https://example.net/geo.csv
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+inetnum:        192.0.2.0 - 192.0.02.255
+netname:        NET-TEST
+descr:          inetnum
+country:        NL
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+rev-srv:        ns.example.net
+status:         ASSIGNED PA
+geofeed:        http://example.net/geo.csv
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+irt:            IRT-TEST
+address:        street
+phone:          +31 20 000
+fax-no:         +31 20 001
+e-mail:         irt@example.net
+abuse-mailbox:  abuse@example.net
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+mntner:         TEST-MNT
+descr:          maintainer
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+upd-to:         upd@example.net
+mnt-nfy:        nfy@example.net
+auth:           PGPKEY-80F238C6
+auth:           IRRD-INTERNAL-AUTH
+auth:           BCRYPT-PW $2b$12$.TF/gD0SXGhpJsqdmd9u0e6UVdb21ZzoSAAQSTSWD6cvyTm6Ta0Sa
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+organisation:   ORG-TEST
+org-name:       Test Org
+country:        NL
+address:        street
+phone:          +31
+fax-no:         +32
+e-mail:         org@example.net
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+peering-set:    prng-settest
+descr:          peering
+peering:        AS65537 at 192.0.2.1
+mp-peering:     AS65537 at 2001:db8::1
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+person:         Test person
+address:        street
+phone:          +31
+fax-no:         +32
+e-mail:         person@example.net
+nic-hdl:        PERSON-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+role:           Test role
+trouble:        call
+address:        street
+phone:          +31
+fax-no:         +32
+e-mail:         role@example.net
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+nic-hdl:        ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+route:          192.0.02.0/24
+descr:          route
+origin:         AS65537
+holes:          192.0.2.0/25, 192.0.2.128/26
+member-of:      RS-TEST
+inject:         at 192.0.2.1
+aggr-bndry:     AS65537
+aggr-mtd:       inbound
+export-comps:   { 192.0.2.0/24 }
+components:     protocol BGP4 { 192.0.2.0/25 }
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+geoidx:         1
+roa-uri:        rsync://x
+rpki-ov-state:  valid
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+route-set:      RS-TEST
+members:        192.0.2.0/24^+, 192.0.2.0/24^-, 192.0.2.0/24^25, 192.0.2.0/24^24-26
+members:        RS-OTHER^+, AS65537:RS-NESTED, AS65538, as01^-
+mp-members:     2001:db8::/32^48, 192.0.2.1
+mbrs-by-ref:    TEST-MNT
+descr:          route-set
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+route6:         2001:DB8::/48
+descr:          route6
+origin:         AS65537
+holes:          2001:db8::/56, 2001:db8:0:100::/56
+member-of:      RS-TEST
+inject:         at x
+aggr-bndry:     AS1
+aggr-mtd:       inbound
+export-comps:   {}
+components:     x
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+geoidx:         1
+roa-uri:        x
+rpki-ov-state:  invalid
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z
+
+rtr-set:        rtrs-settest
+descr:          rtr-set
+members:        rtr.example.com, RTRS-OTHER
+mp-members:     rtr2.example.com
+mbrs-by-ref:    ANY
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+remarks:        a remark
+notify:         notify@example.net
+mnt-by:         TEST-MNT, OTHER-MNT
+changed:        changed@example.net 20240101
+source:         TEST
+last-modified:  2024-01-01T00:00:00Z

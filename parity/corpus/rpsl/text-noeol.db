@@ -1,0 +1,12 @@
+
+
+person: No EOL
+address: x
+phone: 1
+e-mail: a@example.net
+nic-hdl: NOEOL-TEST
+
+
+%START
+mnt-by: TEST-MNT
+source: TEST
