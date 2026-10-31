@@ -409,3 +409,64 @@ pub(crate) fn resize(inner: &Inner, new_size: usize) -> Result<()> {
 pub fn data_file(path: &Path) -> PathBuf {
     path.join("data.mdb")
 }
+
+/// Overwrite the schema version of a store on disk. Tests only.
+#[doc(hidden)]
+pub fn set_schema_version_for_tests(path: &Path, version: u32) -> Result<()> {
+    let mut opts = EnvOpenOptions::new().read_txn_without_tls();
+    opts.map_size(64 << 20)
+        .max_dbs(TABLE_NAMES.len() as u32 + 8);
+    // SAFETY: as in `open`; the caller has dropped every other handle.
+    let env = unsafe { opts.open(path) }.map_err(|e| StoreError::open(path, e))?;
+    let tables = create_tables(&env)?;
+    let mut wtxn = env.write_txn()?;
+    tables
+        .meta
+        .put(&mut wtxn, META_SCHEMA_VERSION, &version.to_be_bytes())?;
+    wtxn.commit()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bump(_: &Env<WithoutTls>, wtxn: &mut RwTxn<'_>, t: &Tables) -> Result<()> {
+        t.meta.put(wtxn, b"migrated", b"yes")?;
+        Ok(())
+    }
+
+    #[test]
+    fn migrations_run_in_order_and_record_the_version() {
+        let dir =
+            std::env::temp_dir().join(format!("irrd-ng-store-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut o = StoreOptions::new(&dir);
+        o.initial_map_size = 16 << 20;
+        let inner = open(&o).expect("open");
+        let steps = [Migration {
+            from: 1,
+            to: 2,
+            run: bump,
+        }];
+        let mut wtxn = inner.env.write_txn().expect("txn");
+        let mut v = 1;
+        migrate_with(&inner.env, &mut wtxn, &inner.tables, &mut v, &steps, 2).expect("migrate");
+        assert_eq!(v, 2);
+        assert_eq!(
+            read_schema_version(&wtxn, &inner.tables).expect("v"),
+            Some(2)
+        );
+        assert_eq!(
+            inner.tables.meta.get(&wtxn, b"migrated").expect("get"),
+            Some(&b"yes"[..])
+        );
+        let mut v = 2;
+        let e =
+            migrate_with(&inner.env, &mut wtxn, &inner.tables, &mut v, &steps, 3).expect_err("gap");
+        assert!(matches!(e, StoreError::NoMigration { from: 2, to: 3 }));
+        wtxn.abort();
+        drop(inner);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
