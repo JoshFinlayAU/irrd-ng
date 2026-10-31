@@ -758,7 +758,7 @@ impl WhoisSession {
                 && (obj.object_class == "route" || obj.object_class == "route6")
             {
                 out.push_str("rpki-ov-state:  ");
-                out.push_str(obj.rpki_status.py_value());
+                out.push_str(obj.rpki_status.pg_label());
                 if obj.rpki_status == store::RpkiStatus::NotFound {
                     out.push_str(messages::RPKI_NOT_FOUND_COMMENT);
                 }
