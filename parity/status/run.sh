@@ -19,7 +19,9 @@
 #
 # --queries: afterwards, start both servers on the final state and run the
 # whois and /v1/whois/ suites (parity/run.sh), whose answers then depend on
-# all three statuses and the !f overrides.
+# all three statuses and the !f overrides. irrd-ng serves a fresh import of
+# v4's final database for this, so the timestamps both wrote independently
+# (last-modified, !J) are the same and only the query paths differ.
 #
 # Uses the shared Tier 1 stack (compose.yaml): it replaces whatever
 # parity/load.sh loaded, so run load.sh again before parity/run.sh.
@@ -190,9 +192,12 @@ if [[ $queries == 1 ]]; then
   echo "== whois and /v1/whois/ suites on the final state"
   python3 -I tools/corpus_bindings.py --out "$work/bindings.json" "${fixtures[@]}" corpus/whois/data/*.db \
     status/data/STATUSAUTH.db "$work/STATUSLOW-update.db" > /dev/null
+  rm -rf "$work/store-q"
+  ng import --from-postgres "postgresql://irrd:irrd@127.0.0.1:${PARITY_PG_PORT:-9532}/irrd?sslmode=disable" \
+    --store "$work/store-q" > "$out/ng-import-q.log" 2>&1 || { tail -20 "$out/ng-import-q.log" >&2; exit 1; }
   "${DC[@]}" up -d irrd-v4 > /dev/null
   ./up.sh > /dev/null
-  IRRD_NG_STORE_PATH=$work/store nohup "$IRRD_NG" irrd --config "$work/irrd-ng.yaml" --foreground \
+  IRRD_NG_STORE_PATH=$work/store-q nohup "$IRRD_NG" irrd --config "$work/irrd-ng.yaml" --foreground \
     > "$out/irrd-ng.log" 2>&1 &
   ngpid=$!
   for _ in $(seq 1 60); do

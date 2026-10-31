@@ -30,6 +30,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 query = { workspace = true, features = ["fault-injection"] }
 
 [lints]

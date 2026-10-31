@@ -216,6 +216,61 @@ fn rows_overlapping(view: &ReadView<'_>, filter: &IpPrefix, out: &mut Vec<RouteR
     Ok(())
 }
 
+/// What one route preference evaluation decided: the objects to make
+/// visible (including those of sources without a preference), the objects
+/// to suppress, and v4's three log counters.
+#[derive(Debug, Default)]
+pub struct RoutePreferenceChanges {
+    /// To become visible, enriched as v4's `enrich_pks()` does.
+    pub visible: Vec<StatusChange<()>>,
+    /// To be suppressed.
+    pub suppressed: Vec<StatusChange<()>>,
+    /// (regular made visible, regular suppressed, excluded made visible)
+    pub counts: (usize, usize, usize),
+}
+
+/// The sources' `route_object_preference` values, for those that set one.
+pub fn source_preferences(settings: &store::StoreSettings) -> HashMap<String, i64> {
+    settings
+        .sources
+        .iter()
+        .filter_map(|(name, s)| s.route_object_preference.map(|p| (name.clone(), p)))
+        .collect()
+}
+
+/// Evaluate route preference over every route, or over the routes
+/// overlapping `filter_prefixes`, without writing anything.
+pub fn route_preference_changes(
+    view: &ReadView<'_>,
+    preferences: HashMap<String, i64>,
+    filter_prefixes: Option<&[IpPrefix]>,
+) -> Result<RoutePreferenceChanges> {
+    let rows = match filter_prefixes {
+        None => all_rows(view)?,
+        Some(prefixes) => {
+            let mut rows = Vec::new();
+            for p in prefixes {
+                rows_overlapping(view, p, &mut rows)?;
+            }
+            rows
+        }
+    };
+    let validator = RoutePreferenceValidator::new(preferences, rows);
+    let (to_be_visible, to_be_suppressed) = validator.validate_known_routes();
+    let counts = (
+        to_be_visible.len(),
+        to_be_suppressed.len(),
+        validator.excluded_currently_suppressed.len(),
+    );
+    let mut become_visible = to_be_visible;
+    become_visible.extend(validator.excluded_currently_suppressed.iter().copied());
+    Ok(RoutePreferenceChanges {
+        visible: enrich(view, &become_visible)?,
+        suppressed: enrich(view, &to_be_suppressed)?,
+        counts,
+    })
+}
+
 /// `update_route_preference_status(database_handler, filter_prefixes)`:
 /// work out and write the new statuses, with journal entries, and log the
 /// counts. Does nothing unless some source sets a (non-zero) preference.
@@ -228,41 +283,14 @@ pub fn update_route_preference_status(
     }
     let filter_prefixes =
         filter_prefixes.filter(|f| f.len() <= MAX_FILTER_PREFIX_LEN && !f.is_empty());
-    let preferences: HashMap<String, i64> = tx
-        .settings()
-        .sources
-        .iter()
-        .filter_map(|(name, s)| s.route_object_preference.map(|p| (name.clone(), p)))
-        .collect();
-    let (visible, suppressed, counts) = {
+    let preferences = source_preferences(tx.settings());
+    let changes = {
         let view = tx.read()?;
-        let rows = match filter_prefixes {
-            None => all_rows(&view)?,
-            Some(prefixes) => {
-                let mut rows = Vec::new();
-                for p in prefixes {
-                    rows_overlapping(&view, p, &mut rows)?;
-                }
-                rows
-            }
-        };
-        let validator = RoutePreferenceValidator::new(preferences, rows);
-        let (to_be_visible, to_be_suppressed) = validator.validate_known_routes();
-        let counts = (
-            to_be_visible.len(),
-            to_be_suppressed.len(),
-            validator.excluded_currently_suppressed.len(),
-        );
-        let mut become_visible = to_be_visible;
-        become_visible.extend(validator.excluded_currently_suppressed.iter().copied());
-        (
-            enrich(&view, &become_visible)?,
-            enrich(&view, &to_be_suppressed)?,
-            counts,
-        )
+        route_preference_changes(&view, preferences, filter_prefixes)?
     };
-    tx.update_route_preference_status(&visible, &suppressed)?;
-    let common = messages::routepref_common(counts.0, counts.1, counts.2);
+    tx.update_route_preference_status(&changes.visible, &changes.suppressed)?;
+    let (a, b, c) = changes.counts;
+    let common = messages::routepref_common(a, b, c);
     match filter_prefixes {
         None => tracing::info!(target: LOG_TARGET, "{}", messages::routepref_all(&common)),
         Some(f) => {

@@ -459,3 +459,45 @@ pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::Mi
     }
     out
 }
+
+#[cfg(test)]
+mod status_job_tests {
+    use super::*;
+
+    fn load(yaml: &str) -> Configuration {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("irrd.yaml");
+        std::fs::write(&path, yaml).expect("write");
+        Configuration::load(path.to_str()).expect("config")
+    }
+
+    const BASE: &str = "irrd:\n  database_url: postgresql://x/y\n  redis_url: redis://x\n  piddir: /tmp\n  email:\n    from: a@example.net\n    smtp: localhost\n  auth:\n    gnupg_keyring: /tmp\n  server:\n    http:\n      url: http://localhost/\n";
+
+    #[test]
+    fn defaults_and_fingerprint() {
+        let cfg = load(&format!(
+            "{BASE}  rpki:\n    roa_source: file:///roas.json\n    notify_invalid_enabled: false\n  scopefilter:\n    prefixes: [10.0.0.0/8]\n    asns: [23456, '64496-64511']\n  sources:\n    SRCA:\n      authoritative: true\n      route_object_preference: 0\n    SRCB:\n      scopefilter_excluded: true\n      route_object_preference: 200\n"
+        ));
+        let j = status_job_settings(&cfg);
+        assert_eq!(j.roa_source.as_deref(), Some("file:///roas.json"));
+        assert_eq!(j.roa_import_timer, 3600);
+        assert_eq!(j.route_preference_update_timer, 3600);
+        assert!(
+            j.pseudo_irr_remarks
+                .starts_with("This AS{asn} route object represents")
+        );
+        assert!(j.notify.subject.contains("{sources_str}"));
+        assert!(j.notify.authoritative_sources.contains("SRCA"));
+        assert!(j.route_preference_enabled);
+        let f = j.scopefilter.expect("scope filter");
+        assert_eq!(f.prefixes, vec!["'10.0.0.0/8'"]);
+        assert_eq!(f.asns, vec!["23456", "'64496-64511'"]);
+        assert_eq!(f.excluded.into_iter().collect::<Vec<_>>(), vec!["SRCB"]);
+
+        let cfg = load(&format!(
+            "{BASE}  rpki:\n    roa_source: null\n  sources:\n    SRCA:\n      route_object_preference: 0\n"
+        ));
+        let j = status_job_settings(&cfg);
+        assert!(j.roa_source.is_none() && j.scopefilter.is_none() && !j.route_preference_enabled);
+    }
+}

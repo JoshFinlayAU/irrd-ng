@@ -238,6 +238,156 @@ pub fn run_route_preference_update(store: &Store) {
     }
 }
 
+// ---------------------------------------------------------------------
+// Dry runs: what a job would change, without writing. irrd-ng only; the
+// full-scale parity check compares these with v4's validators run
+// read-only on the same data.
+// ---------------------------------------------------------------------
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::Digest;
+    crate::mirror::retrieval::hex(&sha2::Sha256::digest(text.as_bytes()))
+}
+
+fn op_label(before: bool, now: bool, adding: bool) -> &'static str {
+    match (adding, before, now) {
+        (true, false, true) => "add",
+        (false, true, false) => "delete",
+        _ => "-",
+    }
+}
+
+/// The ROA import's pseudo-IRR objects and route status changes, one line
+/// each: `pseudo, class, key, sha256(text), scope filter status, ip_first,
+/// ip_last, prefix` and `rpki, pk, new status, journal operation`.
+pub fn dry_run_roa_import(
+    store: &Store,
+    settings: &MirrorSettings,
+    roa_json: &str,
+    slurm_json: Option<&str>,
+) -> Result<Vec<String>, RoaImportError> {
+    let jobs = &settings.status_jobs;
+    let parsed = RoaImport::parse(roa_json, slurm_json)?;
+    let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
+    let mut out = Vec::new();
+    for roa in &parsed.roas {
+        let obj = roa.pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?;
+        out.push(format!(
+            "pseudo\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            obj.object_class,
+            obj.rpsl_pk,
+            sha256_hex(&obj.object_text),
+            obj.scopefilter_status.pg_label(),
+            roa.prefix.net(),
+            roa.prefix.broadcast(),
+            roa.prefix_str,
+        ));
+    }
+    if let Some(dup) = parsed.first_duplicate() {
+        return Err(importer::duplicate_error(dup));
+    }
+    let validator =
+        BulkRouteRoaValidator::from_roas(&parsed.roas, settings.rpki_excluded_sources.clone());
+    let r = store
+        .read()
+        .map_err(|e| RoaImportError::Other(e.to_string()))?;
+    let (valid, invalid, not_found) = validator
+        .validate_all_routes(&r.view())
+        .map_err(|e| RoaImportError::Other(e.to_string()))?;
+    for (list, adding) in [(&valid, true), (&not_found, true), (&invalid, false)] {
+        for c in list.iter() {
+            let before = store::object_is_visible(
+                c.old_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
+            let now = store::object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
+            out.push(format!(
+                "rpki\t{}\t{}\t{}",
+                c.pk,
+                c.rpki_status.pg_label(),
+                op_label(before, now, adding)
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// The scope filter update's changes: `scopefilter, pk, new status,
+/// journal operation`.
+pub fn dry_run_scopefilter(store: &Store, settings: &MirrorSettings) -> store::Result<Vec<String>> {
+    let validator = ScopeFilterValidator::new(settings.scopefilter.clone());
+    let r = store.read()?;
+    let (in_scope, out_as, out_prefix) = validator.validate_all_rpsl_objects(&r.view())?;
+    let mut out = Vec::new();
+    for (list, adding) in [(&in_scope, true), (&out_as, false), (&out_prefix, false)] {
+        for c in list.iter() {
+            let before =
+                store::object_is_visible(c.rpki_status, c.old_status, c.route_preference_status);
+            let now = store::object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
+            out.push(format!(
+                "scopefilter\t{}\t{}\t{}",
+                c.pk,
+                c.scopefilter_status.pg_label(),
+                op_label(before, now, adding)
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// The full route preference update's changes: `routepref, pk, new
+/// status, journal operation`.
+pub fn dry_run_route_preference(store: &Store) -> store::Result<Vec<String>> {
+    let settings = store.settings();
+    if !settings.route_preference_enabled() {
+        return Ok(Vec::new());
+    }
+    let r = store.read()?;
+    let changes = rpki::routepref::route_preference_changes(
+        &r.view(),
+        rpki::routepref::source_preferences(&settings),
+        None,
+    )?;
+    let mut out = Vec::new();
+    for (list, status, op) in [
+        (&changes.visible, "visible", "add"),
+        (&changes.suppressed, "suppressed", "delete"),
+    ] {
+        for c in list.iter() {
+            let shown = store::object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                store::RoutePreferenceStatus::Visible,
+            );
+            out.push(format!(
+                "routepref\t{}\t{status}\t{}",
+                c.pk,
+                if shown { op } else { "-" }
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// Fetch the ROA (and SLURM) files as the import does.
+pub async fn fetch_roa_files(settings: &MirrorSettings) -> Result<(String, Option<String>), PyErr> {
+    let roa_source = settings
+        .status_jobs
+        .roa_source
+        .clone()
+        .ok_or_else(|| PyErr::Other("rpki.roa_source is not set".to_owned()))?;
+    fetch(settings, &roa_source).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +677,70 @@ mod tests {
         assert_eq!(
             statuses(&store, "AUTH")[0].2,
             RoutePreferenceStatus::Visible
+        );
+    }
+
+    // The dry runs report what the jobs would change and write nothing.
+    #[test]
+    fn dry_runs_write_nothing() {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = open(&dir, settings(&[("AUTH", 900), ("LOW", 100)]));
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &route("AUTH", "192.0.2.0/24", 65001),
+                    JournalEntryOrigin::AuthChange,
+                    None,
+                    None,
+                )?;
+                tx.upsert_rpsl_object(
+                    &route("AUTH", "10.0.0.0/8", 64500),
+                    JournalEntryOrigin::AuthChange,
+                    None,
+                    None,
+                )
+            })
+            .expect("seed");
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &route("LOW", "192.0.2.0/25", 65009),
+                    JournalEntryOrigin::Mirror,
+                    None,
+                    None,
+                )
+            })
+            .expect("low");
+        let before = journal(&store, "AUTH").len() + journal(&store, "LOW").len();
+        let mut ms = mirror_settings();
+        let lines = dry_run_roa_import(
+            &store,
+            &ms,
+            r#"{"roas": [{"asn": "AS65099", "prefix": "192.0.2.0/24", "maxLength": 25, "ta": "t"}]}"#,
+            None,
+        )
+        .expect("dry run");
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].starts_with("pseudo\troute\t192.0.2.0/24AS65099/ML25\t"));
+        assert!(lines[0].ends_with("\tin_scope\t192.0.2.0\t192.0.2.255\t192.0.2.0/24"));
+        // The LOW /25 is already suppressed by route preference: no entry.
+        assert!(lines.iter().any(|l| l.ends_with("\tinvalid\tdelete")));
+        assert!(lines.iter().any(|l| l.ends_with("\tinvalid\t-")));
+        ms.scopefilter = rpki::ScopeFilterConfig {
+            asns: [64500].into_iter().collect(),
+            ..Default::default()
+        };
+        let sf = dry_run_scopefilter(&store, &ms).expect("dry run");
+        assert_eq!(sf.len(), 1);
+        assert!(sf[0].ends_with("\tout_scope_as\tdelete"));
+        store.set_settings(settings(&[("AUTH", 100), ("LOW", 900)]));
+        let rp = dry_run_route_preference(&store).expect("dry run");
+        assert_eq!(rp.len(), 2);
+        assert!(statuses(&store, "RPKI").is_empty());
+        assert_eq!(statuses(&store, "AUTH")[0].1, RpkiStatus::NotFound);
+        assert_eq!(
+            journal(&store, "AUTH").len() + journal(&store, "LOW").len(),
+            before
         );
     }
 

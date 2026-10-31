@@ -16,15 +16,24 @@ use crate::{logging, messages, settings};
 
 const RUN_JOB: Parser = Parser {
     prog: "irrd-ng run-job",
-    usage: "usage: irrd-ng run-job [-h] [--config CONFIG_FILE_PATH] job\n",
-    help: "usage: irrd-ng run-job [-h] [--config CONFIG_FILE_PATH] job\n\nRun one scheduled job once: roa-import (ROAImportRunner), scopefilter\n(ScopeFilterUpdateRunner) or route-preference (RoutePreferenceUpdateRunner).\n\npositional arguments:\n  job                   the job to run\n\noptions:\n  -h, --help            show this help message and exit\n  --config CONFIG_FILE_PATH\n                        use a different IRRd config file (default:\n                        /etc/irrd.yaml)\n",
-    options: &[Opt {
-        flag: "--config",
-        dest: "config_file_path",
-        required: false,
-        int: false,
-        store_true: false,
-    }],
+    usage: "usage: irrd-ng run-job [-h] [--config CONFIG_FILE_PATH] [--dry-run] job\n",
+    help: "usage: irrd-ng run-job [-h] [--config CONFIG_FILE_PATH] [--dry-run] job\n\nRun one scheduled job once: roa-import (ROAImportRunner), scopefilter\n(ScopeFilterUpdateRunner) or route-preference (RoutePreferenceUpdateRunner).\n\npositional arguments:\n  job                   the job to run\n\noptions:\n  -h, --help            show this help message and exit\n  --config CONFIG_FILE_PATH\n                        use a different IRRd config file (default:\n                        /etc/irrd.yaml)\n  --dry-run             open the store read-only and print what the job\n                        would change, one line per object, instead\n",
+    options: &[
+        Opt {
+            flag: "--config",
+            dest: "config_file_path",
+            required: false,
+            int: false,
+            store_true: false,
+        },
+        Opt {
+            flag: "--dry-run",
+            dest: "dry_run",
+            required: false,
+            int: false,
+            store_true: true,
+        },
+    ],
     positionals: &["job"],
 };
 
@@ -43,10 +52,10 @@ pub(crate) fn run_job(args: &[OsString]) -> ExitCode {
         }
     };
     logging::init(&cfg);
-    let store = match Store::open(
-        &StoreOptions::new(settings::store_path()),
-        settings::store_settings(&cfg),
-    ) {
+    let dry_run = a.contains_key("dry_run");
+    let mut options = StoreOptions::new(settings::store_path());
+    options.read_only = dry_run;
+    let store = match Store::open(&options, settings::store_settings(&cfg)) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");
@@ -57,6 +66,9 @@ pub(crate) fn run_job(args: &[OsString]) -> ExitCode {
     let mirror = Arc::new(settings::mirror_settings(&cfg));
     let job = a.get("job").map(String::as_str).unwrap_or_default();
     use nrtm::mirror::status_jobs as jobs;
+    if dry_run {
+        return dry_run_job(&store, &mirror, job);
+    }
     match job {
         "roa-import" => {
             let rt = match tokio::runtime::Builder::new_multi_thread()
@@ -79,4 +91,54 @@ pub(crate) fn run_job(args: &[OsString]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+fn dry_run_job(
+    store: &Store,
+    mirror: &Arc<nrtm::mirror::settings::MirrorSettings>,
+    job: &str,
+) -> ExitCode {
+    use nrtm::mirror::status_jobs as jobs;
+    let lines = match job {
+        "roa-import" => {
+            let rt = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::from(1);
+                }
+            };
+            let files = rt.block_on(jobs::fetch_roa_files(mirror));
+            match files {
+                Ok((roa, slurm)) => jobs::dry_run_roa_import(store, mirror, &roa, slurm.as_deref())
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        "scopefilter" => jobs::dry_run_scopefilter(store, mirror).map_err(|e| e.to_string()),
+        "route-preference" => jobs::dry_run_route_preference(store).map_err(|e| e.to_string()),
+        other => {
+            eprintln!("{}", messages::unknown_job(other));
+            return ExitCode::from(2);
+        }
+    };
+    match lines {
+        Ok(lines) => {
+            use std::io::Write;
+            let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+            for l in lines {
+                if writeln!(out, "{l}").is_err() {
+                    return ExitCode::from(1);
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(1)
+        }
+    }
 }
