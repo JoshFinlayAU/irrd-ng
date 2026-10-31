@@ -1,0 +1,18 @@
+# Columns left out when comparing v4 and irrd-ng after each status suite
+# step. Each is assigned independently by each server at write time;
+# everything else must match.
+#
+# table.column	reason
+rpsl_objects.pk	gen_random_uuid() per row at insert
+rpsl_objects.created	now() of the writing transaction
+rpsl_objects.updated	datetime.now() when the object was buffered for upsert
+rpsl_database_journal.pk	gen_random_uuid()
+rpsl_database_journal.timestamp	now() when the entry is written
+rpsl_database_journal.serial_global	a database-wide sequence; v4's also advances on rolled-back transactions
+database_status.pk	gen_random_uuid() when the status row is first written
+database_status.created	now() of the transaction that created the row
+database_status.updated	now() of the last writing transaction
+database_status.rpsl_data_updated	datetime.now() in finalise_transaction
+database_status.last_error_timestamp	datetime.now() when the error was recorded
+roa_object.pk	gen_random_uuid()
+roa_object.created	now() of the import transaction

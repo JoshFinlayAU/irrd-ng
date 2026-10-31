@@ -1,0 +1,19 @@
+{
+  "slurmVersion": 1,
+  "validationOutputFilters": {
+    "prefixFilters": [
+      {"prefix": "198.51.100.0/25", "comment": "Not a whole ROA prefix: filters nothing on its own"},
+      {"prefix": "198.51.100.128/25", "comment": "With the one above, covers 198.51.100.0/24"},
+      {"asn": 65599, "comment": "Every ROA for this origin"},
+      {"prefix": "192.0.2.0/24", "asn": 64496, "comment": "Prefix and origin"}
+    ],
+    "bgpsecFilters": []
+  },
+  "locallyAddedAssertions": {
+    "prefixAssertions": [
+      {"asn": 65003, "prefix": "203.0.113.0/24", "maxPrefixLength": 25, "comment": "Makes the STATUSAUTH 203.0.113 routes valid"},
+      {"asn": 65012, "prefix": "233.252.0.0/24", "comment": "No maxPrefixLength"}
+    ],
+    "bgpsecAssertions": []
+  }
+}

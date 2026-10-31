@@ -237,3 +237,343 @@ pub fn run_route_preference_update(store: &Store) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use store::{
+        DatabaseOperation, IpPrefix, Json, NewRpslObject, RoutePreferenceStatus, RpkiStatus,
+        ScopeFilterStatus, SourceSettings, StoreOptions, StoreSettings,
+    };
+
+    fn open(dir: &tempfile::TempDir, settings: StoreSettings) -> Store {
+        let mut o = StoreOptions::new(dir.path());
+        o.initial_map_size = 64 << 20;
+        let s = Store::open(&o, settings).expect("store");
+        s.set_route_preference_hook(Some(rpki::route_preference_hook));
+        s
+    }
+
+    fn route(source: &str, prefix: &str, asn: u32) -> NewRpslObject {
+        let p = IpPrefix::parse(prefix).expect("prefix");
+        let last = p.last();
+        let ip_last = match p.addr {
+            std::net::IpAddr::V4(_) => std::net::IpAddr::V4(std::net::Ipv4Addr::from(last as u32)),
+            std::net::IpAddr::V6(_) => std::net::IpAddr::V6(std::net::Ipv6Addr::from(last)),
+        };
+        let class = if p.version() == 4 { "route" } else { "route6" };
+        NewRpslObject {
+            rpsl_pk: format!("{prefix}AS{asn}"),
+            source: source.to_owned(),
+            object_class: class.to_owned(),
+            parsed_data: Json::canonical(&format!(
+                r#"{{"source": "{source}", "origin": "AS{asn}"}}"#
+            ))
+            .expect("json"),
+            object_text: format!("{class}: {prefix}\norigin: AS{asn}\nsource: {source}\n"),
+            ip_first: Some(p.addr),
+            ip_last: Some(ip_last),
+            prefix: Some(p),
+            prefix_length: Some(u32::from(p.len)),
+            asn_first: Some(asn),
+            asn_last: Some(asn),
+            rpki_status: RpkiStatus::NotFound,
+            scopefilter_status: ScopeFilterStatus::InScope,
+            route_preference_status: RoutePreferenceStatus::Visible,
+        }
+    }
+
+    fn settings(prefs: &[(&str, i64)]) -> StoreSettings {
+        let mut sources = HashMap::new();
+        for name in ["AUTH", "LOW"] {
+            sources.insert(
+                name.to_owned(),
+                SourceSettings {
+                    keep_journal: true,
+                    route_object_preference: prefs
+                        .iter()
+                        .find(|(n, _)| *n == name)
+                        .map(|(_, p)| *p),
+                    ..Default::default()
+                },
+            );
+        }
+        StoreSettings {
+            sources,
+            rpki_enabled: true,
+            ..Default::default()
+        }
+    }
+
+    fn mirror_settings() -> MirrorSettings {
+        MirrorSettings {
+            rpki_enabled: true,
+            status_jobs: StatusJobSettings {
+                roa_source: Some("file:///unused".into()),
+                pseudo_irr_remarks: "ROA for AS{asn}\n".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn statuses(store: &Store, source: &str) -> Vec<(String, RpkiStatus, RoutePreferenceStatus)> {
+        let r = store.read().expect("read");
+        let v = r.view();
+        let mut out = Vec::new();
+        for class in ["route", "route6"] {
+            for item in v.objects(Some(source), Some(class)).expect("objects") {
+                let (_, o) = item.expect("object");
+                out.push((
+                    o.rpsl_pk.to_owned(),
+                    o.rpki_status,
+                    o.route_preference_status,
+                ));
+            }
+        }
+        out
+    }
+
+    fn journal(
+        store: &Store,
+        source: &str,
+    ) -> Vec<(i64, DatabaseOperation, JournalEntryOrigin, String)> {
+        let r = store.read().expect("read");
+        let v = r.view();
+        v.journal(Some(source), None, None)
+            .expect("journal")
+            .map(|e| {
+                let e = e.expect("entry");
+                (e.serial_nrtm, e.operation, e.origin, e.rpsl_pk.to_owned())
+            })
+            .collect()
+    }
+
+    // ROAImportRunner end to end: pseudo-IRR objects, the two
+    // transactions, and journal entries only for visibility changes.
+    #[test]
+    fn roa_import_revalidates_and_journals() {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = open(&dir, settings(&[]));
+        store
+            .write(|tx| {
+                for (p, a) in [
+                    ("192.0.2.0/24", 65001),
+                    ("198.51.100.0/24", 65002),
+                    ("2001:db8::/32", 65003),
+                ] {
+                    tx.upsert_rpsl_object(
+                        &route("AUTH", p, a),
+                        JournalEntryOrigin::AuthChange,
+                        None,
+                        None,
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("seed");
+        let base = journal(&store, "AUTH").len();
+        let ms = mirror_settings();
+        let roas = r#"{"roas": [
+            {"asn": "AS65001", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "t"},
+            {"asn": "AS65099", "prefix": "198.51.100.0/23", "maxLength": 24, "ta": "t"}
+        ]}"#;
+        import_and_validate(&store, &ms, roas, None).expect("import");
+        assert_eq!(
+            statuses(&store, "AUTH"),
+            vec![
+                (
+                    "192.0.2.0/24AS65001".to_owned(),
+                    RpkiStatus::Valid,
+                    RoutePreferenceStatus::Visible
+                ),
+                (
+                    "198.51.100.0/24AS65002".to_owned(),
+                    RpkiStatus::Invalid,
+                    RoutePreferenceStatus::Visible
+                ),
+                (
+                    "2001:db8::/32AS65003".to_owned(),
+                    RpkiStatus::NotFound,
+                    RoutePreferenceStatus::Visible
+                ),
+            ]
+        );
+        // Valid stays visible: no entry. Invalid: a deletion.
+        let j = journal(&store, "AUTH");
+        assert_eq!(
+            j[base..]
+                .iter()
+                .map(|e| (e.1, e.2, e.3.clone()))
+                .collect::<Vec<_>>(),
+            vec![(
+                DatabaseOperation::Delete,
+                JournalEntryOrigin::RpkiStatus,
+                "198.51.100.0/24AS65002".to_owned()
+            )]
+        );
+        let rpki = statuses(&store, "RPKI");
+        assert_eq!(rpki.len(), 2);
+        assert!(rpki.iter().all(|(_, s, _)| *s == RpkiStatus::Valid));
+        assert!(journal(&store, "RPKI").is_empty());
+
+        // The ROA goes away: invalid becomes not_found, journalled as an
+        // addition; the old pseudo-IRR objects are replaced.
+        let roas2 = r#"{"roas": [{"asn": "AS65001", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "t"}]}"#;
+        import_and_validate(&store, &ms, roas2, None).expect("import");
+        assert_eq!(statuses(&store, "RPKI").len(), 1);
+        let j = journal(&store, "AUTH");
+        assert_eq!(
+            j.last().map(|e| (e.1, e.2)),
+            Some((
+                DatabaseOperation::AddOrUpdate,
+                JournalEntryOrigin::RpkiStatus
+            ))
+        );
+        let r = store.read().expect("read");
+        assert_eq!(r.view().roas().expect("roas").len(), 1);
+    }
+
+    // The v4 quirk: a ROA repeated under another trust anchor fails the
+    // whole import and the previous ROAs stay.
+    #[test]
+    fn duplicate_roa_keeps_previous_state() {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = open(&dir, settings(&[]));
+        let ms = mirror_settings();
+        let ok = r#"{"roas": [{"asn": "AS65001", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"}]}"#;
+        import_and_validate(&store, &ms, ok, None).expect("import");
+        let dup = r#"{"roas": [
+            {"asn": "AS65002", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
+            {"asn": "AS65002", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"}
+        ]}"#;
+        let e = import_and_validate(&store, &ms, dup, None).expect_err("duplicate");
+        assert!(
+            e.to_string()
+                .contains("rpsl_objects_rpsl_pk_source_class_unique")
+        );
+        assert_eq!(statuses(&store, "RPKI")[0].0, "192.0.2.0/24AS65001/ML24");
+    }
+
+    // Route preference: the full runner, and the pre-commit hook for
+    // changed prefixes only, with journal entries for visible objects.
+    #[test]
+    fn route_preference_runner_and_hook() {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = open(&dir, settings(&[("AUTH", 900), ("LOW", 100)]));
+        // Written before the hook can see AUTH: both visible at first.
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &route("LOW", "192.0.2.0/25", 65009),
+                    JournalEntryOrigin::Mirror,
+                    None,
+                    None,
+                )?;
+                tx.upsert_rpsl_object(
+                    &route("LOW", "203.0.113.0/24", 65009),
+                    JournalEntryOrigin::Mirror,
+                    None,
+                    None,
+                )
+            })
+            .expect("low");
+        assert!(
+            statuses(&store, "LOW")
+                .iter()
+                .all(|s| s.2 == RoutePreferenceStatus::Visible)
+        );
+        // The hook runs for 192.0.2.0/24 when AUTH's route arrives.
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &route("AUTH", "192.0.2.0/24", 65001),
+                    JournalEntryOrigin::AuthChange,
+                    None,
+                    None,
+                )
+            })
+            .expect("auth");
+        let low = statuses(&store, "LOW");
+        assert_eq!(low[0].2, RoutePreferenceStatus::Suppressed);
+        assert_eq!(low[1].2, RoutePreferenceStatus::Visible);
+        let j = journal(&store, "LOW");
+        assert_eq!(
+            j.last().map(|e| (e.1, e.2, e.3.clone())),
+            Some((
+                DatabaseOperation::Delete,
+                JournalEntryOrigin::RoutePreference,
+                "192.0.2.0/25AS65009".to_owned()
+            ))
+        );
+        // Swap the preferences and run the full update.
+        store.set_settings(settings(&[("AUTH", 100), ("LOW", 900)]));
+        run_route_preference_update(&store);
+        assert_eq!(statuses(&store, "LOW")[0].2, RoutePreferenceStatus::Visible);
+        assert_eq!(
+            statuses(&store, "AUTH")[0].2,
+            RoutePreferenceStatus::Suppressed
+        );
+        // Preferences gone: everything visible again.
+        store.set_settings(settings(&[("LOW", 0)]));
+        run_route_preference_update(&store);
+        assert_eq!(
+            statuses(&store, "AUTH")[0].2,
+            RoutePreferenceStatus::Suppressed
+        );
+        store.set_settings(settings(&[("LOW", 5)]));
+        run_route_preference_update(&store);
+        assert_eq!(
+            statuses(&store, "AUTH")[0].2,
+            RoutePreferenceStatus::Visible
+        );
+    }
+
+    #[test]
+    fn scopefilter_update_journals_visibility_changes() {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = open(&dir, settings(&[]));
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &route("AUTH", "10.1.0.0/16", 65001),
+                    JournalEntryOrigin::AuthChange,
+                    None,
+                    None,
+                )?;
+                tx.upsert_rpsl_object(
+                    &route("AUTH", "192.0.2.0/24", 64500),
+                    JournalEntryOrigin::AuthChange,
+                    None,
+                    None,
+                )
+            })
+            .expect("seed");
+        let mut ms = mirror_settings();
+        ms.scopefilter = rpki::ScopeFilterConfig {
+            prefixes: vec![IpPrefix::parse("10.0.0.0/8").expect("p")],
+            asns: [64500].into_iter().collect(),
+            ..Default::default()
+        };
+        run_scopefilter_update(&store, &ms);
+        let r = store.read().expect("read");
+        let v = r.view();
+        let got: Vec<ScopeFilterStatus> = v
+            .objects(Some("AUTH"), Some("route"))
+            .expect("objects")
+            .map(|i| i.expect("o").1.scopefilter_status)
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ScopeFilterStatus::OutScopePrefix,
+                ScopeFilterStatus::OutScopeAs
+            ]
+        );
+        drop(r);
+        let j = journal(&store, "AUTH");
+        assert_eq!(j.len(), 4);
+        assert!(j[2..].iter().all(|e| e.1 == DatabaseOperation::Delete && e.2 == JournalEntryOrigin::ScopeFilter));
+    }
+}

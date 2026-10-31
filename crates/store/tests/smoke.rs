@@ -411,3 +411,45 @@ fn prune_journal_and_roas_to_end_on_empty_source() {
     assert_eq!(globals, [11]);
     assert!(v.roas().expect("roas").is_empty());
 }
+
+// Regression: the first look-up of object_sources() used an empty LMDB
+// key, which LMDB rejects (MDB_BAD_VALSIZE), and the ROA import's
+// revalidation failed on it.
+#[test]
+fn object_sources_skips_from_source_to_source() {
+    let dir = TempDir::new("sources");
+    let store = open(&dir, settings(&[]));
+    assert!(
+        store
+            .read()
+            .expect("read")
+            .view()
+            .object_sources()
+            .expect("sources")
+            .is_empty()
+    );
+    store
+        .write(|tx| {
+            for (pk, source) in [
+                ("A", "TEST2"),
+                ("B", "TEST"),
+                ("C", "TEST"),
+                ("D", "TEST-X"),
+                ("E", "ZZ"),
+            ] {
+                tx.upsert_rpsl_object(
+                    &simple(pk, "mntner", source),
+                    JournalEntryOrigin::Mirror,
+                    None,
+                    None,
+                )?;
+            }
+            Ok(())
+        })
+        .expect("write");
+    let r = store.read().expect("read");
+    assert_eq!(
+        r.view().object_sources().expect("sources"),
+        vec!["TEST", "TEST-X", "TEST2", "ZZ"]
+    );
+}

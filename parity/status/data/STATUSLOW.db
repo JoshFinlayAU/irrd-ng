@@ -1,0 +1,29 @@
+route:          192.0.2.0/25
+descr:          More specific of a STATUSAUTH route
+origin:         AS65009
+source:         STATUSLOW
+
+route:          192.0.0.0/16
+descr:          Less specific of STATUSAUTH routes
+origin:         AS65008
+source:         STATUSLOW
+
+route:          198.51.100.0/24
+descr:          Same prefix as a STATUSAUTH route
+origin:         AS65007
+source:         STATUSLOW
+
+route6:         2001:db8:1::/48
+descr:          Inside a STATUSAUTH route6
+origin:         AS65009
+source:         STATUSLOW
+
+route:          100.64.1.0/24
+descr:          Inside an out of scope route
+origin:         AS65011
+source:         STATUSLOW
+
+route:          233.252.0.0/24
+descr:          Overlaps nothing
+origin:         AS65012
+source:         STATUSLOW

@@ -161,10 +161,13 @@ impl<'a> ReadView<'a> {
         let mut out = Vec::new();
         let mut from: Vec<u8> = Vec::new();
         loop {
-            let bounds = (
-                std::ops::Bound::Included(from.as_slice()),
-                std::ops::Bound::Unbounded,
-            );
+            // LMDB rejects an empty key, so the first look is unbounded.
+            let lower = if from.is_empty() {
+                std::ops::Bound::Unbounded
+            } else {
+                std::ops::Bound::Included(from.as_slice())
+            };
+            let bounds = (lower, std::ops::Bound::Unbounded);
             let Some(item) = self.t.objects_key.range(self.txn, &bounds)?.next() else {
                 break;
             };
