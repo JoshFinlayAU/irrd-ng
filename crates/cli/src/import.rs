@@ -17,6 +17,9 @@ use store::{Store, StoreOptions, StoreSettings};
 
 use crate::messages;
 
+/// The label of the import's whole-store load marker.
+const WHOLE_STORE_LABEL: &str = "<all>";
+
 struct Args {
     dsn: String,
     store: std::path::PathBuf,
@@ -104,7 +107,15 @@ fn import(args: &Args) -> anyhow::Result<()> {
         import_v4::messages::connecting(&import_v4::describe(&args.dsn))
     );
     let mut client = import_v4::connect(&args.dsn)?;
-    let store = Store::open(&StoreOptions::new(&args.store), StoreSettings::default())?;
+    // Bulk-load mode: no sync per commit, one at the end. The whole-store
+    // marker is durable while the import runs, so a store whose import was
+    // killed refuses to open instead of serving partial data.
+    let options = StoreOptions {
+        bulk_load: true,
+        ..StoreOptions::new(&args.store)
+    };
+    let store = Store::open(&options, StoreSettings::default())?;
+    let load = store.begin_whole_store_load(WHOLE_STORE_LABEL)?;
     let mut sink = StoreSink::with_batch_rows(&store, args.write_rows);
     let stats = import_v4::import(
         &mut client,
@@ -113,6 +124,7 @@ fn import(args: &Args) -> anyhow::Result<()> {
             batch_rows: args.batch_rows,
         },
     )?;
+    load.finish()?;
     for (table, n) in &stats.tables {
         println!("{table}\t{n}");
     }

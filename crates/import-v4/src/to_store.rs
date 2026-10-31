@@ -278,30 +278,11 @@ fn host(i: Inet, what: &str) -> Result<IpAddr, StoreSinkError> {
 }
 
 /// A `cidr` column. PostgreSQL guarantees zero host bits; checked anyway,
-/// and the prefix built directly rather than through `IpPrefix::new`, whose
-/// mask overflows for /128 (reported to the store).
+/// since `IpPrefix::new` would clear them silently.
 fn cidr(i: Inet, what: &str) -> Result<IpPrefix, StoreSinkError> {
-    let (value, bits) = match i.addr {
-        IpAddr::V4(a) => (u128::from(u32::from(a)), 32u32),
-        IpAddr::V6(a) => (u128::from(a), 128u32),
-    };
-    let len = u32::from(i.prefix_len);
-    let host_bits = bits.saturating_sub(len);
-    let host_mask = if host_bits == 0 {
-        0
-    } else {
-        u128::MAX >> (128 - host_bits)
-    };
-    if len > bits || value & host_mask != 0 {
-        return Err(StoreSinkError::Convert(messages::bad_value(
-            what,
-            &i.to_string(),
-        )));
-    }
-    Ok(IpPrefix {
-        addr: i.addr,
-        len: i.prefix_len,
-    })
+    IpPrefix::new(i.addr, i.prefix_len)
+        .filter(|p| p.addr == i.addr)
+        .ok_or_else(|| StoreSinkError::Convert(messages::bad_value(what, &i.to_string())))
 }
 
 fn narrow<T: TryFrom<i64>>(v: Option<i64>, what: &str) -> Result<Option<T>, StoreSinkError> {
