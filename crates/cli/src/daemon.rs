@@ -84,6 +84,22 @@ fn bind(interface: &str, port: u16, backlog: i32) -> std::io::Result<tokio::net:
     tokio::net::TcpListener::from_std(socket.into())
 }
 
+/// Log panics with a backtrace instead of printing them. A panic in a
+/// connection or request is contained by the caller; one in the store's
+/// single writer thread leaves the daemon unable to write, so it stops.
+pub(crate) fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("unnamed").to_owned();
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        tracing::error!(target: LOG_TARGET, "{}", messages::panicked(&name, &info.to_string(), &backtrace.to_string()));
+        if name == store::WRITER_THREAD_NAME {
+            tracing::error!(target: LOG_TARGET, critical = true, "{}", messages::WRITER_PANICKED);
+            std::process::exit(1);
+        }
+    }));
+}
+
 /// The `irrd` tool.
 pub(crate) fn run(args: &[OsString]) -> ExitCode {
     let a = match IRRD.parse(args.get(1..).unwrap_or_default()) {
@@ -99,6 +115,7 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
         }
     };
     logging::init(&cfg);
+    install_panic_hook();
     if !a.contains_key("foreground") {
         let has_log = settings::str_setting(&cfg, "log.logfile_path").is_some()
             || settings::str_setting(&cfg, "log.logging_config_path").is_some();

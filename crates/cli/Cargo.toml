@@ -27,5 +27,8 @@ store.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[dev-dependencies]
+query = { workspace = true, features = ["fault-injection"] }
+
 [lints]
 workspace = true
