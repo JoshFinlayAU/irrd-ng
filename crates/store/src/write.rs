@@ -1350,6 +1350,181 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         Ok(())
     }
 
+    // -----------------------------------------------------------------
+    // Pruning for the v4 importer: a re-import makes the store equal the
+    // source, deletions included. The big tables are pruned by key range,
+    // as a merge-join against the source's key-ordered stream: each call
+    // walks the store's keys in (after, max(keep)] (or to the end), in key
+    // order, and deletes every key not in `keep`. Small tables use a set
+    // difference through the `delete_*_raw` methods. Nothing is journaled:
+    // a re-import is not an NRTM change.
+    // -----------------------------------------------------------------
+
+    /// Delete `rpsl_objects` rows whose (source, class, rpsl_pk) lies in the
+    /// pruned range and is not in `keep`. Index entries go with them.
+    pub fn prune_rpsl_objects(
+        &mut self,
+        after: Option<&[u8]>,
+        keep: &[(&str, &str, &str)],
+        to_end: bool,
+    ) -> Result<Pruned> {
+        self.check_write_permitted()?;
+        let keys = keep.iter().map(|(s, c, p)| object_key(s, c, p)).collect();
+        let (doomed, through) = self.prune_scan(self.t.objects_key, after, keys, to_end)?;
+        for (_, v) in &doomed {
+            let id = u64::from_be_bytes(
+                v.as_slice()
+                    .try_into()
+                    .map_err(|_| StoreError::Corrupt("object id"))?,
+            );
+            let row = self.remove_row(id)?;
+            self.changed.object_classes.insert(row.object_class);
+        }
+        Ok(Pruned {
+            deleted: doomed.len() as u64,
+            through,
+        })
+    }
+
+    /// Delete journal entries whose (source, serial_nrtm) lies in the
+    /// pruned range and is not in `keep`.
+    pub fn prune_journal(
+        &mut self,
+        after: Option<&[u8]>,
+        keep: &[(&str, i64)],
+        to_end: bool,
+    ) -> Result<Pruned> {
+        self.check_write_permitted()?;
+        let keys = keep
+            .iter()
+            .map(|(s, n)| query::journal_key(s, *n))
+            .collect();
+        let (doomed, through) = self.prune_scan(self.t.journal, after, keys, to_end)?;
+        for (k, v) in &doomed {
+            let e: JournalEntryRef<'_> = decode(v)?;
+            let g = e.serial_global;
+            self.t.journal.delete(self.txn, k)?;
+            self.t.journal_global.delete(self.txn, &serial_bytes(g))?;
+        }
+        Ok(Pruned {
+            deleted: doomed.len() as u64,
+            through,
+        })
+    }
+
+    /// Delete ROAs whose key lies in the pruned range and is not in `keep`.
+    pub fn prune_roas(
+        &mut self,
+        after: Option<&[u8]>,
+        keep: &[&RoaRow],
+        to_end: bool,
+    ) -> Result<Pruned> {
+        self.check_write_permitted()?;
+        let keys = keep.iter().map(|r| roa_key(r)).collect();
+        let (doomed, through) = self.prune_scan(self.t.roa, after, keys, to_end)?;
+        for (k, _) in &doomed {
+            self.t.roa.delete(self.txn, k)?;
+        }
+        Ok(Pruned {
+            deleted: doomed.len() as u64,
+            through,
+        })
+    }
+
+    /// The key-ordered walk behind the `prune_*` methods: the (key, value)
+    /// pairs in (after, max(keep)] (or (after, end) with `to_end`) that are
+    /// not in `keep`, and the highest key the range covered.
+    fn prune_scan(
+        &self,
+        table: crate::env::Table,
+        after: Option<&[u8]>,
+        mut keep: Vec<Vec<u8>>,
+        to_end: bool,
+    ) -> Result<(Vec<KeyValue>, Option<Vec<u8>>)> {
+        use std::ops::Bound;
+        keep.sort_unstable();
+        let hi = if to_end { None } else { keep.last().cloned() };
+        if !to_end && hi.is_none() {
+            return Ok((Vec::new(), after.map(<[u8]>::to_vec)));
+        }
+        let lo = after.map_or(Bound::Unbounded, Bound::Excluded);
+        let up = hi.as_deref().map_or(Bound::Unbounded, Bound::Included);
+        let mut doomed = Vec::new();
+        for item in table.range(self.txn, &(lo, up))? {
+            let (k, v) = item?;
+            if keep.binary_search_by(|x| x.as_slice().cmp(k)).is_err() {
+                doomed.push((k.to_vec(), v.to_vec()));
+            }
+        }
+        let through = match (after, hi) {
+            (Some(a), Some(h)) => Some(if h.as_slice() > a { h } else { a.to_vec() }),
+            (a, h) => h.or_else(|| a.map(<[u8]>::to_vec)),
+        };
+        Ok((doomed, through))
+    }
+
+    /// Delete an `rpsl_objects_suspended` row by `pk`, with its index entries.
+    pub fn delete_suspended_object_raw(&mut self, pk: &Uuid) -> Result<bool> {
+        self.check_write_permitted()?;
+        let Some(b) = self.t.suspended.get(self.txn, pk.as_bytes())? else {
+            return Ok(false);
+        };
+        let row: SuspendedObjectRow = decode(b)?;
+        for m in &row.mntners {
+            self.t
+                .suspended_mntner
+                .delete(self.txn, &suspended_mntner_key(m, pk))?;
+        }
+        Ok(self.t.suspended.delete(self.txn, pk.as_bytes())?)
+    }
+
+    /// Delete a `protected_rpsl_name` row by `pk`, with its index entry.
+    pub fn delete_protected_name_raw(&mut self, pk: &Uuid) -> Result<bool> {
+        self.check_write_permitted()?;
+        let Some(b) = self.t.protected_name.get(self.txn, pk.as_bytes())? else {
+            return Ok(false);
+        };
+        let row: ProtectedNameRow = decode(b)?;
+        self.t
+            .protected_name_idx
+            .delete(self.txn, &protected_name_key(&row))?;
+        Ok(self.t.protected_name.delete(self.txn, pk.as_bytes())?)
+    }
+
+    /// Delete a `setting` row by name.
+    pub fn delete_setting_raw(&mut self, name: &str) -> Result<bool> {
+        self.check_write_permitted()?;
+        Ok(self.t.setting.delete(self.txn, name.as_bytes())?)
+    }
+
+    /// Delete an `auth_api_token` row by `pk`, with its token index entry.
+    pub fn delete_auth_api_token_raw(&mut self, pk: &Uuid) -> Result<bool> {
+        self.check_write_permitted()?;
+        let Some(b) = self.t.auth_api_token.get(self.txn, pk.as_bytes())? else {
+            return Ok(false);
+        };
+        let old: AuthApiTokenRow = decode(b)?;
+        if let Some(tok) = old.token {
+            self.t.api_token_idx.delete(self.txn, tok.as_bytes())?;
+        }
+        Ok(self.t.auth_api_token.delete(self.txn, pk.as_bytes())?)
+    }
+
+    /// Delete a row of an auth table without secondary indexes
+    /// (`auth_user`, `auth_permission`, `auth_mntner`, `auth_webauthn`,
+    /// `change_log`) by `pk`.
+    pub fn delete_auth_row_raw(&mut self, table: AuthTable, pk: &Uuid) -> Result<bool> {
+        self.check_write_permitted()?;
+        let t = match table {
+            AuthTable::User => self.t.auth_user,
+            AuthTable::Permission => self.t.auth_permission,
+            AuthTable::Mntner => self.t.auth_mntner,
+            AuthTable::Webauthn => self.t.auth_webauthn,
+            AuthTable::ChangeLog => self.t.change_log,
+        };
+        Ok(t.delete(self.txn, pk.as_bytes())?)
+    }
+
     /// Empty every data table (not `meta`), for a clean re-import.
     pub fn clear_all_data(&mut self) -> Result<()> {
         self.check_write_permitted()?;
@@ -1450,4 +1625,33 @@ pub(crate) fn protected_name_key(row: &ProtectedNameRow) -> Vec<u8> {
     push_str(&mut k, row.protected_name.as_bytes());
     k.extend_from_slice(row.pk.as_bytes());
     k
+}
+
+/// A raw (key, value) pair from a table walk.
+type KeyValue = (Vec<u8>, Vec<u8>);
+
+/// What a `prune_*` call did: rows deleted, and the highest store key its
+/// range covered, to pass as `after` to the next call.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pruned {
+    /// Rows deleted.
+    pub deleted: u64,
+    /// The highest key covered so far (opaque).
+    pub through: Option<Vec<u8>>,
+}
+
+/// The auth tables without secondary indexes, for
+/// [`WriteTx::delete_auth_row_raw`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthTable {
+    /// `auth_user`
+    User,
+    /// `auth_permission`
+    Permission,
+    /// `auth_mntner`
+    Mntner,
+    /// `auth_webauthn`
+    Webauthn,
+    /// `change_log`
+    ChangeLog,
 }

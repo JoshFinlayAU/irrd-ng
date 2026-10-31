@@ -252,16 +252,20 @@ impl Store {
     /// or dropped, so only a crash or kill leaves it behind; the next
     /// read-write open then sets the source's `force_reload` and logs.
     pub fn begin_bulk_load(&self, source: &str) -> Result<BulkLoad> {
-        self.begin_marker(crate::env::source_marker_key(source), source)
+        self.begin_marker(crate::env::source_marker_key(source), source, false)
     }
 
-    /// Start a bulk load of the whole store (the v4 import). A leftover
-    /// mark makes every later open fail with [`StoreError::LoadIncomplete`].
+    /// Start a bulk load of the whole store (the v4 import). Only
+    /// [`BulkLoad::finish`] clears the mark: dropping the guard any other
+    /// way (an error, a panic, an early return) syncs what was written but
+    /// leaves the mark, as a crash or kill would, so a partial import is
+    /// never served. A leftover mark makes every later open fail with
+    /// [`StoreError::LoadIncomplete`].
     pub fn begin_whole_store_load(&self, label: &str) -> Result<BulkLoad> {
-        self.begin_marker(env::META_LOAD_INCOMPLETE.to_vec(), label)
+        self.begin_marker(env::META_LOAD_INCOMPLETE.to_vec(), label, true)
     }
 
-    fn begin_marker(&self, key: Vec<u8>, value: &str) -> Result<BulkLoad> {
+    fn begin_marker(&self, key: Vec<u8>, value: &str, whole_store: bool) -> Result<BulkLoad> {
         let k = key.clone();
         let v = value.as_bytes().to_vec();
         self.write(move |tx| tx.set_meta(&k, &v))?;
@@ -269,6 +273,7 @@ impl Store {
         Ok(BulkLoad {
             store: self.clone(),
             key: Some(key),
+            whole_store,
         })
     }
 
@@ -285,6 +290,8 @@ impl Store {
 pub struct BulkLoad {
     store: Store,
     key: Option<Vec<u8>>,
+    /// A whole-store load keeps its mark unless finished.
+    whole_store: bool,
 }
 
 impl BulkLoad {
@@ -310,10 +317,18 @@ impl BulkLoad {
 }
 
 impl Drop for BulkLoad {
-    /// Error paths end the load too: committed work is synced and the
-    /// mark cleared while the process is alive.
+    /// Dropped without [`BulkLoad::finish`]. A per-source load ends here
+    /// too: committed work is synced and the mark cleared. A whole-store
+    /// load syncs what was written and keeps the mark, so the store
+    /// refuses to open until it is re-imported.
     fn drop(&mut self) {
-        if let Err(e) = self.end() {
+        let r = if self.whole_store {
+            self.key = None;
+            self.store.sync()
+        } else {
+            self.end()
+        };
+        if let Err(e) = r {
             tracing::error!(target: crate::env::LOG_TARGET, "{e}");
         }
     }

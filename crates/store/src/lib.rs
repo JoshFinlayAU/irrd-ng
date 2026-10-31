@@ -40,4 +40,4 @@ pub use read::{ObjectId, ReadTx, ReadView};
 pub use records::{JournalEntryRef, RpslObjectRef, SetMembers};
 pub use settings::{SourceSettings, StoreSettings};
 pub use store::{BulkLoad, Store, StoreInfo};
-pub use write::{ChangedObjects, RoutePreferenceHook, WriteTx};
+pub use write::{AuthTable, ChangedObjects, Pruned, RoutePreferenceHook, WriteTx};

@@ -216,3 +216,198 @@ fn leftover_whole_store_marker_refuses() {
         assert!(e.to_string().contains("incomplete bulk load"));
     }
 }
+
+#[test]
+fn whole_store_load_dropped_on_error_keeps_marker() {
+    let dir = TempDir::new("bulkwholedrop");
+    {
+        let store = store::Store::open(&bulk_options(&dir), status_settings()).expect("open");
+        let bulk = store.begin_whole_store_load("<all>").expect("begin");
+        store
+            .write(|tx| {
+                tx.upsert_rpsl_object(
+                    &simple("AS-X", "as-set", "RADB"),
+                    JournalEntryOrigin::Mirror,
+                    None,
+                    None,
+                )
+            })
+            .expect("write");
+        // An error path: the guard is dropped without finish().
+        drop(bulk);
+    }
+    let e = store::Store::open(&bulk_options(&dir), status_settings()).expect_err("incomplete");
+    assert!(
+        matches!(e, store::StoreError::LoadIncomplete { ref load_source, .. } if load_source == "<all>")
+    );
+}
+
+#[test]
+fn finished_whole_store_load_opens() {
+    let dir = TempDir::new("bulkwholeok");
+    {
+        let store = store::Store::open(&bulk_options(&dir), status_settings()).expect("open");
+        let bulk = store.begin_whole_store_load("<all>").expect("begin");
+        bulk.finish().expect("finish");
+    }
+    drop(open(&dir, status_settings()));
+}
+
+/// Raw rows for the prune tests.
+fn raw_object(source: &str, class: &str, pk: &str) -> store::RpslObjectRow {
+    store::RpslObjectRow {
+        pk: store::Uuid::new_v4(),
+        rpsl_pk: pk.to_owned(),
+        source: source.to_owned(),
+        object_class: class.to_owned(),
+        parsed_data: store::Json::canonical(r#"{"mnt-by": ["MNT-P"]}"#).expect("json"),
+        object_text: format!("{class}: {pk}\nmnt-by: MNT-P\nsource: {source}\n"),
+        ip_version: None,
+        ip_first: None,
+        ip_last: None,
+        prefix_length: None,
+        prefix: None,
+        asn_first: None,
+        asn_last: None,
+        rpki_status: store::RpkiStatus::NotFound,
+        scopefilter_status: store::ScopeFilterStatus::InScope,
+        route_preference_status: store::RoutePreferenceStatus::Visible,
+        created: store::Timestamp(0),
+        updated: store::Timestamp(0),
+    }
+}
+
+fn keys(store: &store::Store) -> Vec<String> {
+    let r = store.read().expect("r");
+    r.view()
+        .objects(None, None)
+        .expect("objects")
+        .map(|o| {
+            let (_, o) = o.expect("o");
+            format!("{}/{}/{}", o.source, o.object_class, o.rpsl_pk)
+        })
+        .collect()
+}
+
+#[test]
+fn prune_objects_by_key_range() {
+    let dir = TempDir::new("prune");
+    let store = open(&dir, status_settings());
+    store
+        .write(|tx| {
+            for (s, c, p) in [
+                ("A", "mntner", "M1"),
+                ("A", "mntner", "M2"),
+                ("A", "person", "P1"),
+                ("B", "mntner", "M1"),
+                ("B", "mntner", "M3"),
+                ("C", "route", "R1"),
+            ] {
+                tx.put_rpsl_object(&raw_object(s, c, p))?;
+            }
+            Ok(())
+        })
+        .expect("seed");
+    // First source batch keeps A/mntner/M1 and A/person/P1: A/mntner/M2,
+    // inside the range, goes; B and C, beyond it, stay for now.
+    let p1 = store
+        .write(|tx| {
+            tx.prune_rpsl_objects(None, &[("A", "mntner", "M1"), ("A", "person", "P1")], false)
+        })
+        .expect("prune 1");
+    assert_eq!(p1.deleted, 1);
+    assert_eq!(
+        keys(&store),
+        [
+            "A/mntner/M1",
+            "A/person/P1",
+            "B/mntner/M1",
+            "B/mntner/M3",
+            "C/route/R1"
+        ]
+    );
+    // An empty batch moves nothing.
+    let after = p1.through.clone();
+    let p2 = store
+        .write(move |tx| tx.prune_rpsl_objects(after.as_deref(), &[], false))
+        .expect("prune empty");
+    assert_eq!((p2.deleted, &p2.through), (0, &p1.through));
+    // The last batch keeps B/mntner/M3, then the end of the stream drops
+    // everything after it.
+    let after = p1.through.clone();
+    let p3 = store
+        .write(move |tx| tx.prune_rpsl_objects(after.as_deref(), &[("B", "mntner", "M3")], false))
+        .expect("prune 3");
+    assert_eq!(p3.deleted, 1);
+    let after = p3.through.clone();
+    let p4 = store
+        .write(move |tx| tx.prune_rpsl_objects(after.as_deref(), &[], true))
+        .expect("prune end");
+    assert_eq!(p4.deleted, 1);
+    assert_eq!(keys(&store), ["A/mntner/M1", "A/person/P1", "B/mntner/M3"]);
+    // Index entries went with the rows.
+    let r = store.read().expect("r");
+    assert_eq!(
+        r.view()
+            .ids_by_lookup("mnt-by", Some("MNT-P"))
+            .expect("l")
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn prune_journal_and_roas_to_end_on_empty_source() {
+    let dir = TempDir::new("prunejr");
+    let store = open(&dir, status_settings());
+    store
+        .write(|tx| {
+            for (n, g) in [(1, 10), (2, 11), (3, 12)] {
+                tx.put_journal_entry(&store::JournalEntry {
+                    pk: store::Uuid::new_v4(),
+                    serial_global: g,
+                    rpsl_pk: "AS-X".into(),
+                    source: "A".into(),
+                    origin: JournalEntryOrigin::Mirror,
+                    serial_nrtm: n,
+                    operation: store::DatabaseOperation::AddOrUpdate,
+                    object_class: "as-set".into(),
+                    object_text: "as-set: AS-X\n".into(),
+                    timestamp: store::Timestamp(0),
+                })?;
+            }
+            for len in [24u8, 25] {
+                tx.put_roa(&store::RoaRow {
+                    pk: store::Uuid::new_v4(),
+                    prefix: store::IpPrefix::new("192.0.2.0".parse().expect("ip"), len).expect("p"),
+                    asn: 65000,
+                    max_length: 25,
+                    trust_anchor: None,
+                    ip_version: 4,
+                    created: store::Timestamp(0),
+                })?;
+            }
+            Ok(())
+        })
+        .expect("seed");
+    let (j, r) = store
+        .write(|tx| {
+            let j = tx.prune_journal(None, &[("A", 2)], true)?;
+            let r = tx.prune_roas(None, &[], true)?;
+            Ok((j.deleted, r.deleted))
+        })
+        .expect("prune");
+    assert_eq!((j, r), (2, 2));
+    let rt = store.read().expect("r");
+    let v = rt.view();
+    assert!(v.journal_entry("A", 2).expect("j").is_some());
+    assert!(v.journal_entry("A", 1).expect("j").is_none());
+    // The serial_global index lost the deleted entries too.
+    let globals: Vec<i64> = v
+        .journal_by_serial_global(0)
+        .expect("g")
+        .map(|e| e.expect("e").serial_global)
+        .collect();
+    assert_eq!(globals, [11]);
+    assert!(v.roas().expect("roas").is_empty());
+}
