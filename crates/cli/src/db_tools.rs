@@ -18,12 +18,14 @@ const CONFIG_OPT: Opt = Opt {
     dest: "config_file_path",
     required: false,
     int: false,
+    store_true: false,
 };
 const SOURCE_OPT: Opt = Opt {
     flag: "--source",
     dest: "source",
     required: true,
     int: false,
+    store_true: false,
 };
 
 const LOAD: Parser = Parser {
@@ -37,6 +39,7 @@ const LOAD: Parser = Parser {
             dest: "serial",
             required: false,
             int: true,
+            store_true: false,
         },
         SOURCE_OPT,
     ],
@@ -62,6 +65,7 @@ const UPGRADE: Parser = Parser {
             dest: "version",
             required: false,
             int: false,
+            store_true: false,
         },
     ],
     positionals: &[],
@@ -78,6 +82,7 @@ const DOWNGRADE: Parser = Parser {
             dest: "version",
             required: true,
             int: false,
+            store_true: false,
         },
     ],
     positionals: &[],
@@ -94,12 +99,14 @@ const EXPORT: Parser = Parser {
             dest: "table",
             required: true,
             int: false,
+            store_true: false,
         },
         Opt {
             flag: "--output-dir",
             dest: "output_dir",
             required: false,
             int: false,
+            store_true: false,
         },
     ],
     positionals: &[],

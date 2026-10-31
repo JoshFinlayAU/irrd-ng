@@ -18,6 +18,8 @@ pub(crate) struct Opt {
     pub(crate) required: bool,
     /// `type=int`
     pub(crate) int: bool,
+    /// `action="store_true"`: takes no value; present as `"true"`.
+    pub(crate) store_true: bool,
 }
 
 /// A parser definition.
@@ -151,6 +153,17 @@ impl Parser {
                 extras.push(a.clone());
                 continue;
             };
+            if opt.store_true {
+                if let Some(v) = inline {
+                    return self.error(&format!(
+                        "argument {}: ignored explicit argument {}",
+                        self.display(&opt),
+                        config::str_repr(&v)
+                    ));
+                }
+                values.insert(opt.dest, "true".to_owned());
+                continue;
+            }
             let value = match inline {
                 Some(v) => v,
                 None => {
