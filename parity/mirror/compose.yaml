@@ -8,10 +8,12 @@ name: irrd-mirror-diff
 
 x-v4: &v4
   image: irrd-ng-parity/irrd-v4:4.5.4
-  user: root
   environment:
     IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
-  mem_limit: 1g
+    # requests (v4) and irrd-ng both trust this bundle instead of the
+    # built-in one: the harness's own CA for https://files.
+    REQUESTS_CA_BUNDLE: /tls/ca.pem
+  mem_limit: 3g
 
 services:
   postgres:
@@ -44,9 +46,10 @@ services:
   files:
     image: irrd-ng-parity/irrd-v4:4.5.4
     user: root
-    entrypoint: ["/opt/irrd/bin/python", "-u", "/harness/files_server.py", "/srv", "/overlay"]
+    entrypoint: ["/opt/irrd/bin/python", "-u", "/harness/files_server.py", "/srv", "/overlay", "/tls/files.pem", "/tls/files.key"]
     volumes:
       - ./files_server.py:/harness/files_server.py:ro
+      - ${WORK}/tls:/tls:ro
       - ${WORK}/srv:/srv:ro
       - ${WORK}/overlay:/overlay:ro
     mem_limit: 256m
@@ -68,6 +71,7 @@ services:
     volumes:
       - ${WORK}/mirror-v4:/etc/irrd
       - ${WORK}/srv/exports:/exports:ro
+      - ${WORK}/tls:/tls:ro
     ports: ["127.0.0.1:9644:8043", "127.0.0.1:9681:8080"]
 
   irrd-ng:
@@ -78,7 +82,9 @@ services:
     environment:
       IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
       IRRD_NG_STORE_PATH: /data
+      REQUESTS_CA_BUNDLE: /tls/ca.pem
     volumes:
+      - ${WORK}/tls:/tls:ro
       - ${WORK}/irrd-ng:/etc/irrd:ro
       - ${WORK}/srv/exports:/exports:ro
       - ${WORK}/ng-data:/data

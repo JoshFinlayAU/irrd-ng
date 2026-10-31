@@ -543,3 +543,8 @@ pub const NRTM_OPERATION_TEXT_OR_PK: &str = "Operation must have object text or 
 
 /// `OverflowError` from the socket module for a port out of range.
 pub const PORT_RANGE: &str = "getsockaddrarg: port must be 0-65535.";
+
+/// `requests`: `REQUESTS_CA_BUNDLE` names nothing usable.
+pub fn invalid_ca_bundle(path: &str) -> String {
+    format!("Could not find a suitable TLS CA certificate bundle, invalid path: {path}")
+}

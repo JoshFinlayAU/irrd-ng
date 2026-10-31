@@ -78,6 +78,20 @@ irrd-ng irrd --config irrd.yaml --foreground
 
 Whois connections are served like v4's fixed worker pool: every connection is accepted and waits for one of `server.whois.max_connections` slots, rather than being refused. A panic while answering a query is contained to that query: it is logged with the query, and the client gets v4's internal error, exactly as if v4's code had raised an exception there.
 
+## Mirroring
+
+The mirroring client is v4's scheduler and runners with the processes turned into tasks. Every three seconds the scheduler starts an import task for each mirrored source whose `import_timer` has expired and that has no task running, at most one new source per round, in configuration order, exactly as v4's `MirrorScheduler` does. `IRRD_TESTING_FAST_SCHEDULER_OVERRIDE` shortens the timers as it does in v4.
+
+A run makes the same decision v4 makes (NRTMv4 if a notification file URL is set; otherwise a full import when `force_reload` is set, no serial is known yet or NRTMv3 is off; otherwise NRTMv3) and has the same all-or-nothing outcome. v4 does each run in one database transaction and rolls it back on any error, mirror errors recorded on the way included. irrd-ng splits the run instead:
+
+1. **Fetch.** All network I/O first: downloads to temporary files (HTTP and HTTPS through reqwest with rustls, FTP through suppaftp, `file://` read in place), gunzip, SHA-256 checks for NRTMv4 files, the NRTMv3 whois query.
+2. **Parse.** Outside any write transaction, on all cores. Large inputs (full imports, NRTMv4 snapshots) are read a block at a time and parsed rows go to a temporary spool file, so memory stays bounded however big the source.
+3. **Write.** One write transaction applies everything, from the spool or from the prepared NRTM operations, and the store's `DatabaseStatusTracker` port updates `database_status` (including `rpsl_data_updated`) at commit as v4's does. A failure in steps 1 or 2 writes nothing, as v4's rollback does. Full imports are written in key order, like `irrd_load_database`; NRTMv4 snapshots keep file order, because v4 journals the tail of its upsert buffer after re-enabling journaling and the order decides which objects that is.
+
+The static build never touches libc's resolver: names are resolved by hickory from `/etc/hosts` and `/etc/resolv.conf`, and TLS trusts the Mozilla roots compiled into the binary, the way v4's `requests` trusts certifi's bundle. `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` replace the bundle as they do for v4. The differential runs the musl binary in an empty `FROM scratch` image to prove it.
+
+Signatures on NRTMv4 Update Notification Files are ES256 JWS, verified with the pure-Rust `p256` crate; the error texts are joserfc's. pydantic's validation of the notification file and the snapshot and delta headers is reproduced with its error messages, because v4 logs them.
+
 ## Getting into irrd-ng from v4
 
 `irrd-ng import --from-postgres <dsn>` is a one-shot, read-only migration from a v4 4.5.x database. It checks the alembic revision first and refuses anything that isn't 4.5. It reads inside a read-only, repeatable-read transaction so it sees one consistent snapshot, streams in batches so memory stays bounded, and writes with the same upsert semantics, so running it twice changes nothing.

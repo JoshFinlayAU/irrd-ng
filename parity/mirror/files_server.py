@@ -2,9 +2,10 @@
 """Serve the upstream's exports and NRTMv4 files over HTTP (port 80) and
 FTP (port 21) for the mirroring differential.
 
-    files_server.py <root> <overlay>
+    files_server.py <root> <overlay> [<cert> <key>]
 
-GET /<path> and FTP RETR <path> read <overlay>/<path> if it exists, else
+With a certificate, HTTPS is served on 443 as well. GET /<path> and FTP
+RETR <path> read <overlay>/<path> if it exists, else
 <root>/<path>. The harness puts tampered files in the overlay (a broken
 delta, an expired Update Notification File) without touching what the
 upstream wrote. The FTP server is the minimum urllib's FTP client uses:
@@ -117,4 +118,12 @@ class ThreadingTCP(socketserver.ThreadingMixIn, socketserver.TCPServer):
 if __name__ == "__main__":
     ftp = ThreadingTCP(("0.0.0.0", 21), Ftp)
     threading.Thread(target=ftp.serve_forever, daemon=True).start()
+    if len(sys.argv) > 4:
+        import ssl
+
+        https = http.server.ThreadingHTTPServer(("0.0.0.0", 443), Http)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(sys.argv[3], sys.argv[4])
+        https.socket = ctx.wrap_socket(https.socket, server_side=True)
+        threading.Thread(target=https.serve_forever, daemon=True).start()
     http.server.ThreadingHTTPServer(("0.0.0.0", 80), Http).serve_forever()

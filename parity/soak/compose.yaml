@@ -1,0 +1,58 @@
+# 7-day mirroring soak (PLAN.md Phase 4 exit): IRRd v4 4.5.4 and irrd-ng
+# mirror the same public upstreams side by side, on the parity VM.
+# Started and checked by parity/soak/mirror-soak.sh. Every process has a
+# memory cap; the VM has 32 GB and runs other workloads.
+name: irrd-mirror-soak
+
+services:
+  postgres:
+    image: postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_USER: irrd
+      POSTGRES_PASSWORD: irrd
+      POSTGRES_DB: irrd
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_wal_size=4GB"]
+    volumes: [pgdata:/var/lib/postgresql]
+    mem_limit: 4g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "irrd"]
+      interval: 5s
+      retries: 30
+
+  redis:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+    mem_limit: 1g
+    restart: unless-stopped
+
+  irrd-v4:
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    volumes:
+      - ${SOAK}/v4:/etc/irrd:ro
+    mem_limit: 6g
+    restart: unless-stopped
+
+  irrd-ng:
+    image: irrd-mirror-soak/irrd-ng:local
+    build:
+      context: ${SOAK}/irrd-ng-image
+    command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
+    environment:
+      IRRD_NG_STORE_PATH: /data
+    volumes:
+      - ${SOAK}/irrd-ng:/etc/irrd:ro
+      - ngdata:/data
+      - ${SOAK}/ng-out:/out
+      # Downloads and the import spool go to disk, not to memory.
+      - ngtmp:/tmp
+    tmpfs: [/run/irrd]
+    mem_limit: 6g
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ngdata:
+  ngtmp:

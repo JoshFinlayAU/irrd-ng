@@ -151,14 +151,51 @@ impl reqwest::dns::Resolve for DnsResolver {
     }
 }
 
+/// The trust anchors `requests` uses: the bundle named by
+/// `REQUESTS_CA_BUNDLE` or `CURL_CA_BUNDLE` (a PEM file, or a directory of
+/// them) when set, otherwise its built-in Mozilla bundle.
+fn root_store() -> Result<rustls::RootCertStore, PyErr> {
+    use rustls::pki_types::CertificateDer;
+    use rustls::pki_types::pem::PemObject as _;
+    let bundle = ["REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .find(|v| !v.is_empty());
+    let Some(bundle) = bundle else {
+        return Ok(rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        });
+    };
+    let path = std::path::PathBuf::from(&bundle);
+    let invalid = || PyErr::Os(messages::invalid_ca_bundle(&path.to_string_lossy()));
+    let files: Vec<std::path::PathBuf> = if path.is_dir() {
+        std::fs::read_dir(&path)
+            .map_err(|_| invalid())?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect()
+    } else if path.is_file() {
+        vec![path.clone()]
+    } else {
+        return Err(invalid());
+    };
+    let mut store = rustls::RootCertStore::empty();
+    for f in files {
+        let Ok(bytes) = std::fs::read(&f) else {
+            continue;
+        };
+        for cert in CertificateDer::pem_slice_iter(&bytes).flatten() {
+            let _ = store.add(cert);
+        }
+    }
+    Ok(store)
+}
+
 /// The HTTP client: `requests.get(url, stream=True, timeout=t,
 /// headers={"User-Agent": HTTP_USER_AGENT})`. The timeout applies to
 /// connecting and to each read, as in `requests`.
 pub fn http_client(timeout: Duration) -> Result<reqwest::Client, PyErr> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let roots = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
+    let roots = root_store()?;
     let tls = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| PyErr::Other(e.to_string()))?

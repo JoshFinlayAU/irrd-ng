@@ -15,7 +15,8 @@
 # Upstream sources:
 #   UPA  NRTMv3 (whois -g) plus HTTP export and serial: the mirrors do a
 #        full import over HTTP, then follow NRTMv3, with keep_journal.
-#   UPB  NRTMv4 server; the mirrors are NRTMv4 clients (HTTP).
+#   UPB  NRTMv4 server; the mirrors are NRTMv4 clients over HTTPS, trusting
+#        the harness's CA through REQUESTS_CA_BUNDLE.
 #   UPC  export only, over FTP (gzipped), with an object_class_filter.
 #   UPD  export only, read from local files (file://, gzipped).
 #
@@ -62,8 +63,8 @@ common_config() {
   redis_url: redis://$2
   piddir: /run/irrd
   server:
-    http: {interface: 0.0.0.0, port: 8080, url: "http://localhost:8080/"}
-    whois: {interface: 0.0.0.0, port: 8043, max_connections: 10}
+    http: {interface: 0.0.0.0, port: 8080, url: "http://localhost:8080/", workers: 1}
+    whois: {interface: 0.0.0.0, port: 8043, max_connections: 3}
   access_lists:
     all: [0.0.0.0/0, "::/0"]
   auth:
@@ -117,7 +118,7 @@ $(common_config mirror redis-mirror)
       import_timer: 2
       keep_journal: true
     UPB:
-      nrtm4_client_notification_file_url: http://files/nrtm4/UPB/update-notification-file.jose
+      nrtm4_client_notification_file_url: https://files/nrtm4/UPB/update-notification-file.jose
       nrtm4_client_initial_public_key: |
 $(printf '%s\n' "$PUB_A" | indent)
       import_timer: 2
@@ -261,8 +262,11 @@ main() {
     docker run --rm --user root --entrypoint sh -v "$WORK:/w" "$V4_IMAGE" -c 'rm -rf /w/* /w/.[!.]*' 2>/dev/null || true
     rm -rf "$WORK" 2>/dev/null || true
   fi
-  mkdir -p "$WORK"/{data,srv/exports,srv/nrtm4/UPB,overlay,ng-data,ng-out,irrd-ng-image,compare,logs}
+  mkdir -p "$WORK"/{data,srv/exports,srv/nrtm4/UPB,overlay,ng-data,ng-out,irrd-ng-image,compare,logs,tls}
   chmod -R a+rwX "$WORK"
+  docker run --rm --user "$(id -u)" --entrypoint /opt/irrd/bin/python -v "$HERE:/harness:ro" \
+    -v "$WORK/tls:/tls" "$V4_IMAGE" /harness/make_cert.py /tls
+  chmod a+r "$WORK"/tls/*
   trap cleanup EXIT
 
   cp "$BIN" "$WORK/irrd-ng-image/irrd-ng"
