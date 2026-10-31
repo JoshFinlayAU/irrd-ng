@@ -69,7 +69,9 @@ Preloader(enable_queries=False).signal_reload()"
 }
 
 start_ng() {
-  pkill -f "$ngbin irrd --config $run/ng/irrd.yaml" 2>/dev/null || true
+  if [[ -f $run/ng/pid ]] && kill -0 "$(cat "$run/ng/pid")" 2>/dev/null && answers 8043; then
+    echo "irrd-ng: already running, pid $(cat "$run/ng/pid")"; return
+  fi
   render "$run/ng/irrd.yaml" postgresql://unused/irrd redis://unused "$run/ng" 8080 8043
   IRRD_NG_STORE_PATH=$store nohup "$ngbin" irrd --config "$run/ng/irrd.yaml" --foreground > "$run/ng/irrd-ng.log" 2>&1 &
   echo $! > "$run/ng/pid"

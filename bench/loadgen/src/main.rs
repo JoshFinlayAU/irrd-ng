@@ -270,6 +270,12 @@ fn worker(args: Arc<Args>, id: usize, start: Instant) -> BTreeMap<String, Stats>
     } {
         done += 1;
         let entry = pick(&args.mix, total, &mut rng);
+        // One connection per worker at most: a keepalive session left open
+        // while this worker asks single queries would hold one of the
+        // server's max_connections slots idle.
+        if !entry.keepalive {
+            session = None;
+        }
         for q in &entry.queries {
             let t0 = Instant::now();
             let res = if entry.keepalive {
