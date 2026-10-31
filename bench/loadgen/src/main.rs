@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! loadgen --target HOST:PORT --mix FILE [--concurrency N] [--duration S]
-//!         [--warmup S] [--timeout S] [--seed N]
+//!         [--warmup S] [--timeout S] [--seed N] [--count N]
 //! ```
 //!
 //! The mix file has one entry per line, `weight<TAB>class<TAB>mode<TAB>query`:
@@ -18,7 +18,8 @@
 //! Each worker thread picks entries by weight with its own seeded PRNG, so a
 //! run is reproducible, sends one query, waits for the full answer, records
 //! the latency, and repeats until the deadline. Latencies during `--warmup`
-//! are discarded. The report is one JSON object on stdout: per class and in
+//! are discarded. With `--count N` each worker runs exactly N mix entries
+//! instead of running until the deadline (for timing single commands). The report is one JSON object on stdout: per class and in
 //! total, completed queries, errors, bytes, QPS and p50/p90/p99/max in
 //! microseconds.
 
@@ -55,10 +56,11 @@ struct Args {
     warmup: Duration,
     timeout: Duration,
     seed: u64,
+    count: Option<u64>,
 }
 
 fn usage() -> String {
-    "usage: loadgen --target HOST:PORT --mix FILE [--concurrency N] [--duration S] [--warmup S] [--timeout S] [--seed N]".to_string()
+    "usage: loadgen --target HOST:PORT --mix FILE [--concurrency N] [--duration S] [--warmup S] [--timeout S] [--seed N] [--count N]".to_string()
 }
 
 fn parse_mix(path: &str) -> Result<Vec<Entry>, String> {
@@ -120,6 +122,7 @@ fn parse_args() -> Result<Args, String> {
     let mut warmup = 5f64;
     let mut timeout = 120f64;
     let mut seed = 1u64;
+    let mut count = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut val = || it.next().ok_or_else(usage);
@@ -134,6 +137,7 @@ fn parse_args() -> Result<Args, String> {
             "--warmup" => warmup = val()?.parse().map_err(|_| usage())?,
             "--timeout" => timeout = val()?.parse().map_err(|_| usage())?,
             "--seed" => seed = val()?.parse().map_err(|_| usage())?,
+            "--count" => count = Some(val()?.parse().map_err(|_| usage())?),
             _ => return Err(usage()),
         }
     }
@@ -145,6 +149,7 @@ fn parse_args() -> Result<Args, String> {
         warmup: Duration::from_secs_f64(warmup),
         timeout: Duration::from_secs_f64(timeout),
         seed,
+        count,
     })
 }
 
@@ -258,7 +263,12 @@ fn worker(args: Arc<Args>, id: usize, start: Instant) -> BTreeMap<String, Stats>
     let total: u64 = args.mix.iter().map(|e| u64::from(e.weight)).sum();
     let mut session: Option<Session> = None;
     let deadline = start + args.warmup + args.duration;
-    while Instant::now() < deadline {
+    let mut done = 0u64;
+    while match args.count {
+        Some(n) => done < n,
+        None => Instant::now() < deadline,
+    } {
+        done += 1;
         let entry = pick(&args.mix, total, &mut rng);
         for q in &entry.queries {
             let t0 = Instant::now();

@@ -1,0 +1,26 @@
+# Extra HTTP requests for the http suite (METHOD<TAB>PATH), beyond the
+# /v1/whois/?q= replay of the whois corpus. Only Phase 3 surfaces: /,
+# /v1/whois and error paths. Other endpoints come with their phases.
+GET	/
+HEAD	/
+POST	/
+PUT	/
+DELETE	/
+GET	/v1/whois
+GET	/v1/whois/
+GET	/v1/whois/?q=
+GET	/v1/whois/?Q=!v
+GET	/v1/whois/?q=!v&q=!gAS64496
+GET	/v1/whois/?q=!v&x=1
+GET	/v1/whois/?q=%00
+GET	/v1/whois/?q=%ff%fe
+GET	/v1/whois/?q=!v#frag
+HEAD	/v1/whois/?q=!v
+POST	/v1/whois/?q=!v
+PUT	/v1/whois/?q=!v
+DELETE	/v1/whois/?q=!v
+OPTIONS	/v1/whois/?q=!v
+GET	/v1/whois//?q=!v
+GET	/V1/WHOIS/?q=!v
+GET	/nonexistent
+GET	/v1/

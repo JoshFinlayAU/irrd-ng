@@ -38,6 +38,8 @@ services:
       - ${PARITY_V4_CONFIG:-./v4/irrd.yaml}:/etc/irrd/irrd.yaml:ro
       # Dumps and Tier 1 fixtures for irrd_load_database (parity/load.sh).
       - ${PARITY_CACHE:-./.cache}:/cache:ro
+      # Synthetic sources committed with the corpus (corpus/whois/data/).
+      - ./corpus/whois/data:/synthetic:ro
     ports:
       - "127.0.0.1:9043:8043"
       - "127.0.0.1:9080:8080"

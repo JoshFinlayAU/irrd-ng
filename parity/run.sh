@@ -86,7 +86,7 @@ run_suite() {
   [[ -n $out && $suite == all ]] && o=$out/$s
   echo "== suite $s: v4 $r vs $t"
   python3 -I tools/whois_diff.py --suite "$s" --corpus "$corpus" --ref "$r" --test "$t" --out "$o" \
-    --unordered corpus/whois/unordered.tsv "${extra[@]}" \
+    --unordered corpus/whois/unordered.tsv --requests corpus/http/requests.tsv "${extra[@]}" \
     || status=1
 }
 case $suite in

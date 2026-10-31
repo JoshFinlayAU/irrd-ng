@@ -4,6 +4,10 @@
 # Runs on the Tier 2 VM after parity/tier2/setup.sh; see bench/README.md.
 #
 #   bench/load.sh [--concurrency "4 10"] [--duration S] [--warmup S] [--servers "v4 ng"]
+#                 [--big-set AS-SET ...]
+#
+# Each --big-set is also timed alone, unloaded: !a4, !a6 and !i<set>,1 over
+# one keepalive connection (5 runs each, median), and `bgpq4 -4` end to end.
 #
 # Per server, one at a time (the other is stopped, so they never share the
 # page cache or CPU): start it, run the mix once unmeasured to warm caches,
@@ -17,13 +21,14 @@
 set -euo pipefail
 dir=${TIER2_DIR:-/srv/irrd-ng/tier2}
 pg=${TIER2_PG_CONTAINER:?set TIER2_PG_CONTAINER}
-conc="4 10" duration=60 warmup=20 servers="v4 ng"
+conc="4 10" duration=60 warmup=20 servers="v4 ng" big=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --concurrency) conc=$2; shift 2 ;;
     --duration) duration=$2; shift 2 ;;
     --warmup) warmup=$2; shift 2 ;;
     --servers) servers=$2; shift 2 ;;
+    --big-set) big+=("$2"); shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -52,12 +57,31 @@ port() { [[ $1 == v4 ]] && echo 9043 || echo 8043; }
 
 # The mix comes from the Tier 2 bindings, expanded against v4 (same answers).
 tier2/setup.sh start-v4 > /dev/null
-python3 -I bench/mix.py --bindings "$dir/run/work/bindings.json" --expand 127.0.0.1:9043 --sets 5 > "$out/mix.tsv"
+bigargs=()
+for b in "${big[@]}"; do bigargs+=(--big-set "$b"); done
+python3 -I bench/mix.py --bindings "$dir/run/work/bindings.json" --expand 127.0.0.1:9043 --sets 5 "${bigargs[@]}" > "$out/mix.tsv"
+printf 'server\tset\tcommand\tmedian_ms\tmin_ms\tmax_ms\n' > "$out/big.tsv"
 printf 'server\tconcurrency\tqps\tp50_us\tp99_us\terrors\tmem_rss_peak_kib\tmem_pss_peak_kib\tng_anon_peak_kib\tng_file_peak_kib\n' > "$out/summary.tsv"
 for s in $servers; do
   if [[ $s == v4 ]]; then tier2/setup.sh stop-ng; tier2/setup.sh start-v4; else tier2/setup.sh stop-v4; tier2/setup.sh start-ng; fi
   sync; echo "$s: idle $(mem_sample "$s")" | tee -a "$out/mem-idle.tsv"
   "$lg" --target "127.0.0.1:$(port "$s")" --mix "$out/mix.tsv" --concurrency 8 --duration "$warmup" --warmup 0 > "$out/$s-warmup.json"
+  for b in "${big[@]}"; do
+    for cmd in "!a4$b" "!a6$b" "!i$b,1"; do
+      printf '1\tbig\tkeepalive\t%s\n' "$cmd" > "$out/one.tsv"
+      ms=()
+      for _ in 1 2 3 4 5; do
+        ms+=("$("$lg" --target "127.0.0.1:$(port "$s")" --mix "$out/one.tsv" --concurrency 1 --count 1 --warmup 0 \
+          | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["total"]["max_us"]/1000)')")
+      done
+      printf '%s\t%s\t%s\t%s\n' "$s" "$b" "$cmd" "$(printf '%s\n' "${ms[@]}" | sort -n | awk '{a[NR]=$1} END {print a[3]"\t"a[1]"\t"a[5]}')" >> "$out/big.tsv"
+    done
+    ms=()
+    for _ in 1 2 3; do
+      t0=$(date +%s%N); bgpq4 -h "127.0.0.1:$(port "$s")" -4 "$b" > /dev/null; ms+=($(( ($(date +%s%N) - t0) / 1000000 )))
+    done
+    printf '%s\t%s\tbgpq4 -4\t%s\n' "$s" "$b" "$(printf '%s\n' "${ms[@]}" | sort -n | awk '{a[NR]=$1} END {print a[2]"\t"a[1]"\t"a[3]}')" >> "$out/big.tsv"
+  done
   for c in $conc; do
     ( while :; do echo "$(date +%s) $(mem_sample "$s")"; sleep 2; done ) > "$out/mem-$s-c$c.tsv" &
     sampler=$!
@@ -74,4 +98,5 @@ PY
 done
 tier2/setup.sh start > /dev/null
 column -t "$out/summary.tsv"
+column -t -s $'\t' "$out/big.tsv"
 echo "results: $out"

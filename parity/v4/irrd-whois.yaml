@@ -54,6 +54,7 @@ irrd:
     - ARIN
     - AFRINIC
     - LACNIC
+    - EDGE96
   source_aliases:
     RIRS:
       - AFRINIC
@@ -77,4 +78,7 @@ irrd:
       keep_journal: false
       nrtm_access_list: harness
     RIPE-NONAUTH:
+      keep_journal: false
+    # Synthetic: route6 objects in and around ::/96 (corpus/whois/data/).
+    EDGE96:
       keep_journal: false

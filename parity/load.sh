@@ -59,6 +59,12 @@ for f in "${fixtures[@]}"; do
   spec+=("$src=$serial=/cache/fixtures/$src.db")
   printf '%s\t%s\n' "$src" "$serial" >> "$work/v4-load.tsv"
 done
+for f in "$parity"/corpus/whois/data/*.db; do
+  src=$(basename "$f" .db)
+  serial=$((serial + 11111))
+  spec+=("$src=$serial=/synthetic/$src.db")
+  printf '%s\t%s\n' "$src" "$serial" >> "$work/v4-load.tsv"
+done
 # v4's mirror full-import path, not irrd_load_database (see tools/v4_mirror_load.py).
 start=$SECONDS
 v4 python3 - /etc/irrd/irrd.yaml "${spec[@]}" < "$parity/tools/v4_mirror_load.py" > "$work/v4-load.log" 2>&1 \
@@ -83,6 +89,6 @@ case $ng in
 esac
 
 echo "== corpus bindings"
-python3 -I "$parity/tools/corpus_bindings.py" --out "$work/bindings.json" "${fixtures[@]}"
+python3 -I "$parity/tools/corpus_bindings.py" --out "$work/bindings.json" "${fixtures[@]}" "$parity"/corpus/whois/data/*.db
 "$parity/ng.sh" stop > /dev/null 2>&1 || true
 echo "loaded; next: parity/run.sh"

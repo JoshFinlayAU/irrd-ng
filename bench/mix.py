@@ -12,6 +12,7 @@ Classes (weight, mode):
   aset        5 keepalive  !a4 / !a6 on the largest AS-sets
   iset        5 keepalive  !i<set>,1 on the largest AS-sets
   session    10 keepalive  bgpq4's sequence: !s-lc, !a4, !s<list>
+  big         1 keepalive  !a4, !a6, !i,1 on each --big-set (the largest sets)
 Output: weight<TAB>class<TAB>mode<TAB>query (loadgen's format).
 """
 import argparse
@@ -40,6 +41,7 @@ def main():
     ap.add_argument("--bindings", required=True)
     ap.add_argument("--expand", required=True)
     ap.add_argument("--sets", type=int, default=5)
+    ap.add_argument("--big-set", action="append", default=[], help="also add class `big`: !a4, !a6, !i,1 on this set")
     a = ap.parse_args()
     b = json.load(open(a.bindings))
     rows = []
@@ -72,8 +74,12 @@ def main():
         add(5, "aset", "keepalive", f"!a6{s}")
         add(10, "iset", "keepalive", f"!i{s},1")
         add(20, "session", "keepalive", f"!s-lc ;; !a4{s} ;; !s{','.join(b.get('source', []))}")
+    for s in a.big_set:
+        add(1, "big", "keepalive", f"!a4{s}")
+        add(1, "big", "keepalive", f"!a6{s}")
+        add(1, "big", "keepalive", f"!i{s},1")
     # Scale weights so classes get the stated shares.
-    share = {"lookup": 40, "origin": 20, "setmembers": 20, "aset": 5, "iset": 5, "session": 10}
+    share = {"lookup": 40, "origin": 20, "setmembers": 20, "aset": 5, "iset": 5, "session": 10, "big": 1}
     tot = {}
     for r in rows:
         w, c = r.split("\t")[:2]

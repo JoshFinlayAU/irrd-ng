@@ -317,27 +317,33 @@ def run_whois_item(addr, item, timeout):
     return segs
 
 
+DATE_RE = re.compile(rb"(?im)^(date:)[^\r\n]*")
+
+
 def run_http_item(base, item, timeout):
-    """GET /v1/whois/?q=<query>; one segment each for status+headers and body."""
+    """One HTTP request over a raw socket; segments are the response head,
+    byte for byte with only the date value masked, and the body as sent
+    (chunked framing included). Corpus queries go to GET /v1/whois/?q=;
+    items tagged `request` (corpus/http/requests.tsv) are METHOD PATH."""
     host, port = base
-    query = item.lines[0]
-    if query.endswith(b"\n"):
-        query = query[:-1]
-    path = "/v1/whois/?q=" + urllib.parse.quote_from_bytes(query, safe="")
+    line = item.lines[0].rstrip(b"\n")
+    if "request" in item.tags:
+        method, path = line.decode().split(" ", 1)
+    else:
+        method, path = "GET", "/v1/whois/?q=" + urllib.parse.quote_from_bytes(line, safe="")
+    req = (f"{method} {path} HTTP/1.1\r\nHost: {HOST_HEADER}\r\nUser-Agent: irrd-ng-parity\r\n"
+           "Connection: close\r\n\r\n").encode()
     try:
-        c = http.client.HTTPConnection(host, port, timeout=timeout)
-        c.request("GET", path, headers={"Host": HOST_HEADER, "User-Agent": "irrd-ng-parity"})
-        r = c.getresponse()
-        body = r.read()
-        head = f"{r.status} {r.reason}\n".encode()
-        for k, v in r.getheaders():
-            if k.lower() == "date":
-                continue
-            head += f"{k.lower()}: {v}\n".encode()
-        c.close()
-    except (OSError, http.client.HTTPException) as e:
-        return [("http", f"<<HTTP FAILED: {e.__class__.__name__}: {e}>>".encode())]
-    return [("head", head), ("body", body)]
+        conn = Conn((host, port), timeout)
+        conn.sock.sendall(req)
+        raw = conn.read_eof(time.monotonic() + timeout)
+        conn.close()
+    except TimeoutError:
+        return [("http", b"<<HTTP TIMEOUT>>")]
+    except OSError as e:
+        return [("http", f"<<HTTP FAILED: {e.__class__.__name__}>>".encode())]
+    head, sep, body = raw.partition(b"\r\n\r\n")
+    return [("head", DATE_RE.sub(rb"\1 <masked>", head + sep)), ("body", body)]
 
 
 # ------------------------------------------------------- v4 nondeterminism
@@ -353,9 +359,10 @@ def load_unordered(path):
             if not line or line.startswith("#"):
                 continue
             mode, qre, are, div, _why = line.split("\t", 4)
-            if mode not in ("tokens", "objects"):
+            if mode not in ("tokens", "objects", "header"):
                 sys.exit(f"{path}: unknown mode {mode}")
-            rules.append((mode, re.compile(qre), None if are == "-" else re.compile(are.encode()), div))
+            ans = None if are == "-" else (are.encode() if mode == "header" else re.compile(are.encode()))
+            rules.append((mode, re.compile(qre), ans, div))
     return rules
 
 
@@ -438,10 +445,25 @@ def same_objects(a, b):
     return True
 
 
+def same_header_tokens(name, a, b):
+    """Two response heads equal except for the order of the comma-separated
+    values of header `name`."""
+    rx = re.compile(rb"(?im)^(" + re.escape(name) + rb":)([^\r\n]*)")
+
+    def norm(head):
+        return rx.sub(lambda m: m.group(1) + b" " + b", ".join(sorted(x.strip() for x in m.group(2).split(b","))), head)
+
+    return a != b and norm(a) == norm(b)
+
+
 def equivalent(rules, query, ref, test):
     """The divergence id if test is an allowed permutation of ref, else None."""
     for mode, qre, are, div in rules:
         if not qre.search(query):
+            continue
+        if mode == "header":
+            if same_header_tokens(are, ref, test):
+                return div
             continue
         if are is not None and not are.search(ref):
             continue
@@ -494,7 +516,11 @@ def compare(item, ref, test, rules=()):
                 continue
             idx = int(label[1:]) if label[:1] == "q" and label[1:].isdigit() else None
             if idx is None or idx >= len(item.lines):
-                query = effective_query(item.lines[0]) if label in ("head", "body") else None
+                query = None
+                if label in ("head", "body"):
+                    query = effective_query(item.lines[0])
+                    if "request" in item.tags:
+                        query = item.lines[0].rstrip(b"\n").decode()
             else:
                 query = effective_query(item.lines[idx])
             div = equivalent(rules, query, rd, td) if query is not None else None
@@ -521,7 +547,7 @@ def compare(item, ref, test, rules=()):
     res["segment_label"] = detail["label"]
     res["offset"] = detail["offset"]
     res["stream_offset"] = first_diff(rb, tb)
-    for marker in (b"<<TIMEOUT", b"<<RST>>", b"<<CONNECT", b"<<HTTP FAILED", b"<<CLOSED"):
+    for marker in (b"<<TIMEOUT", b"<<RST>>", b"<<CONNECT", b"<<HTTP FAILED", b"<<HTTP TIMEOUT", b"<<CLOSED"):
         if marker in tb and marker not in rb:
             res["test_problem"] = marker.decode().strip("<")
         if marker in rb and marker not in tb:
@@ -570,6 +596,7 @@ def main():
     ap.add_argument("--only", help="comma-separated tags; run only items with one of them")
     ap.add_argument("--skip", help="comma-separated tags; leave out items with any of them")
     ap.add_argument("--max-report", type=int, default=200, help="differences written in full to diffs.txt")
+    ap.add_argument("--requests", help="http suite: extra METHOD<TAB>PATH requests (corpus/http/requests.tsv)")
     ap.add_argument("--unordered", help="allowlist of v4-nondeterministic answers (corpus/whois/unordered.tsv)")
     ap.add_argument("--strict", action="store_true", help="count permutations allowed by --unordered as differences")
     ap.add_argument("--host-header", default="localhost",
@@ -585,6 +612,13 @@ def main():
         items = [i for i in items if not drop & set(i.tags)]
     if args.suite == "http":
         items = [i for i in items if not i.is_session and "whois-only" not in i.tags]
+        if args.requests:
+            with open(args.requests, encoding="utf-8") as f:
+                for n, ln in enumerate(f, 1):
+                    ln = ln.rstrip("\n")
+                    if ln and not ln.startswith("#"):
+                        method, path = ln.split("\t", 1)
+                        items.append(Item(f"requests:{n}", [f"{method} {path}".encode()], ["request"]))
     os.makedirs(args.out, exist_ok=True)
     if args.save_responses and not args.redact:
         os.makedirs(os.path.join(args.out, "responses"), exist_ok=True)
