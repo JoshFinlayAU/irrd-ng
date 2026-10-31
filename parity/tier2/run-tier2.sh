@@ -9,7 +9,7 @@ set -euo pipefail
 dir=${TIER2_DIR:-/srv/irrd-ng/tier2}
 pg=${TIER2_PG_CONTAINER:?set TIER2_PG_CONTAINER}
 v4db=${TIER2_V4_DB:-irrd_v4}
-scale=4 jobs=8 bgpq4=1
+scale=4 jobs=4 bgpq4=1
 while [[ $# -gt 0 ]]; do
   case $1 in
     --scale) scale=$2; shift 2 ;;
@@ -35,9 +35,9 @@ out=$dir/out/$stamp && mkdir -p "$out"
 python3 -I tools/corpus_expand.py --bindings "$w/bindings.json" --scale "$scale" --out "$w/corpus.tsv" corpus/whois/*.q
 status=0
 free -g | sed -n 2p
-systemd-run --scope -q -p MemoryMax=8G python3 -I tools/whois_diff.py --suite whois --corpus "$w/corpus.tsv" --ref 127.0.0.1:9043 --test 127.0.0.1:8043 \
+systemd-run --scope -q -p MemoryMax=12G python3 -I tools/whois_diff.py --suite whois --corpus "$w/corpus.tsv" --ref 127.0.0.1:9043 --test 127.0.0.1:8043 \
   --unordered corpus/whois/unordered.tsv --skip huge --redact --jobs "$jobs" --out "$out/whois" || status=1
-systemd-run --scope -q -p MemoryMax=8G python3 -I tools/whois_diff.py --suite http --corpus "$w/corpus.tsv" --ref 127.0.0.1:9080 --test 127.0.0.1:8080 \
+systemd-run --scope -q -p MemoryMax=12G python3 -I tools/whois_diff.py --suite http --corpus "$w/corpus.tsv" --ref 127.0.0.1:9080 --test 127.0.0.1:8080 \
   --unordered corpus/whois/unordered.tsv --requests corpus/http/requests.tsv --skip huge --redact --jobs "$jobs" --out "$out/http" || status=1
 if [[ $bgpq4 == 1 ]]; then
   ./bgpq4.sh --ref 127.0.0.1:9043 --test 127.0.0.1:8043 --bindings "$w/bindings.json" --sets 8 --redact --out "$out/bgpq4" || status=1

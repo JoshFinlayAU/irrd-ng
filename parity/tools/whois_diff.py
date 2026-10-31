@@ -478,11 +478,21 @@ def equivalent(rules, query, ref, test):
 
 
 def first_diff(a, b):
+    """Offset of the first differing byte, len if one is a prefix of the
+    other, -1 if equal. Compares 64 KiB slices first, so it stays fast on
+    answers of hundreds of megabytes."""
+    if a == b:
+        return -1
     n = min(len(a), len(b))
-    for i in range(n):
+    step, i = 1 << 16, 0
+    while i < n and a[i : i + step] == b[i : i + step]:
+        i += step
+    end = min(i + step, n)
+    while i < end:
         if a[i] != b[i]:
             return i
-    return n if len(a) != len(b) else -1
+        i += 1
+    return n
 
 
 def context(data, off, width=60):
@@ -495,17 +505,22 @@ def context(data, off, width=60):
 
 def compare(item, ref, test, rules=()):
     """Compare two segment lists. Returns a result dict."""
-    rb = b"".join(d for _, d in ref)
-    tb = b"".join(d for _, d in test)
+    # No joined copies: answers can be hundreds of megabytes on Tier 2.
+    def digest(segs):
+        h = hashlib.sha256()
+        for _, d in segs:
+            h.update(d)
+        return h.hexdigest()
+
     res = {
         "id": item.id,
         "tags": item.tags,
-        "ref_len": len(rb),
-        "test_len": len(tb),
-        "ref_sha256": hashlib.sha256(rb).hexdigest(),
-        "test_sha256": hashlib.sha256(tb).hexdigest(),
+        "ref_len": sum(len(d) for _, d in ref),
+        "test_len": sum(len(d) for _, d in test),
+        "ref_sha256": digest(ref),
+        "test_sha256": digest(test),
     }
-    if rb == tb and [x for x, _ in ref] == [x for x, _ in test]:
+    if res["ref_sha256"] == res["test_sha256"] and [x for x, _ in ref] == [x for x, _ in test]:
         res["verdict"] = "same"
         return res, None
     # Permutations v4 itself produces (unordered.tsv), segment by segment.
@@ -546,11 +561,15 @@ def compare(item, ref, test, rules=()):
     res["segment"] = detail["segment"]
     res["segment_label"] = detail["label"]
     res["offset"] = detail["offset"]
-    res["stream_offset"] = first_diff(rb, tb)
+    before = sum(len(d) for _, d in ref[: detail["segment"]])
+    same_before = all(r == t for r, t in zip(ref[: detail["segment"]], test[: detail["segment"]]))
+    res["stream_offset"] = before + max(detail["offset"], 0) if same_before else None
     for marker in (b"<<TIMEOUT", b"<<RST>>", b"<<CONNECT", b"<<HTTP FAILED", b"<<HTTP TIMEOUT", b"<<CLOSED"):
-        if marker in tb and marker not in rb:
+        in_t = any(d[-64:].find(marker) >= 0 or d[:64].find(marker) >= 0 for _, d in test)
+        in_r = any(d[-64:].find(marker) >= 0 or d[:64].find(marker) >= 0 for _, d in ref)
+        if in_t and not in_r:
             res["test_problem"] = marker.decode().strip("<")
-        if marker in rb and marker not in tb:
+        if in_r and not in_t:
             res["ref_problem"] = marker.decode().strip("<")
     return res, detail
 
