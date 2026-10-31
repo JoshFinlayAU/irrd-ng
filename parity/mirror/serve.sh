@@ -19,6 +19,7 @@
 # Environment: IRRD_NG_BIN, DUMP, WORK and ROUNDS (churn rounds, default 6).
 # The irrd-ng-from-v4 direction is parity/mirror/run.sh.
 set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 export WORK=${WORK:-$ROOT/parity/.work/serve}
@@ -194,13 +195,15 @@ SourceExportRunner('$s').run()" >/dev/null
 }
 
 # One round of changes (parity/mirror/data.py), applied to both upstreams
-# with at most one deletion per irrd_update_database run (split_deletes.py).
+# with at most one modification or deletion per irrd_update_database run
+# (split_changes.py), so the journals do not depend on orders v4 leaves to
+# chance.
 update_upstreams() {
   local round=$1 s n i; shift
   for s in "$@"; do
     cp "$WORK/data/$s.db" "$WORK/data/$s.old"
-    python3 "$HERE/data.py" change "$WORK/data/$s.db" "$WORK/data/$s.pool" "$round" >&2
-    n=$(python3 "$HERE/split_deletes.py" "$WORK/data/$s.old" "$WORK/data/$s.db" "$WORK/data/$s.step")
+    python3 "$HERE/data.py" change "$WORK/data/$s.db" "$WORK/data/$s.pool" "$round" --delete-rate 0.004 --modify-rate 0.008 >&2
+    n=$(python3 "$HERE/split_changes.py" "$WORK/data/$s.old" "$WORK/data/$s.db" "$WORK/data/$s.step")
     for i in $(seq 0 $((n - 1))); do
       v4up irrd_update_database --config /etc/irrd/irrd.yaml --source "$s" "/data/$s.step.$i" >> "$WORK/logs/update-v4.log" 2>&1
       ngup irrd_update_database --config /etc/irrd/irrd.yaml --source "$s" "/data/$s.step.$i" >> "$WORK/logs/update-ng.log" 2>&1
