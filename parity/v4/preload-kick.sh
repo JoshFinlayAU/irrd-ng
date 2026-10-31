@@ -22,7 +22,7 @@ Preloader(enable_queries=False).signal_reload()
 "
 for _ in $(seq 1 60); do
   code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H 'Host: localhost' "http://127.0.0.1:$port/v1/whois/?q=!gAS0" || true)
-  [[ $code == 204 ]] && exit 0
+  [[ $code == 200 || $code == 204 ]] && exit 0
   sleep 1
 done
 echo "v4 ($service) HTTP preload still not answering !gAS0" >&2

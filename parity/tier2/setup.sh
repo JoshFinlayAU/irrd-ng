@@ -61,7 +61,7 @@ from irrd.storage.preload import Preloader
 Preloader(enable_queries=False).signal_reload()"
   for _ in $(seq 1 120); do
     code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -H 'Host: localhost' 'http://127.0.0.1:9080/v1/whois/?q=!gAS0' || true)
-    [[ $code == 204 ]] && break; sleep 2
+    [[ $code == 200 || $code == 204 ]] && break; sleep 2
   done
   echo "v4: $(timeout 10 "$dir/whois.sh" 127.0.0.1 9043 '!v' | sed -n 2p) on 9043/9080"
 }
