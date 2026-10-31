@@ -1,0 +1,84 @@
+# IRRd v4 configuration for the Tier 1 whois and /v1/whois/ suites
+# (parity/load.sh, parity/run.sh). The base config (irrd.yaml) plus the
+# Tier 1 fixture sources, loaded as non-authoritative mirrors the way a
+# public IRR mirror runs them, with nothing to mirror from. irrd-ng runs
+# with this same file (parity/ng.sh rewrites only ports and host paths).
+#
+# sources_default is deliberately not alphabetical, so answers that are
+# ordered by source priority show it, and one alias exercises !s/-s with
+# source_aliases.
+irrd:
+  database_url: postgresql://irrd:irrd@postgres/irrd
+  redis_url: redis://redis
+  piddir: /run/irrd
+  server:
+    http:
+      interface: 0.0.0.0
+      port: 8080
+      url: http://localhost:9080/
+      status_access_list: harness
+      event_stream_access_list: harness
+    whois:
+      interface: 0.0.0.0
+      port: 8043
+      max_connections: 10
+  access_lists:
+    harness:
+      - 0.0.0.0/0
+      - ::/0
+  auth:
+    gnupg_keyring: /var/lib/irrd/gnupg
+    override_password: $1$J6KycItM$MbPaBU6iFSGFV299Rk7Di0
+    set_creation:
+      COMMON:
+        prefix_required: true
+        autnum_authentication: opportunistic
+    password_hashers:
+      crypt-pw: legacy
+      md5-pw: legacy
+      bcrypt-pw: enabled
+  email:
+    from: irrd-v4@parity.invalid
+    smtp: mailpit:1025
+    footer: parity harness
+  rpki:
+    roa_source: null
+  log:
+    level: INFO
+  sources_default:
+    - RADB
+    - NTTCOM
+    - ALTDB
+    - RIPE-NONAUTH
+    - APNIC
+    - ARIN
+    - AFRINIC
+    - LACNIC
+    - EDGE96
+  source_aliases:
+    RIRS:
+      - AFRINIC
+      - APNIC
+      - ARIN
+      - LACNIC
+  sources:
+    AFRINIC:
+      keep_journal: false
+    ALTDB:
+      keep_journal: false
+    APNIC:
+      keep_journal: false
+    ARIN:
+      keep_journal: false
+    LACNIC:
+      keep_journal: false
+    NTTCOM:
+      keep_journal: false
+    RADB:
+      keep_journal: false
+      nrtm_access_list: harness
+    RIPE-NONAUTH:
+      keep_journal: false
+    # Synthetic: route6 objects in and around ::/96 (corpus/whois/data/).
+    EDGE96:
+      keep_journal: false

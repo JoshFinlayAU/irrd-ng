@@ -1,0 +1,24 @@
+# Answers whose order v4 itself does not fix. Two v4 processes on the same
+# database give them in different orders (parity/run.sh --test v4-twin), so
+# no fixed order in irrd-ng can match v4 byte for byte. For these, and only
+# these, whois_diff.py also accepts an answer that is a permutation of v4's,
+# reports it as "equivalent" with the divergence id, never as "identical",
+# and --strict turns it back into a difference. Everything else is compared
+# byte for byte. An entry here needs the v4 code reference and a twin run
+# that shows the nondeterminism; it is reviewed like a divergence.
+#
+# mode<TAB>query regex (v4's view of the query)<TAB>answer regex or -<TAB>divergence<TAB>why
+# (mode header: the third column is a header name; for http heads, the
+#  query regex matches "METHOD PATH" of corpus/http/requests.tsv items)
+#
+# tokens: the framing line (A<len>) must match exactly; the payload must hold
+#   the same tokens (split on whitespace and commas) in any order.
+# objects: the answer must hold the same objects, with the same sequence
+#   of v4 sort keys (rpsl_pk: first attribute, nic-hdl for person/role,
+#   prefix+origin for route/route6; ip_first and asn_first follow from it);
+#   only objects whose keys are equal may come in a different order.
+tokens	^!(g|6)	-	P-13	irrd/storage/preload.py routes_for_origins builds a Python set of prefix strings; " ".join(set) order depends on the per-process hash seed
+tokens	^!a	-	P-13	same set, via QueryResolver.routes_for_as_set
+tokens	(^| )-i 	^(%% ERROR: )?Inverse attribute search not supported	P-13	irrd/rpsl/rpsl_objects.py lookup_field_names() returns a set; the error lists it with ", ".join
+objects	^	-	P-14	irrd/storage/queries.py orders by ip_first, asn_first, rpsl_pk only (plus source priority where ordered_by_sources); the same rpsl_pk in two sources (or a person and a role sharing a nic-hdl) ties on all three keys, and Postgres returns ties in no fixed order, even between two queries on one v4
+header	^[A-Z]+ /$	allow	P-13	Starlette builds the allow header of a 405 from a Python set ("GET, HEAD" or "HEAD, GET" by hash seed)

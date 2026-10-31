@@ -1,0 +1,74 @@
+route6:         ::/8
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/64
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/104
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/128
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::1/128
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::102:300/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::ffff:0:0/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::ffff:c000:200/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::1:0:0/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::2:0:0/95
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         2001:db8::/32
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/95
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         0:0:0:1::/64
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96

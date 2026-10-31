@@ -1,0 +1,70 @@
+# Tier 2: v4 and irrd-ng over the restored production reference database
+# (parity/tier2/README.md). Shaped like the reference deployment: six
+# non-authoritative mirrors plus the RPKI pseudo-source, RPKI ROV filtering
+# on, no scope filter, no route preference, class filters on ARIN, AFRINIC,
+# LACNIC and RADB, RIPE and APNIC unfiltered, sources_default in the
+# reference's !s-lc order.
+#
+# Frozen: no source has import_source or nrtm_host, so nothing mirrors, and
+# roa_import_timer is larger than the Unix time, so v4's scheduler never
+# starts the ROA importer (irrd/mirroring/scheduler.py run_if_relevant:
+# last_started_time 0 + timer < now is never true). roa_source must still be
+# set, because that is what makes v4 RPKI-aware (rpki-ov-state lines, the
+# RPKI source, ROV filtering); it is never fetched. The ROA and status data
+# are the ones in the database.
+#
+# @PLACEHOLDERS@ are filled in by tier2/setup.sh per server.
+irrd:
+  database_url: @DATABASE_URL@
+  redis_url: @REDIS_URL@
+  piddir: @PIDDIR@
+  server:
+    http:
+      interface: 127.0.0.1
+      port: @HTTP_PORT@
+      url: http://localhost/
+      status_access_list: local
+    whois:
+      interface: 127.0.0.1
+      port: @WHOIS_PORT@
+      max_connections: @MAX_CONNECTIONS@
+  access_lists:
+    local:
+      - 127.0.0.0/8
+  auth:
+    gnupg_keyring: @PIDDIR@/gnupg
+    set_creation:
+      COMMON:
+        prefix_required: true
+    password_hashers:
+      crypt-pw: legacy
+      md5-pw: legacy
+      bcrypt-pw: enabled
+  email:
+    from: irrd-tier2@parity.invalid
+    smtp: 127.0.0.1:1
+  rpki:
+    roa_source: file:///nonexistent/frozen-roas.json
+    roa_import_timer: 99999999999
+    notify_invalid_enabled: false
+  log:
+    level: INFO
+  sources_default:
+    - RPKI
+    - RADB
+    - APNIC
+    - RIPE
+    - ARIN
+    - AFRINIC
+    - LACNIC
+  sources:
+    RADB:
+      object_class_filter: [as-set, aut-num, route-set, route, route6]
+    APNIC: {}
+    RIPE: {}
+    ARIN:
+      object_class_filter: [as-set, aut-num, route-set, route, route6]
+    AFRINIC:
+      object_class_filter: [as-set, aut-num, route-set, route, route6]
+    LACNIC:
+      object_class_filter: [as-set, aut-num, route-set, route, route6]

@@ -1,0 +1,9 @@
+{"roas": [
+{"asn": "AS65599", "prefix": "::/96", "maxLength": 104, "ta": "ripe"},
+{"asn": "AS65598", "prefix": "::ffff:0:0/96", "maxLength": 96, "ta": "arin"},
+{"asn": "AS65599", "prefix": "::1:0:0/96", "maxLength": 96, "ta": "apnic"},
+{"asn": "AS65599", "prefix": "2001:db8::/32", "maxLength": 48, "ta": "lacnic"},
+{"asn": "AS0", "prefix": "::2:0:0/95", "maxLength": 128, "ta": "afrinic"},
+{"asn": "AS64496", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "ripe"},
+{"asn": "AS64497", "prefix": "198.51.100.0/24", "maxLength": 25, "ta": "arin"}
+]}
