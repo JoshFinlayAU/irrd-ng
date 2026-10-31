@@ -1,8 +1,8 @@
 //! The canonical JSONL rendering of v4 rows.
 //!
-//! Byte for byte what `parity/tools/export_v4.py` writes for the same row,
-//! so a v4 database and anything that claims to hold the same data can be
-//! compared with a plain diff. The rules are in that script's docstring.
+//! Byte for byte what `parity/tools/export_v4.py` and the store's
+//! `export-jsonl` write for the same row (format: crates/store/src/export.rs),
+//! so the importer's reading side can be checked against v4 on its own.
 
 use std::io::{self, Write};
 
@@ -43,7 +43,7 @@ fn write_cell<W: Write>(out: &mut W, cell: &Cell<'_>) -> io::Result<()> {
             write_json(out, &value)
         }
         Cell::Bytes(bytes) => {
-            out.write_all(b"\"")?;
+            out.write_all(b"\"\\\\x")?;
             for b in *bytes {
                 write!(out, "{b:02x}")?;
             }
@@ -129,8 +129,8 @@ mod tests {
         ]);
         assert_eq!(
             line,
-            "{\"a\":null,\"bytes\":\"00ff\",\"m\":{\"a\":null,\"b\":[1,{\"x\":\"é\",\"y\":2}]},\
-             \"t\":\"1970-01-01T00:00:00.000000Z\",\"z\":\"tab\\there \\\"q\\\" \\\\ ünï \\u0001 \u{7f}\"}\n"
+            "{\"a\":null,\"bytes\":\"\\\\x00ff\",\"m\":{\"a\":null,\"b\":[1,{\"x\":\"é\",\"y\":2}]},\
+             \"t\":\"1970-01-01T00:00:00.000000+00:00\",\"z\":\"tab\\there \\\"q\\\" \\\\ ünï \\u0001 \u{7f}\"}\n"
         );
     }
 }

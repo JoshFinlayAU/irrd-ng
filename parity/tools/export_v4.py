@@ -2,29 +2,36 @@
 """Canonical JSONL export of an IRRd v4 PostgreSQL database.
 
 Writes one file per table, <outdir>/<table>.jsonl, one JSON object per row,
-keys named after v4's columns. This is the v4 side of the three-way load
-check; irrd-ng's store export emits the same shape, so the two are compared
-with a plain byte diff. It deliberately shares no code with irrd-ng.
+keys named after v4's columns: the canonical export format defined in
+crates/store/src/export.rs (the authority), so v4's database and an irrd-ng
+store (`irrd-ng export-jsonl --table all`) compare with a plain byte diff.
+It deliberately shares no code with irrd-ng.
 
-Rendering (the contract both exporters follow):
-  - JSON: keys sorted, separators "," and ":", UTF-8 (no \\u escapes for
-    non-ASCII), one object per line, "\\n" line ends.
-  - uuid: lowercase hyphenated string.
-  - timestamptz: UTC, "YYYY-MM-DDTHH:MM:SS.ffffffZ" (always 6 digits).
+Rendering, as that spec has it:
+  - JSON: keys sorted bytewise at every level, compact, UTF-8 kept as is,
+    one object per line.
+  - uuid: lower-case hyphenated string.
+  - timestamptz: UTC, "YYYY-MM-DDTHH:MM:SS.ffffff+00:00" (always 6 digits).
   - inet, cidr: PostgreSQL's text output (inet drops a full-length mask).
-  - numeric: decimal integer as a string (ip_size exceeds 2**64 for IPv6).
-  - jsonb: the JSON value itself, keys sorted.
-  - bytea: lowercase hex string.
+  - numeric (ip_size): decimal integer as a string (it reaches 2**128).
+  - jsonb: the JSON value itself.
+  - bytea: PostgreSQL's hex output, "\\x" and lower-case hex.
   - text[]: JSON array of strings.
   - enums: the stored label (e.g. "not_found", "add_or_update").
   - integer, bigint, boolean, null: native JSON.
 
-Row order (stable, independent of the planner):
-  - rpsl_objects: source, object_class, rpsl_pk, bytewise ("C" collation).
-  - rpsl_database_journal: serial_global.
-  - database_status: source, bytewise.
-  - setting: name, bytewise.
-  - every other table: pk, which v4 generates and the import preserves.
+Row order (strings bytewise, NULL first):
+  - rpsl_objects: source, object_class, rpsl_pk.
+  - rpsl_database_journal: source, serial_nrtm.
+  - database_status: source.
+  - roa_object: ip_version, network address, prefix length, asn,
+    max_length, trust_anchor.
+  - rpsl_objects_suspended: source, object_class, rpsl_pk, timestamp, pk.
+  - protected_rpsl_name: source, protected_name, object_class, rpsl_pk,
+    created, pk.
+  - setting: name.
+  - auth_* and change_log: pk.
+The schema revision goes to stdout with the row counts, not to a file.
 
 Read-only: runs in a READ ONLY, REPEATABLE READ transaction and streams
 through a server-side cursor, so it is safe on a large database.
@@ -33,19 +40,22 @@ through a server-side cursor, so it is safe on a large database.
 """
 import argparse
 import datetime
+import ipaddress
 import json
 import os
 import sys
 
 import psycopg2
 
+C = 'COLLATE "C"'
 TABLES = [
-    ("rpsl_objects", 'source COLLATE "C", object_class COLLATE "C", rpsl_pk COLLATE "C"'),
-    ("rpsl_database_journal", "serial_global"),
-    ("database_status", 'source COLLATE "C"'),
-    ("roa_object", "pk"),
-    ("rpsl_objects_suspended", "pk"),
-    ("protected_rpsl_name", "pk"),
+    ("rpsl_objects", f"source {C}, object_class {C}, rpsl_pk {C}"),
+    ("rpsl_database_journal", f"source {C}, serial_nrtm"),
+    ("database_status", f"source {C}"),
+    # Sorted here, not in SQL: the order is by numeric network address.
+    ("roa_object", None),
+    ("rpsl_objects_suspended", f"source {C}, object_class {C}, rpsl_pk {C}, timestamp, pk"),
+    ("protected_rpsl_name", f"source {C}, protected_name {C}, object_class {C}, rpsl_pk {C}, created, pk"),
     ("setting", 'name COLLATE "C"'),
     ("auth_user", "pk"),
     ("auth_mntner", "pk"),
@@ -62,14 +72,32 @@ def render(value, data_type):
     if value is None:
         return None
     if data_type == "timestamp with time zone":
-        return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
     if data_type == "numeric":
         return str(int(value))
     if data_type == "bytea":
-        return bytes(value).hex()
+        return "\\x" + bytes(value).hex()
     if data_type in ("uuid", "inet", "cidr"):
         return str(value)
     return value
+
+
+def roa_key(names):
+    i = {n: k for k, n in enumerate(names)}
+
+    def key(row):
+        net = ipaddress.ip_network(row[i["prefix"]])
+        ta = row[i["trust_anchor"]]
+        return (
+            row[i["ip_version"]],
+            int(net.network_address),
+            net.prefixlen,
+            row[i["asn"]],
+            row[i["max_length"]],
+            (0, b"") if ta is None else (1, ta.encode("utf-8")),
+        )
+
+    return key
 
 
 def main():
@@ -89,8 +117,6 @@ def main():
         meta.execute("SET TIME ZONE 'UTC'")
         meta.execute("SELECT version_num FROM alembic_version")
         (revision,) = meta.fetchone()
-        with open(os.path.join(args.outdir, "alembic_version.jsonl"), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"version_num": revision}, sort_keys=True, separators=(",", ":")) + "\n")
         counts = {}
         for table, order in TABLES:
             meta.execute(
@@ -105,13 +131,13 @@ def main():
             types = [t for _, t in cols]
             cur = conn.cursor(name=f"export_{table}")
             cur.itersize = args.batch
-            cur.execute(
-                "SELECT " + ", ".join(f'"{c}"' for c in names) + f" FROM {table} ORDER BY {order}"
-            )
+            select = "SELECT " + ", ".join(f'"{c}"' for c in names) + f" FROM {table}"
+            cur.execute(select + (f" ORDER BY {order}" if order else ""))
+            rows = cur if order else sorted(cur, key=roa_key(names))
             n = 0
             path = os.path.join(args.outdir, f"{table}.jsonl")
             with open(path + ".part", "w", encoding="utf-8", newline="\n") as f:
-                for row in cur:
+                for row in rows:
                     obj = {name: render(v, t) for name, t, v in zip(names, types, row)}
                     f.write(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
                     f.write("\n")

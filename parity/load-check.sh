@@ -106,6 +106,10 @@ src, source, out = sys.argv[1:]
 text = open(src).read()
 # Same base config as v4's run, with the one source being loaded.
 head = text.split("  sources_default:")[0]
+# Host paths instead of the container's.
+d = out.rsplit("/", 1)[0]
+head = head.replace("piddir: /run/irrd", f"piddir: {d}")
+head = head.replace("gnupg_keyring: /var/lib/irrd/gnupg", f"gnupg_keyring: {d}/gnupg")
 open(out, "w").write(
     head
     + f"  sources_default:\n    - {source}\n  sources:\n    {source}:\n      keep_journal: false\n"
@@ -127,32 +131,38 @@ ng_load() {
     printf '\n' >> "$dump"
   done
   set +e
-  IRRD_NG_STORE=$out/store python3 -I "$parity/tools/measure.py" "$out/load.json" -- \
+  IRRD_NG_STORE_PATH=$out/store python3 -I "$parity/tools/measure.py" "$out/load.json" -- \
     "$IRRD_NG" irrd_load_database --config "$out/irrd.yaml" --source "$source" --serial "$SERIAL" "$dump" \
     > "$out/load.log" 2>&1
   echo $? > "$out/load.exit"
   set -e
   rm -f "$dump"
-  du -sb "$out/store" | cut -f1 > "$out/store.bytes"
-  ng_export "$out/store" "$out/export"
+  du -sb "$out/store" 2>/dev/null | cut -f1 > "$out/store.bytes" || true
+  ng_export "$out/store" "$out/export" "$out/irrd.yaml"
 }
 
 ng_import() {
-  local name=$1 run=$2
+  local name=$1 run=$2 source=$3
   local out=$work/$name/ng-import
-  [[ $run == 1 ]] && { rm -rf "$out" && mkdir -p "$out"; }
+  if [[ $run == 1 ]]; then
+    rm -rf "$out" && mkdir -p "$out"
+    ng_config "$name" "$source" "$out/irrd.yaml"
+  fi
   set +e
-  IRRD_NG_STORE=$out/store python3 -I "$parity/tools/measure.py" "$out/import$run.json" -- \
+  python3 -I "$parity/tools/measure.py" "$out/import$run.json" -- \
     "$IRRD_NG" import --from-postgres "$(dsn_for "$name")" --store "$out/store" \
     > "$out/import$run.log" 2>&1
   echo $? > "$out/import$run.exit"
   set -e
-  du -sb "$out/store" | cut -f1 > "$out/store$run.bytes"
-  ng_export "$out/store" "$out/export$run"
+  du -sb "$out/store" 2>/dev/null | cut -f1 > "$out/store$run.bytes" || true
+  ng_export "$out/store" "$out/export$run" "$out/irrd.yaml"
 }
 
+# The store's canonical export (crates/store/src/export.rs): <dir>/<table>.jsonl.
 ng_export() {
-  "$IRRD_NG" store-export --store "$1" --out "$2" > "$2.log" 2>&1 || { cat "$2.log" >&2; return 1; }
+  rm -rf "$2" && mkdir -p "$2"
+  IRRD_NG_STORE_PATH=$1 "$IRRD_NG" export-jsonl --config "$3" --table all --output-dir "$2" \
+    > "$2.log" 2>&1 || { cat "$2.log" >&2; return 1; }
 }
 
 compare() {
@@ -236,8 +246,8 @@ while IFS=$'\t' read -r name source files; do
   fi
   has_phase load && ng_load "$name" "$source" "${paths[@]}"
   if has_phase import; then
-    ng_import "$name" 1
-    ng_import "$name" 2
+    ng_import "$name" 1 "$source"
+    ng_import "$name" 2 "$source"
   fi
   if has_phase diff; then
     if compare "$name"; then verdict=AGREE; else verdict=DIFFER; status=1; fi

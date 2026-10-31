@@ -29,27 +29,59 @@ struct Collect {
     tables: BTreeMap<&'static str, Vec<SortedLine>>,
 }
 
-/// export_v4.py's row order.
+/// The canonical export's row order (crates/store/src/export.rs), as
+/// strings that sort bytewise.
 fn sort_key(table: &str, cells: &[(&str, Cell<'_>)]) -> Vec<String> {
-    let get = |name: &str| -> String {
-        let cell = cells
+    let cell = |name: &str| -> Cell<'_> {
+        cells
             .iter()
             .find(|(n, _)| *n == name)
             .map(|(_, c)| *c)
-            .unwrap_or(Cell::Null);
-        match cell {
-            Cell::Text(s) => s.to_owned(),
+            .unwrap_or(Cell::Null)
+    };
+    let get = |name: &str| -> String {
+        match cell(name) {
+            // NULL sorts first.
+            Cell::Null => String::new(),
+            Cell::Text(s) => format!("1{s}"),
             Cell::Uuid(u) => u.hyphenated().to_string(),
-            Cell::Int(n) => format!("{n:020}"),
+            Cell::Int(n) => format!("{:020}", n + i64::from(i32::MAX)),
+            Cell::Timestamp(t) => t.to_string(),
             other => panic!("unexpected sort cell {other:?}"),
         }
     };
+    let net = || match cell("prefix") {
+        Cell::Inet(i) => {
+            let v = match i.addr {
+                std::net::IpAddr::V4(a) => u128::from(u32::from(a)),
+                std::net::IpAddr::V6(a) => u128::from(a),
+            };
+            vec![format!("{v:032x}"), format!("{:03}", i.prefix_len)]
+        }
+        other => panic!("unexpected prefix {other:?}"),
+    };
+    let keys = |names: &[&str]| names.iter().map(|n| get(n)).collect::<Vec<_>>();
     match table {
-        "rpsl_objects" => vec![get("source"), get("object_class"), get("rpsl_pk")],
-        "rpsl_database_journal" => vec![get("serial_global")],
-        "database_status" => vec![get("source")],
-        "setting" => vec![get("name")],
-        _ => vec![get("pk")],
+        "rpsl_objects" => keys(&["source", "object_class", "rpsl_pk"]),
+        "rpsl_database_journal" => keys(&["source", "serial_nrtm"]),
+        "database_status" => keys(&["source"]),
+        "roa_object" => {
+            let mut k = keys(&["ip_version"]);
+            k.extend(net());
+            k.extend(keys(&["asn", "max_length", "trust_anchor"]));
+            k
+        }
+        "rpsl_objects_suspended" => keys(&["source", "object_class", "rpsl_pk", "timestamp", "pk"]),
+        "protected_rpsl_name" => keys(&[
+            "source",
+            "protected_name",
+            "object_class",
+            "rpsl_pk",
+            "created",
+            "pk",
+        ]),
+        "setting" => keys(&["name"]),
+        _ => keys(&["pk"]),
     }
 }
 

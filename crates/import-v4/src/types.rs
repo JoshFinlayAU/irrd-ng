@@ -43,7 +43,8 @@ impl<'a> FromSql<'a> for Timestamp {
     }
 }
 
-/// `YYYY-MM-DDTHH:MM:SS.ffffffZ`, always with six fraction digits.
+/// `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`, always with six fraction digits
+/// (the canonical export form, crates/store/src/export.rs).
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let secs = self.0.div_euclid(1_000_000);
@@ -53,7 +54,7 @@ impl fmt::Display for Timestamp {
         let (y, m, d) = civil_from_days(days);
         write!(
             f,
-            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{micros:06}Z",
+            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{micros:06}+00:00",
             sod / 3600,
             sod % 3600 / 60,
             sod % 60
@@ -130,7 +131,9 @@ impl<'a> FromSql<'a> for Inet {
 /// does.
 impl fmt::Display for Inet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.addr)?;
+        // PostgreSQL's own IPv6 text form (dotted quad for IPv4-mapped and
+        // IPv4-compatible addresses), which Rust's Display does not match.
+        write!(f, "{}", store::InetDisplay(&self.addr))?;
         if self.is_cidr || self.prefix_len != self.max_len() {
             write!(f, "/{}", self.prefix_len)?;
         }
@@ -292,22 +295,25 @@ mod tests {
 
     #[test]
     fn timestamps_render_in_utc_with_microseconds() {
-        assert_eq!(Timestamp(0).to_string(), "1970-01-01T00:00:00.000000Z");
+        assert_eq!(Timestamp(0).to_string(), "1970-01-01T00:00:00.000000+00:00");
         assert_eq!(
             Timestamp(1_793_407_181_624_268).to_string(),
-            "2026-10-31T00:39:41.624268Z"
+            "2026-10-31T00:39:41.624268+00:00"
         );
-        assert_eq!(Timestamp(-1).to_string(), "1969-12-31T23:59:59.999999Z");
+        assert_eq!(
+            Timestamp(-1).to_string(),
+            "1969-12-31T23:59:59.999999+00:00"
+        );
         assert_eq!(
             Timestamp(951_782_400_000_000).to_string(),
-            "2000-02-29T00:00:00.000000Z"
+            "2000-02-29T00:00:00.000000+00:00"
         );
     }
 
     #[test]
     fn timestamp_decodes_postgres_epoch() {
         let ts = Timestamp::from_sql(&Type::TIMESTAMPTZ, &0i64.to_be_bytes()).unwrap();
-        assert_eq!(ts.to_string(), "2000-01-01T00:00:00.000000Z");
+        assert_eq!(ts.to_string(), "2000-01-01T00:00:00.000000+00:00");
         assert!(Timestamp::from_sql(&Type::TIMESTAMPTZ, &i64::MAX.to_be_bytes()).is_err());
     }
 
@@ -324,6 +330,13 @@ mod tests {
         assert_eq!(
             Inet::from_sql(&Type::CIDR, &v6).unwrap().to_string(),
             "2001:13b0::/29"
+        );
+        let mut compat = vec![3, 128, 0, 16];
+        compat.extend([0; 12]);
+        compat.extend([1, 2, 3, 4]);
+        assert_eq!(
+            Inet::from_sql(&Type::INET, &compat).unwrap().to_string(),
+            "::1.2.3.4"
         );
         assert!(Inet::from_sql(&Type::INET, &[2, 33, 0, 4, 1, 2, 3, 4]).is_err());
         assert!(Inet::from_sql(&Type::INET, &[2, 32, 0, 4, 1, 2, 3]).is_err());
