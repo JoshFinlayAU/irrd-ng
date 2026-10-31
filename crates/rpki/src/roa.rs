@@ -23,6 +23,9 @@ fn mask(v: u128, len: u8, bits: u32) -> u128 {
     } else {
         (1u128 << bits) - 1
     };
+    if u32::from(len) >= bits {
+        return v & max;
+    }
     v & (max & !(max >> u32::from(len)))
 }
 
@@ -121,5 +124,22 @@ mod tests {
             empty.validate_route(ip, 24, 65546, "TEST"),
             RpkiStatus::NotFound
         );
+    }
+}
+
+#[cfg(test)]
+mod full_length {
+    use super::*;
+
+    #[test]
+    fn masks_at_zero_and_full_length() {
+        assert_eq!(mask(u128::MAX, 128, 128), u128::MAX);
+        assert_eq!(mask(u128::MAX, 0, 128), 0);
+        assert_eq!(mask(0xFFFF_FFFF, 32, 32), 0xFFFF_FFFF);
+        let mut v = BulkRouteRoaValidator::default();
+        let a = 0x2a0c_9c80u128 << 96;
+        v.roas.entry((6, 128, a)).or_default().push((204760, 128));
+        let ip: IpAddr = "2a0c:9c80::".parse().expect("ip");
+        assert_eq!(v.validate_route(ip, 128, 204760, "X"), RpkiStatus::Valid);
     }
 }

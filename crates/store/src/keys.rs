@@ -103,10 +103,10 @@ pub(crate) fn read_uint(b: &[u8], width: usize) -> Option<u128> {
 /// The length of the common bit prefix of `a` and `b` in a `bits`-wide
 /// space: the length of the smallest prefix covering both.
 pub(crate) fn common_prefix_len(a: u128, b: u128, bits: u32) -> u8 {
-    let x = (a ^ b) << (128 - bits);
-    if bits == 0 {
+    if bits == 0 || bits > 128 {
         return 0;
     }
+    let x = (a ^ b) << (128 - bits);
     x.leading_zeros().min(bits) as u8
 }
 

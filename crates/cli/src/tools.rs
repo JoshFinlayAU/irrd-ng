@@ -27,7 +27,10 @@ const TOOLS: &[(&str, Tool)] = &[
 ];
 
 /// Tools only reachable as `irrd-ng <tool>`, not listed in the usage.
-const HIDDEN: &[(&str, Tool)] = &[("export-jsonl", db_tools::export_jsonl)];
+const HIDDEN: &[(&str, Tool)] = &[
+    ("export-jsonl", db_tools::export_jsonl),
+    ("store-info", db_tools::store_info),
+];
 
 pub(crate) fn lookup(name: &str) -> Option<Tool> {
     TOOLS

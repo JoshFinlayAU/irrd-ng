@@ -36,6 +36,9 @@ use crate::read::ReadView;
 use crate::records::{JournalEntryRef, RoaValue, RpslObjectRef, decode, encode};
 use crate::settings::StoreSettings;
 
+/// v4's logger name for `DatabaseHandler` messages.
+const DH_LOG_TARGET: &str = "irrd.storage.database_handler";
+
 /// v4's `MAX_RECORDS_BUFFER_BEFORE_INSERT`.
 pub const MAX_RECORDS_BUFFER_BEFORE_INSERT: usize = 15000;
 
@@ -160,7 +163,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
 
     fn check_write_permitted(&self) -> Result<()> {
         if self.settings.readonly_standby {
-            tracing::error!("{}", messages::READONLY_WRITE);
+            tracing::error!(target: DH_LOG_TARGET, critical = true, "{}", messages::READONLY_WRITE);
             return Err(StoreError::ReadOnly);
         }
         Ok(())
@@ -300,8 +303,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.check_write_permitted()?;
         self.flush_rpsl_object_writing_buffer()?;
         let Some(id) = query::id_by_key(&self.t, self.txn, source, object_class, rpsl_pk)? else {
-            tracing::error!(
-                "{}",
+            tracing::error!(target: DH_LOG_TARGET, "{}",
                 messages::no_row_matched(&format!("{rpsl_pk}/{source}"))
             );
             return Ok(false);
@@ -338,7 +340,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.flush_rpsl_object_writing_buffer()?;
         let Some(id) = query::id_by_uuid(&self.t, self.txn, &pk)? else {
             let pk_str = pk.to_string();
-            tracing::error!("{}", messages::no_row_matched(&pk_str));
+            tracing::error!(target: DH_LOG_TARGET, "{}", messages::no_row_matched(&pk_str));
             return Err(StoreError::ValueError(messages::suspend_missing(&pk_str)));
         };
         let row = self.remove_row(id)?;
@@ -702,8 +704,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             st.updated = self.txn_now;
             self.put_database_status(&st)?;
         }
-        tracing::info!(
-            "{}",
+        tracing::info!(target: DH_LOG_TARGET, "{}",
             messages::force_reload_set(source, synchronised_serials)
         );
         Ok(())
@@ -863,9 +864,12 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             timestamp: Timestamp::now(),
         };
         self.t.journal.put(self.txn, &key, &encode(&entry)?)?;
-        self.t
-            .journal_global
-            .put(self.txn, &serial_bytes(serial_global), &key)?;
+        self.t.journal_global.put_with_flags(
+            self.txn,
+            heed::PutFlags::APPEND,
+            &serial_bytes(serial_global),
+            &key,
+        )?;
         self.tracker
             .new_serials_per_source
             .entry(source.to_owned())
@@ -1062,6 +1066,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         {
             self.remove_row(other)?;
         }
+        let mut fresh = false;
         let id = match existing {
             Some(id) => {
                 let old = self
@@ -1080,10 +1085,22 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             None => {
                 let id = self.alloc_object_id()?;
                 self.t.objects_key.put(self.txn, &key, &id_bytes(id))?;
+                fresh = true;
                 id
             }
         };
-        self.t.objects.put(self.txn, &id_bytes(id), &encode(row)?)?;
+        if fresh {
+            // New ids are always above every existing one: append, which
+            // fills pages instead of splitting them in half.
+            self.t.objects.put_with_flags(
+                self.txn,
+                heed::PutFlags::APPEND,
+                &id_bytes(id),
+                &encode(row)?,
+            )?;
+        } else {
+            self.t.objects.put(self.txn, &id_bytes(id), &encode(row)?)?;
+        }
         self.t
             .objects_uuid
             .put(self.txn, row.pk.as_bytes(), &id_bytes(id))?;
@@ -1320,6 +1337,16 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.t
             .change_log
             .put(self.txn, row.pk.as_bytes(), &encode(row)?)?;
+        Ok(())
+    }
+
+    pub(crate) fn set_meta(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.t.meta.put(self.txn, key, value)?;
+        Ok(())
+    }
+
+    pub(crate) fn delete_meta(&mut self, key: &[u8]) -> Result<()> {
+        self.t.meta.delete(self.txn, key)?;
         Ok(())
     }
 

@@ -16,6 +16,8 @@ type DoneFn = Box<dyn FnOnce(Result<ChangedObjects>) + Send>;
 struct Job {
     run: JobFn,
     done: DoneFn,
+    /// Free map space wanted before the job starts.
+    reserve: usize,
 }
 
 /// Most jobs grouped into one LMDB transaction.
@@ -155,7 +157,18 @@ impl Store {
 
     /// [`Store::write`], also returning what changed (for preload and event
     /// stream signalling).
-    pub fn write_with_changes<R, F>(&self, mut f: F) -> Result<(R, ChangedObjects)>
+    pub fn write_with_changes<R, F>(&self, f: F) -> Result<(R, ChangedObjects)>
+    where
+        R: Send + 'static,
+        F: FnMut(&mut WriteTx<'_, '_>) -> Result<R> + Send + 'static,
+    {
+        self.write_reserving(0, f)
+    }
+
+    /// [`Store::write_with_changes`], first growing the map so at least
+    /// `reserve` bytes are free. Large loads pass an estimate so they do
+    /// not hit "map full" and run twice.
+    pub fn write_reserving<R, F>(&self, reserve: usize, mut f: F) -> Result<(R, ChangedObjects)>
     where
         R: Send + 'static,
         F: FnMut(&mut WriteTx<'_, '_>) -> Result<R> + Send + 'static,
@@ -178,7 +191,7 @@ impl Store {
             let guard = writer.tx.lock().map_err(|_| StoreError::WriterGone)?;
             let sender = guard.as_ref().ok_or(StoreError::WriterGone)?;
             sender
-                .send(Job { run, done })
+                .send(Job { run, done, reserve })
                 .map_err(|_| StoreError::WriterGone)?;
         }
         let changed = done_rx.recv().map_err(|_| StoreError::WriterGone)??;
@@ -215,11 +228,94 @@ impl Store {
         })
     }
 
+    /// Per table: (name, entries, bytes in pages).
+    pub fn table_stats(&self) -> Result<Vec<(&'static str, u64, u64)>> {
+        let _r = self.read()?;
+        let txn = self.inner.env.read_txn()?;
+        let mut out = Vec::new();
+        for (name, table) in self.inner.tables.named() {
+            let s = table.stat(&txn)?;
+            out.push((name, s.entries as u64, s.non_free_page_size() as u64));
+        }
+        Ok(out)
+    }
+
     /// Flush to disk (LMDB commits are already durable unless the
-    /// environment was opened without sync).
+    /// environment was opened with [`StoreOptions::bulk_load`]).
     pub fn sync(&self) -> Result<()> {
         self.inner.env.force_sync()?;
         Ok(())
+    }
+
+    /// Start a bulk load of one source (`irrd_load_database`): durably
+    /// mark it. The returned guard syncs and clears the mark when finished
+    /// or dropped, so only a crash or kill leaves it behind; the next
+    /// read-write open then sets the source's `force_reload` and logs.
+    pub fn begin_bulk_load(&self, source: &str) -> Result<BulkLoad> {
+        self.begin_marker(crate::env::source_marker_key(source), source)
+    }
+
+    /// Start a bulk load of the whole store (the v4 import). A leftover
+    /// mark makes every later open fail with [`StoreError::LoadIncomplete`].
+    pub fn begin_whole_store_load(&self, label: &str) -> Result<BulkLoad> {
+        self.begin_marker(env::META_LOAD_INCOMPLETE.to_vec(), label)
+    }
+
+    fn begin_marker(&self, key: Vec<u8>, value: &str) -> Result<BulkLoad> {
+        let k = key.clone();
+        let v = value.as_bytes().to_vec();
+        self.write(move |tx| tx.set_meta(&k, &v))?;
+        self.sync()?;
+        Ok(BulkLoad {
+            store: self.clone(),
+            key: Some(key),
+        })
+    }
+
+    /// Sources whose interrupted bulk load was found when this store was
+    /// opened; their `force_reload` is now set.
+    pub fn recovered_interrupted_loads(&self) -> &[String] {
+        &self.inner.recovered_interrupted_loads
+    }
+}
+
+/// An open bulk load: see [`Store::begin_bulk_load`].
+#[derive(Debug)]
+#[must_use = "dropping it ends the bulk load"]
+pub struct BulkLoad {
+    store: Store,
+    key: Option<Vec<u8>>,
+}
+
+impl BulkLoad {
+    /// Sync everything written, then clear the mark and sync again.
+    pub fn finish(mut self) -> Result<()> {
+        self.end()
+    }
+
+    /// End without clearing the mark, as a crash or kill would. Tests only.
+    #[doc(hidden)]
+    pub fn abandon_for_tests(mut self) {
+        self.key = None;
+    }
+
+    fn end(&mut self) -> Result<()> {
+        let Some(key) = self.key.take() else {
+            return Ok(());
+        };
+        self.store.sync()?;
+        self.store.write(move |tx| tx.delete_meta(&key))?;
+        self.store.sync()
+    }
+}
+
+impl Drop for BulkLoad {
+    /// Error paths end the load too: committed work is synced and the
+    /// mark cleared while the process is alive.
+    fn drop(&mut self) {
+        if let Err(e) = self.end() {
+            tracing::error!(target: crate::env::LOG_TARGET, "{e}");
+        }
     }
 }
 
@@ -256,8 +352,9 @@ fn run_batch(
     hook: Option<RoutePreferenceHook>,
     batch: &mut [Job],
 ) -> Vec<Result<ChangedObjects>> {
+    let reserve = batch.iter().map(|j| j.reserve).max().unwrap_or(0);
     loop {
-        if let Err(e) = ensure_headroom(inner) {
+        if let Err(e) = ensure_headroom(inner, reserve) {
             return fail_all(batch.len(), &e);
         }
         match attempt(inner, settings, hook, batch) {
@@ -292,11 +389,11 @@ fn fail_all(n: usize, e: &StoreError) -> Vec<Result<ChangedObjects>> {
         .collect()
 }
 
-fn ensure_headroom(inner: &Inner) -> Result<()> {
+fn ensure_headroom(inner: &Inner, reserve: usize) -> Result<()> {
     let used = env::used_bytes(&inner.env);
     let map = inner.env.info().map_size;
-    if env::needs_growth(used, map) {
-        env::resize(inner, env::grown_size(used, map))?;
+    if env::needs_growth(used, map) || map.saturating_sub(used) < reserve {
+        env::resize(inner, env::grown_size(used + reserve, map))?;
     }
     Ok(())
 }

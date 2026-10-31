@@ -70,6 +70,15 @@ pub enum StoreError {
     /// v4 raises a `ValueError` here; the text is v4's.
     #[error("{0}")]
     ValueError(String),
+    /// A bulk load was interrupted: the store may hold a partial source
+    /// and is refused.
+    #[error("{}", messages::load_incomplete(.path, .load_source))]
+    LoadIncomplete {
+        /// The store directory.
+        path: PathBuf,
+        /// The source that was being loaded.
+        load_source: String,
+    },
     /// The writer thread is gone.
     #[error("the store writer thread has stopped")]
     WriterGone,
