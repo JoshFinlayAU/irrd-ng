@@ -139,3 +139,28 @@ pub(crate) fn import_store_incomplete(store: &std::path::Path) -> String {
         store.display()
     )
 }
+
+/// `irrd` without `--foreground` and without a log file (v4's
+/// `irrd/daemon/main.py`).
+pub(crate) const DAEMON_NEEDS_LOGFILE: &str = "Unable to start: when not running in the foreground, you must set either log.logfile_path or log.logging_config_path in the settings";
+
+/// irrd-ng's own: detaching is Phase 9.
+pub(crate) const DAEMON_FOREGROUND_ONLY: &str =
+    "irrd-ng does not detach from the terminal yet; running in the foreground";
+
+/// v4's `IRRd {__version__} starting, PID {pid}, PID file in {piddir}`,
+/// naming the store instead of the PID file (irrd-ng has none yet).
+pub(crate) fn irrd_starting(version: &str, pid: u32, store: &std::path::Path) -> String {
+    format!(
+        "IRRd {version} starting, PID {pid}, store in {}",
+        store.display()
+    )
+}
+
+/// irrd-ng's own: a listening socket could not be opened.
+pub(crate) fn bind_failed(what: &str, interface: &str, port: u16, e: &std::io::Error) -> String {
+    format!("Unable to start the {what} server on ('{interface}', {port}): {e}")
+}
+
+/// `Whois server shutting down` (v4's `irrd/server/whois/server.py`).
+pub(crate) const WHOIS_SHUTTING_DOWN: &str = "Whois server shutting down";

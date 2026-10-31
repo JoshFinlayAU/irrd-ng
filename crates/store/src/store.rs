@@ -137,8 +137,19 @@ impl Store {
     }
 
     /// Begin a read transaction.
+    ///
+    /// If another process grew the map beyond this process's mapping,
+    /// LMDB refuses new transactions until the mapping is renewed; that is
+    /// done here (waiting for this process's other readers) and the
+    /// transaction retried.
     pub fn read(&self) -> Result<ReadTx> {
-        ReadTx::begin(self.inner.clone())
+        match ReadTx::begin(self.inner.clone()) {
+            Err(e) if is_map_resized(&e) => {
+                env::resize(&self.inner, 0)?;
+                ReadTx::begin(self.inner.clone())
+            }
+            r => r,
+        }
     }
 
     /// Run `f` as one v4 database transaction on the writer thread and

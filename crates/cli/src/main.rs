@@ -15,12 +15,18 @@ use std::process::ExitCode;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod argparse;
+mod daemon;
 mod db_tools;
 mod import;
 mod logging;
 mod messages;
 mod settings;
 mod tools;
+mod whois_server;
+
+/// The IRRd version irrd-ng is a drop-in for, as `!v` and the HTTP `server`
+/// header report it.
+pub(crate) const IRRD_VERSION: &str = "4.5.4";
 
 fn main() -> ExitCode {
     let mut args: Vec<OsString> = std::env::args_os().collect();
