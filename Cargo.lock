@@ -370,9 +370,11 @@ dependencies = [
  "rpsl",
  "socket2",
  "store",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

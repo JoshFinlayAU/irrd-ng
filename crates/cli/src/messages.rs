@@ -224,3 +224,56 @@ pub(crate) fn ctl_known_keys_removed(source: &str) -> String {
 pub(crate) fn ctl_known_keys_removed_log(source: &str) -> String {
     format!("{source}: known NRTMv4 client keys removed")
 }
+
+/// `generate_private_key`
+pub(crate) fn ctl_generated_key(private_pem: &str, public_pem: &str) -> String {
+    format!(
+        "Private key:\n\n{private_pem}\nCorresponding public key:\n\n{public_pem}\nNote: this key has not been configured in IRRD, that is a manual step. This is only a convenience command."
+    )
+}
+
+/// `server_show_public_key`: not an NRTMv4 server.
+pub(crate) fn ctl_not_nrtm4_server(source: &str) -> String {
+    format!("Source {source} is not configured as an NRTMv4 server")
+}
+
+/// `server_show_public_key`: the current key.
+pub(crate) fn ctl_current_public_key(source: &str, public_pem: &str) -> String {
+    format!(
+        "Current public key for {source} NRTMv4 server (from nrtm4_server_private_key):\n\n{public_pem}"
+    )
+}
+
+/// `server_show_public_key`: the next key.
+pub(crate) fn ctl_next_public_key(public_pem: &str) -> String {
+    format!("Next key (from nrtm4_server_private_key_next):\n{public_pem}")
+}
+
+// irrd/scripts/expire_journal.py
+
+/// Unparseable `--expire-before`.
+pub(crate) const EXPIRE_INVALID_DATE: &str = "Invalid date or date format";
+
+/// `--expire-before` too recent.
+pub(crate) fn expire_minimum(date: &str) -> String {
+    format!("Minimum expiry is {date}")
+}
+
+/// Nothing matched.
+pub(crate) const EXPIRE_NOTHING: &str = "No journal entries found to expire.";
+
+/// The confirmation prompt (`textwrap.dedent(...).strip()`).
+pub(crate) fn expire_confirm(count: usize, source: &str) -> String {
+    format!(
+        "Found {count} journal entries to delete from the journal for {source}.\nThis is the only record of history kept by IRRd itself.\nAfter deletion, this can not be recovered.\n\nTo confirm deleting these entries for {source}, type 'yes':"
+    )
+}
+
+/// Not confirmed.
+pub(crate) const EXPIRE_CANCELLED: &str = "Deletion cancelled.";
+
+/// Done.
+pub(crate) const EXPIRE_COMPLETE: &str = "Expiry complete.";
+
+/// `input()` at end of file: Python's `EOFError`.
+pub(crate) const EOF_ERROR: &str = "EOFError: EOF when reading a line";
