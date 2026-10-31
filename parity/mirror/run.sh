@@ -115,23 +115,23 @@ $(common_config mirror redis-mirror)
       nrtm_port: 8043
       import_source: http://files/exports/upa.db.gz
       import_serial_source: http://files/exports/UPA.CURRENTSERIAL
-      import_timer: 2
+      import_timer: 5
       keep_journal: true
     UPB:
       nrtm4_client_notification_file_url: https://files/nrtm4/UPB/update-notification-file.jose
       nrtm4_client_initial_public_key: |
 $(printf '%s\n' "$PUB_A" | indent)
-      import_timer: 2
+      import_timer: 5
     UPC:
       import_source:
         - ftp://files/exports/upc.db.gz
       import_serial_source: ftp://files/exports/UPC.CURRENTSERIAL
-      import_timer: 2
+      import_timer: 5
       object_class_filter: [route, route6, aut-num, as-set, mntner]
     UPD:
       import_source: file:///exports/upd.db.gz
       import_serial_source: file:///exports/UPD.CURRENTSERIAL
-      import_timer: 2
+      import_timer: 5
 EOF
 }
 
@@ -154,7 +154,7 @@ SourceExportRunner('$s').run()" >/dev/null
 # "serial_newest_mirror/nrtm4 session:version".
 expected() {
   local a b c d
-  a=$(psql upstream "select serial_newest_journal from database_status where source='UPA'")
+  a=$(psql upstream "select serial_newest_seen from database_status where source='UPA'")
   b=$(psql upstream "select nrtm4_server_session_id || ':' || nrtm4_server_version from database_status where source='UPB'")
   c=$(cat "$WORK/srv/exports/UPC.CURRENTSERIAL" 2>/dev/null || echo none)
   d=$(cat "$WORK/srv/exports/UPD.CURRENTSERIAL" 2>/dev/null || echo none)
@@ -205,6 +205,9 @@ compare() {
     /tools/export_v4.py postgresql://irrd:irrd@postgres/mirror /out >/dev/null
   "${DC[@]}" exec -T irrd-ng /irrd-ng export-jsonl --config /etc/irrd/irrd.yaml --table all --output-dir "/out/$step"
   cp -r "$WORK/ng-out/$step" "$out/irrd-ng"
+  # v4's HTTP server writes a web UI secret_key into `setting` at start;
+  # it has nothing to do with mirroring.
+  rm -f "$out/v4/setting.jsonl" "$out/irrd-ng/setting.jsonl"
   local objs
   objs=$(wc -l < "$out/v4/rpsl_objects.jsonl")
   if python3 "$ROOT/parity/tools/compare_exports.py" "$out/v4" "$out/irrd-ng" \
@@ -236,7 +239,7 @@ check_both_logged() {
   local step=$1 since=$2 pattern=$3 n4 nng
   n4=$(count_logs mirror-v4 "$since" "$pattern"); nng=$(count_logs irrd-ng "$since" "$pattern")
   if (( n4 > 0 && nng > 0 )); then
-    RESULTS+=("PASS  $step  both logged: $pattern (v4 $n4x, irrd-ng ${nng}x)")
+    RESULTS+=("PASS  $step  both logged: $pattern (v4 ${n4}x, irrd-ng ${nng}x)")
   else
     RESULTS+=("FAIL  $step  log '$pattern': v4 $n4, irrd-ng $nng")
     FAILED=1
