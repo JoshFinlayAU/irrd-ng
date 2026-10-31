@@ -98,3 +98,13 @@ pub fn migrating(from: u32, to: u32) -> String {
 pub fn map_resized(size: usize) -> String {
     format!("Growing the irrd-ng store map size to {size} bytes")
 }
+
+/// irrd-ng: an interrupted bulk load.
+pub fn load_incomplete(path: &Path, source: &str) -> String {
+    format!(
+        "the irrd-ng store at {} holds an incomplete bulk load of source {source}: \
+         the load was interrupted and the store may be partial or damaged. \
+         Remove the store and load or import again",
+        path.display()
+    )
+}

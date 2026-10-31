@@ -241,10 +241,27 @@ impl Store {
     }
 
     /// Flush to disk (LMDB commits are already durable unless the
-    /// environment was opened without sync).
+    /// environment was opened with [`StoreOptions::bulk_load`]).
     pub fn sync(&self) -> Result<()> {
         self.inner.env.force_sync()?;
         Ok(())
+    }
+
+    /// Start a bulk load of `source`: durably record that a load is in
+    /// progress. Until [`Store::finish_bulk_load`] clears it, opening the
+    /// store fails with [`StoreError::LoadIncomplete`].
+    pub fn begin_bulk_load(&self, source: &str) -> Result<()> {
+        let s = source.as_bytes().to_vec();
+        self.write(move |tx| tx.set_meta(env::META_LOAD_INCOMPLETE, &s))?;
+        self.sync()
+    }
+
+    /// Finish a bulk load: sync everything written, then clear the marker
+    /// and sync again.
+    pub fn finish_bulk_load(&self) -> Result<()> {
+        self.sync()?;
+        self.write(|tx| tx.delete_meta(env::META_LOAD_INCOMPLETE))?;
+        self.sync()
     }
 }
 

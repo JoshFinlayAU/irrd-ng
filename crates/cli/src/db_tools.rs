@@ -129,8 +129,9 @@ fn load_config(args: &Args) -> Result<Configuration, ExitCode> {
     }
 }
 
-fn open_store(cfg: &Configuration) -> Result<Store, ExitCode> {
-    let options = StoreOptions::new(settings::store_path());
+fn open_store(cfg: &Configuration, bulk_load: bool) -> Result<Store, ExitCode> {
+    let mut options = StoreOptions::new(settings::store_path());
+    options.bulk_load = bulk_load;
     Store::open(&options, settings::store_settings(cfg)).map_err(|e| {
         eprintln!("{e}");
         ExitCode::from(1)
@@ -178,13 +179,13 @@ struct Prepared {
     file: String,
 }
 
-fn prepare(p: &Parser, args: &[OsString]) -> Result<(Prepared, Args), ExitCode> {
+fn prepare(p: &Parser, args: &[OsString], bulk_load: bool) -> Result<(Prepared, Args), ExitCode> {
     let a = parse(p, args)?;
     let cfg = load_config(&a)?;
     check_standby(&cfg)?;
     let source = a.get("source").cloned().unwrap_or_default();
     check_import_sources(&cfg, &source)?;
-    let store = open_store(&cfg)?;
+    let store = open_store(&cfg, bulk_load)?;
     let file = a.get("input_file").cloned().unwrap_or_default();
     Ok((
         Prepared {
@@ -230,7 +231,7 @@ fn store_err(e: store::StoreError) -> ExitCode {
 /// `irrd_load_database`: parse and write in one transaction, a chunk of
 /// the file at a time, as v4 streams through the file.
 pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
-    let (p, a) = match prepare(&LOAD, args) {
+    let (p, a) = match prepare(&LOAD, args, true) {
         Ok(v) => v,
         Err(c) => return c,
     };
@@ -260,6 +261,12 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
         scopefilter: rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg)),
         rpki_excluded: settings::rpki_excluded_sources(&p.cfg),
     });
+    // A full reload of one source: commits need not sync, as v4's single
+    // transaction either lands whole or not at all. The marker makes an
+    // interrupted load refuse to open instead of serving a partial store.
+    if let Err(e) = p.store.begin_bulk_load(&p.source) {
+        return store_err(e);
+    }
     let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
     let fail_slot = failure.clone();
     let result = p.store.write_reserving(reserve, move |tx| {
@@ -287,6 +294,11 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
             }
         }
     });
+    // The transaction committed or rolled back as a whole: either way the
+    // store is complete again once synced.
+    if let Err(e) = p.store.finish_bulk_load() {
+        return store_err(e);
+    }
     if let Some(e) = failure.lock().ok().and_then(|mut f| f.take()) {
         return import_failed(e);
     }
@@ -335,7 +347,7 @@ fn import_failed(e: ImportError) -> ExitCode {
 
 /// `irrd_update_database`
 pub(crate) fn update_database(args: &[OsString]) -> ExitCode {
-    let (p, _) = match prepare(&UPDATE, args) {
+    let (p, _) = match prepare(&UPDATE, args, false) {
         Ok(v) => v,
         Err(c) => return c,
     };
@@ -433,7 +445,7 @@ fn schema_tool(p: &Parser, args: &[OsString], upgrade: bool) -> ExitCode {
     let version = a.get("version").cloned().unwrap_or_else(|| "head".into());
     // Opening the store read-write creates it or migrates it to the
     // current schema: the embedded store is always at head.
-    if let Err(c) = open_store(&cfg) {
+    if let Err(c) = open_store(&cfg, false) {
         return c;
     }
     if let Err(e) = resolve_revision(&version, upgrade) {

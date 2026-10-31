@@ -1339,6 +1339,16 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         Ok(())
     }
 
+    pub(crate) fn set_meta(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.t.meta.put(self.txn, key, value)?;
+        Ok(())
+    }
+
+    pub(crate) fn delete_meta(&mut self, key: &[u8]) -> Result<()> {
+        self.t.meta.delete(self.txn, key)?;
+        Ok(())
+    }
+
     /// Empty every data table (not `meta`), for a clean re-import.
     pub fn clear_all_data(&mut self) -> Result<()> {
         self.check_write_permitted()?;

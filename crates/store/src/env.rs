@@ -123,6 +123,9 @@ pub(crate) const META_SCHEMA_VERSION: &[u8] = b"schema_version";
 pub(crate) const META_MAP_SIZE_HISTORY: &[u8] = b"map_size_history";
 pub(crate) const META_NEXT_OBJECT_ID: &[u8] = b"next_object_id";
 pub(crate) const META_SERIAL_GLOBAL_LAST: &[u8] = b"serial_global_last_value";
+/// Set (and synced) while a bulk load without per-commit sync runs; the
+/// value is the source being loaded.
+pub(crate) const META_LOAD_INCOMPLETE: &[u8] = b"load_incomplete";
 
 const GIB: usize = 1 << 30;
 const MIB: usize = 1 << 20;
@@ -136,6 +139,12 @@ pub struct StoreOptions {
     pub initial_map_size: usize,
     /// Open read-only: no writer thread, writes are refused.
     pub read_only: bool,
+    /// Bulk-load mode: commits do not sync (`MDB_NOSYNC|MDB_NOMETASYNC`).
+    /// Bracket the load with [`crate::Store::begin_bulk_load`] and
+    /// [`crate::Store::finish_bulk_load`], which sync and keep a durable
+    /// "load incomplete" marker so an interrupted load is never opened as
+    /// a complete store.
+    pub bulk_load: bool,
 }
 
 impl StoreOptions {
@@ -145,6 +154,7 @@ impl StoreOptions {
             path: path.into(),
             initial_map_size: GIB,
             read_only: false,
+            bulk_load: false,
         }
     }
 }
@@ -270,6 +280,13 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
         unsafe {
             opts.flags(heed::EnvFlags::READ_ONLY);
         }
+    } else if options.bulk_load {
+        // SAFETY: as above. NO_SYNC|NO_META_SYNC only defer durability;
+        // the bulk load protocol syncs explicitly and guards the gap with
+        // the load-incomplete marker.
+        unsafe {
+            opts.flags(heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC);
+        }
     }
     // SAFETY: heed requires that the environment is not opened twice in the
     // same process at the same time with different options and that the
@@ -282,12 +299,26 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
         let tables = open_tables(&env)?.ok_or_else(|| StoreError::NotInitialised(path.clone()))?;
         let rtxn = env.read_txn()?;
         let version = read_schema_version(&rtxn, &tables)?;
+        let incomplete = load_incomplete(&rtxn, &tables)?;
         drop(rtxn);
         check_version(version)?;
+        if let Some(source) = incomplete {
+            return Err(StoreError::LoadIncomplete {
+                path: path.clone(),
+                load_source: source,
+            });
+        }
         tables
     } else {
         let tables = create_tables(&env)?;
         let mut wtxn = env.write_txn()?;
+        if let Some(source) = load_incomplete(&wtxn, &tables)? {
+            wtxn.abort();
+            return Err(StoreError::LoadIncomplete {
+                path: path.clone(),
+                load_source: source,
+            });
+        }
         match read_schema_version(&wtxn, &tables)? {
             None => {
                 tables.meta.put(
@@ -334,6 +365,13 @@ fn check_version(version: Option<u32>) -> Result<()> {
             supported: SCHEMA_VERSION,
         }),
     }
+}
+
+pub(crate) fn load_incomplete(rtxn: &RoTxn<'_>, tables: &Tables) -> Result<Option<String>> {
+    Ok(tables
+        .meta
+        .get(rtxn, META_LOAD_INCOMPLETE)?
+        .map(|b| String::from_utf8_lossy(b).into_owned()))
 }
 
 pub(crate) fn read_schema_version(rtxn: &RoTxn<'_>, tables: &Tables) -> Result<Option<u32>> {
