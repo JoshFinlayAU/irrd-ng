@@ -166,3 +166,21 @@ as64496
 AS-NONEXISTENT-ZZZ
 192.0.2.0/24
 2001:db8::/32
+
+@tags ripe,route,edge-length
+-x 0.0.0.0/0
+-l 0.0.0.0/0
+-L 0.0.0.0/0
+-L ::/0
+-x {route4_host}/32
+-l {route4_host}/32
+-L {route4_host}/32
+-M {route4_host}/32
+-x {route6_host}/128
+-l {route6_host}/128
+-L {route6_host}/128
+-M {route6_host}/128
+-L {route6_host}
+-L 255.255.255.255/32
+-L ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128
+-L 2001:500:856e::30/128

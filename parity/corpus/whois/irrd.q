@@ -224,3 +224,28 @@
 !r{route6_nested},l
 !r{route6_nested},L
 !r{route6_host},L
+
+@tags irrd,r,edge-length
+# /0, /32, /128 and host-length prefixes, v4 and v6 (a mask overflow on
+# /32 and /128 less-specific searches made !r...,L return nothing).
+!r0.0.0.0/0,L
+!r0.0.0.0/0,l
+!r0.0.0.0/0,o
+!r::/0,L
+!r::/0,o
+!r{route4_host}/32
+!r{route4_host}/32,o
+!r{route4_host}/32,l
+!r{route4_host}/32,L
+!r{route4_host}/32,M
+!r{route6_host}/128
+!r{route6_host}/128,o
+!r{route6_host}/128,l
+!r{route6_host}/128,L
+!r{route6_host}/128,M
+!r{route6_host},L
+!r{route6_host}/64,L
+!r{route4.net}/{route4.len},L
+!r255.255.255.255/32,L
+!rffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128,L
+!r2001:500:856e::30/128,L

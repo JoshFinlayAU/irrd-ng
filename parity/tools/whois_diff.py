@@ -540,7 +540,7 @@ def classify_difference(detail):
     if r[:1] == b"A" and r.split(b"\n", 1)[0] != t.split(b"\n", 1)[0]:
         rs, ts = sorted(r.split(b"\n", 1)[-1].split()), sorted(t.split(b"\n", 1)[-1].split())
         if rs == ts:
-            return "order-only"
+            return "frame-length-only"
         return "content+length"
     if sorted(r.split()) == sorted(t.split()):
         return "order-or-whitespace"
