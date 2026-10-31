@@ -334,12 +334,12 @@ fn prune_objects_by_key_range() {
     assert_eq!((p2.deleted, &p2.through), (0, &p1.through));
     // The last batch keeps B/mntner/M3, then the end of the stream drops
     // everything after it.
-    let after = p1.through.clone();
+    let after = p1.through;
     let p3 = store
         .write(move |tx| tx.prune_rpsl_objects(after.as_deref(), &[("B", "mntner", "M3")], false))
         .expect("prune 3");
     assert_eq!(p3.deleted, 1);
-    let after = p3.through.clone();
+    let after = p3.through;
     let p4 = store
         .write(move |tx| tx.prune_rpsl_objects(after.as_deref(), &[], true))
         .expect("prune end");
