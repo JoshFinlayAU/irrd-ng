@@ -223,7 +223,7 @@ fn object_writing_and_status_checking() {
                     ..Default::default()
                 },
             )?;
-            tx.record_serial_exported("TEST2", 424242)
+            tx.record_serial_exported("TEST2", Some(424242))
         })
         .expect("second commit");
     assert_eq!(

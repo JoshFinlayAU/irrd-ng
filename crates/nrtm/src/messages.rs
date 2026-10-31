@@ -548,3 +548,112 @@ pub const PORT_RANGE: &str = "getsockaddrarg: port must be 0-65535.";
 pub fn invalid_ca_bundle(path: &str) -> String {
     format!("Could not find a suitable TLS CA certificate bundle, invalid path: {path}")
 }
+
+// irrd/mirroring/mirror_runners_export.py
+
+/// `Starting a source export for {source} to {export_destination}`
+pub fn export_starting(source: &str, destination: &str) -> String {
+    format!("Starting a source export for {source} to {destination}")
+}
+
+/// `Starting an unfiltered source export for {source} to {destination}`
+pub fn export_starting_unfiltered(source: &str, destination: &str) -> String {
+    format!("Starting an unfiltered source export for {source} to {destination}")
+}
+
+/// `An exception occurred while attempting to run an export for {source}: {exc}`
+pub fn export_failed(source: &str, exc: &str) -> String {
+    format!("An exception occurred while attempting to run an export for {source}: {exc}")
+}
+
+/// `Export for {source} complete at serial {serial}, stored in {filename_export} / {filename_serial}`
+pub fn export_complete(source: &str, serial: &str, export: &str, serial_file: &str) -> String {
+    format!("Export for {source} complete at serial {serial}, stored in {export} / {serial_file}")
+}
+
+// irrd/mirroring/nrtm4/nrtm4_server.py
+
+/// `NRTM4Server.run()` failure.
+pub fn nrtm4_server_exception(source: &str, exc: &str) -> String {
+    format!("{source}: An exception occurred during an NRTMv4 server update: {exc}")
+}
+
+/// No `database_status` row yet (debug).
+pub fn nrtm4_server_no_status(source: &str) -> String {
+    format!("{source}: NRTMv4 server found no current status yet, possibly new source, exiting")
+}
+
+/// Status lock held elsewhere (debug).
+pub fn nrtm4_server_locked(source: &str) -> String {
+    format!("{source}: NRTMv4 server update cancelled, status changes locked by other server")
+}
+
+/// `force_reload` set (debug).
+pub fn nrtm4_server_force_reload(source: &str) -> String {
+    format!(
+        "{source}: NRTMv4 server update cancelled, as force_reload is set - waiting on new import"
+    )
+}
+
+/// Starting (debug).
+pub fn nrtm4_server_starting(source: &str, path: &str) -> String {
+    format!("{source}: NRTMv4 server starting update in {path}")
+}
+
+/// Integrity check failed.
+pub fn nrtm4_server_integrity_failed(source: &str) -> String {
+    format!("{source}: integrity check failed, discarding existing session")
+}
+
+/// A file named in the status is missing.
+pub fn nrtm4_server_missing_file(source: &str, filename: &str, path: &str) -> String {
+    format!("{source}: missing file {filename} in {path} in integrity check")
+}
+
+/// A new session.
+pub fn nrtm4_server_new_session(source: &str, session_id: &str) -> String {
+    format!(
+        "{source}: No current session ID in database, starting new NRTMv4 session with ID {session_id}"
+    )
+}
+
+/// A delta was written.
+pub fn nrtm4_server_created_delta(
+    source: &str,
+    version: i64,
+    start: i64,
+    end: i64,
+    filename: &str,
+) -> String {
+    format!("{source}: Created delta {version} for global serial {start}-{end} in {filename}")
+}
+
+/// Snapshot lock held elsewhere (debug).
+pub fn nrtm4_server_snapshot_locked(source: &str) -> String {
+    format!("{source}: Not creating a snapshot, as a snapshot runner is already active")
+}
+
+/// Starting a snapshot (debug).
+pub fn nrtm4_server_generating_snapshot(source: &str, version: i64) -> String {
+    format!("{source}: Generating a new snapshot at version {version}")
+}
+
+/// A snapshot was written.
+pub fn nrtm4_server_created_snapshot(
+    source: &str,
+    version: i64,
+    serial: i64,
+    filename: &str,
+) -> String {
+    format!("{source}: Created snapshot {version} for global serial {serial} in {filename}")
+}
+
+/// A delta expired (debug).
+pub fn nrtm4_server_expired_delta(source: &str, version: &str) -> String {
+    format!("{source}: Expired older delta {version}")
+}
+
+/// A delta file no longer in the status was removed (debug).
+pub fn nrtm4_server_dangling_delta(source: &str, name: &str) -> String {
+    format!("{source}: Removed dangling delta file {name}")
+}

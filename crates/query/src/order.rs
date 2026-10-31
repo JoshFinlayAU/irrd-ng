@@ -101,20 +101,50 @@ fn inet_key(ip: Option<IpAddr>) -> (u8, u128) {
     }
 }
 
+/// The columns of v4's object order, plus the object id for ties: small
+/// enough to collect for a whole source before reading the objects in
+/// order (exports, NRTMv4 snapshots).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrderKey<'a> {
+    /// `ip_first`
+    pub ip_first: Option<IpAddr>,
+    /// `asn_first`
+    pub asn_first: Option<u32>,
+    /// `rpsl_pk`
+    pub rpsl_pk: &'a str,
+    /// The internal object id.
+    pub id: u64,
+}
+
+impl<'a> OrderKey<'a> {
+    /// The key of a stored object.
+    pub fn of(id: u64, o: &RpslObjectRef<'a>) -> Self {
+        OrderKey {
+            ip_first: o.ip_first,
+            asn_first: o.asn_first,
+            rpsl_pk: o.rpsl_pk,
+            id,
+        }
+    }
+
+    /// v4's `ORDER BY ip_first, asn_first, rpsl_pk`, then object id.
+    pub fn v4_cmp(&self, other: &Self) -> Ordering {
+        inet_key(self.ip_first)
+            .cmp(&inet_key(other.ip_first))
+            .then_with(|| match (self.asn_first, other.asn_first) {
+                (Some(x), Some(y)) => x.cmp(&y),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            })
+            .then_with(|| collate_cmp(self.rpsl_pk, other.rpsl_pk))
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
 /// v4's `ORDER BY ip_first, asn_first, rpsl_pk`, then object id.
-pub(crate) fn object_cmp(a: &(u64, RpslObjectRef<'_>), b: &(u64, RpslObjectRef<'_>)) -> Ordering {
-    let (ia, oa) = a;
-    let (ib, ob) = b;
-    inet_key(oa.ip_first)
-        .cmp(&inet_key(ob.ip_first))
-        .then_with(|| match (oa.asn_first, ob.asn_first) {
-            (Some(x), Some(y)) => x.cmp(&y),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => Ordering::Equal,
-        })
-        .then_with(|| collate_cmp(oa.rpsl_pk, ob.rpsl_pk))
-        .then_with(|| ia.cmp(ib))
+pub fn object_cmp(a: &(u64, RpslObjectRef<'_>), b: &(u64, RpslObjectRef<'_>)) -> Ordering {
+    OrderKey::of(a.0, &a.1).v4_cmp(&OrderKey::of(b.0, &b.1))
 }
 
 #[cfg(test)]

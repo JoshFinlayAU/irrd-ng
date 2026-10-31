@@ -4,8 +4,9 @@
 //! Every `MIRROR_FREQUENCY` seconds the scheduler starts an import task for
 //! each mirrored source whose timer has expired and that has no task
 //! running, starting at most `MAX_SIMULTANEOUS_RUNS` sources per round, in
-//! configuration order. A finished task is reaped every second, as v4's
-//! `update_process_state()` does.
+//! configuration order, and the export and NRTMv4 server runners of
+//! sources that serve data. A finished task is reaped every second, as
+//! v4's `update_process_state()` does.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,6 +19,8 @@ use tokio::task::JoinHandle;
 use crate::messages;
 use crate::mirror::runner::{MirrorContext, run_mirror_update};
 use crate::mirror::settings::MirrorSettings;
+use crate::serve::export::EXPORT_RUNNER;
+use crate::serve::nrtm4_server::NRTM4_SERVER_RUNNER;
 
 /// v4's logger name.
 pub const LOG_TARGET: &str = "irrd.mirroring.scheduler";
@@ -67,7 +70,7 @@ impl MirrorScheduler {
                 break;
             }
             let mut started_import = false;
-            let started_export = false;
+            let mut started_export = false;
             if src.is_mirror() {
                 let ctx = MirrorContext {
                     store: self.store.clone(),
@@ -82,9 +85,38 @@ impl MirrorScheduler {
                     move || tokio::spawn(run_mirror_update(ctx, name)),
                 );
             }
-            // SourceExportRunner (export_destination) and NRTM4Server
-            // (nrtm4_server_private_key) are scheduled here in v4; they
-            // arrive with Phase 6.
+            if src.runs_rpsl_export {
+                let store = self.store.clone();
+                let source = src.clone();
+                started_export = self.run_if_relevant(
+                    Some(&src.name),
+                    EXPORT_RUNNER,
+                    src.export_timer,
+                    false,
+                    move || {
+                        tokio::task::spawn_blocking(move || {
+                            crate::serve::export::run_export(&store, &source)
+                        })
+                    },
+                );
+            }
+            // v4 overwrites started_export here, so a source that runs both
+            // counts as started only if its NRTMv4 server did.
+            if src.runs_nrtm4_server {
+                let store = self.store.clone();
+                let source = src.clone();
+                started_export = self.run_if_relevant(
+                    Some(&src.name),
+                    NRTM4_SERVER_RUNNER,
+                    settings.export_timer_nrtm4(),
+                    true,
+                    move || {
+                        tokio::task::spawn_blocking(move || {
+                            crate::serve::nrtm4_server::run_nrtm4_server(&store, &source)
+                        })
+                    },
+                );
+            }
             if started_import || started_export {
                 sources_started += 1;
             }

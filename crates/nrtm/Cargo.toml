@@ -11,8 +11,11 @@ publish.workspace = true
 [dependencies]
 config.workspace = true
 flate2.workspace = true
+getrandom.workspace = true
+libz-sys.workspace = true
 hickory-resolver.workspace = true
 postcard.workspace = true
+query.workspace = true
 num-bigint.workspace = true
 p256 = { workspace = true, features = ["ecdsa", "pem"] }
 reqwest.workspace = true

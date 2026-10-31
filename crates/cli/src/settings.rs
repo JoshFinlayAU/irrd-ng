@@ -406,6 +406,18 @@ pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::Mi
             export_timer: int_setting_or(cfg, &k("export_timer"), ms::DEFAULT_SOURCE_EXPORT_TIMER)
                 .unwrap_or(ms::DEFAULT_SOURCE_EXPORT_TIMER),
             runs_nrtm4_server: truthy(cfg, &k("nrtm4_server_private_key")),
+            export_destination: truthy_str("export_destination"),
+            export_destination_unfiltered: truthy_str("export_destination_unfiltered"),
+            dummify: dummify_settings(cfg, &name),
+            nrtm4_server_local_path: truthy_str("nrtm4_server_local_path"),
+            nrtm4_server_private_key: truthy_str("nrtm4_server_private_key"),
+            nrtm4_server_private_key_next: truthy_str("nrtm4_server_private_key_next"),
+            nrtm4_server_snapshot_frequency: int_setting_or(
+                cfg,
+                &k("nrtm4_server_snapshot_frequency"),
+                ms::DEFAULT_SOURCE_NRTM4_SERVER_SNAPSHOT_FREQUENCY,
+            )
+            .unwrap_or(ms::DEFAULT_SOURCE_NRTM4_SERVER_SNAPSHOT_FREQUENCY),
         });
     }
     out
