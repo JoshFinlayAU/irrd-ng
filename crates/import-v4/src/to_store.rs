@@ -267,10 +267,31 @@ fn host(i: Inet, what: &str) -> Result<IpAddr, StoreSinkError> {
     Ok(i.addr)
 }
 
+/// A `cidr` column. PostgreSQL guarantees zero host bits; checked anyway,
+/// and the prefix built directly rather than through `IpPrefix::new`, whose
+/// mask overflows for /128 (reported to the store).
 fn cidr(i: Inet, what: &str) -> Result<IpPrefix, StoreSinkError> {
-    IpPrefix::new(i.addr, i.prefix_len)
-        .filter(|p| p.addr == i.addr)
-        .ok_or_else(|| StoreSinkError::Convert(messages::bad_value(what, &i.to_string())))
+    let (value, bits) = match i.addr {
+        IpAddr::V4(a) => (u128::from(u32::from(a)), 32u32),
+        IpAddr::V6(a) => (u128::from(a), 128u32),
+    };
+    let len = u32::from(i.prefix_len);
+    let host_bits = bits.saturating_sub(len);
+    let host_mask = if host_bits == 0 {
+        0
+    } else {
+        u128::MAX >> (128 - host_bits)
+    };
+    if len > bits || value & host_mask != 0 {
+        return Err(StoreSinkError::Convert(messages::bad_value(
+            what,
+            &i.to_string(),
+        )));
+    }
+    Ok(IpPrefix {
+        addr: i.addr,
+        len: i.prefix_len,
+    })
 }
 
 fn narrow<T: TryFrom<i64>>(v: Option<i64>, what: &str) -> Result<Option<T>, StoreSinkError> {
@@ -445,4 +466,36 @@ fn change_log(r: rows::ChangeLog) -> Result<ChangeLogRow, StoreSinkError> {
         rpsl_target_object_text_new: r.rpsl_target_object_text_new,
         timestamp: ts(r.timestamp),
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn inet(s: &str) -> Inet {
+        let (a, l) = s.split_once('/').unwrap();
+        Inet {
+            addr: a.parse().unwrap(),
+            prefix_len: l.parse().unwrap(),
+            is_cidr: true,
+        }
+    }
+
+    #[test]
+    fn cidr_keeps_every_length() {
+        for s in [
+            "0.0.0.0/0",
+            "192.0.2.0/24",
+            "192.0.2.1/32",
+            "::/0",
+            "2a0c:9c80::/128",
+            "2001:db8::/32",
+        ] {
+            let p = cidr(inet(s), "t").unwrap();
+            assert_eq!(format!("{}/{}", p.addr, p.len), s);
+        }
+        assert!(cidr(inet("192.0.2.1/24"), "t").is_err());
+        assert!(cidr(inet("2001:db8::1/64"), "t").is_err());
+    }
 }

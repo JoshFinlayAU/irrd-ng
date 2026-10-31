@@ -65,3 +65,7 @@ pub fn bad_value(what: &str, value: &str) -> String {
 pub fn ip_size_mismatch(what: &str, v4: &str, derived: &str) -> String {
     format!("{what} is {v4} in the source, but {derived} from ip_first and ip_last")
 }
+
+pub fn connect_failed() -> String {
+    "Unable to connect to the source database".to_owned()
+}

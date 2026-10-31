@@ -42,13 +42,13 @@ pub enum ImportError {
     Dsn(String),
     #[error("{0}")]
     Tls(String),
-    #[error("{0}")]
+    #[error("{}", messages::connect_failed())]
     Connect(#[source] postgres::Error),
     #[error("{}", messages::no_schema())]
     NoSchema,
     #[error("{}", messages::wrong_schema(.0))]
     WrongSchema(String),
-    #[error("{}: {source}", messages::query_failed(.table))]
+    #[error("{}", messages::query_failed(.table))]
     Query {
         table: &'static str,
         #[source]
@@ -56,7 +56,7 @@ pub enum ImportError {
     },
     #[error("{}", messages::aborted())]
     Aborted,
-    #[error("{}: {source}", messages::sink_failed(.table))]
+    #[error("{}", messages::sink_failed(.table))]
     Sink {
         table: &'static str,
         #[source]
