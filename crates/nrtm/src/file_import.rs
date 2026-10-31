@@ -394,7 +394,7 @@ pub fn parse_paragraphs(
 }
 
 /// `MirrorFileImportParser.run_import()` against a write transaction:
-/// parse and upsert as it goes (origin `mirror`), then record the serial
+/// parse, then upsert in key order (origin `mirror`), then record the serial
 /// if one was given and is not 0.
 pub fn run_file_import(
     tx: &mut WriteTx<'_, '_>,
@@ -404,12 +404,35 @@ pub fn run_file_import(
     serial: Option<i64>,
 ) -> Result<Counters, StreamError> {
     let source = settings.source.clone();
+    // Objects are written in the store's key order (class, then primary
+    // key), not file order, so the internal ids they get follow key order
+    // and key-order scans read the objects table sequentially. The sort is
+    // stable: a key repeated in the file is still written last-one-wins.
+    // Only the store's internal layout depends on this order; everything
+    // v4 can observe (counters, logs, errors, the resulting rows) is the
+    // same.
+    let mut upserts: Vec<Box<ImportedObject>> = Vec::new();
     let counters = parse_streaming(paragraphs, settings, env, &mut |a| match a {
         ImportAction::Upsert(o) => {
-            tx.upsert_rpsl_object(&o.object, JournalEntryOrigin::Mirror, None, None)
+            upserts.push(o);
+            Ok(())
         }
         ImportAction::MirrorError(e) => tx.record_mirror_error(&source, &e),
     })?;
+    upserts.sort_by(|a, b| {
+        (
+            a.object.object_class.as_bytes(),
+            a.object.rpsl_pk.as_bytes(),
+        )
+            .cmp(&(
+                b.object.object_class.as_bytes(),
+                b.object.rpsl_pk.as_bytes(),
+            ))
+    });
+    for o in upserts {
+        tx.upsert_rpsl_object(&o.object, JournalEntryOrigin::Mirror, None, None)
+            .map_err(StreamError::Store)?;
+    }
     if let Some(s) = serial
         && s != 0
     {

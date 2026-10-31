@@ -15,7 +15,7 @@ use crate::messages;
 /// add a [`Migration`] from the previous version, and commit a fixture
 /// environment of the new version next to the old one (see
 /// `tests/schema_fixture.rs`).
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub(crate) type Table = Database<'static, Bytes, Bytes>;
 
@@ -173,8 +173,16 @@ pub(crate) struct Migration {
     pub(crate) run: fn(&Env<WithoutTls>, &mut RwTxn<'_>, &Tables) -> Result<()>,
 }
 
-/// The migration chain. Empty while there is only version 1.
-pub(crate) const MIGRATIONS: &[Migration] = &[];
+/// The migration chain.
+///
+/// - 1 to 2: `idx_lookup` keys name the attribute by a one-byte code
+///   instead of its escaped name, and presence entries are kept only for
+///   `member-of` and `mbrs-by-ref`. The index is rebuilt from the objects.
+pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
+    from: 1,
+    to: 2,
+    run: |_, wtxn, t| crate::index::rebuild_lookup(wtxn, t),
+}];
 
 /// Readers register here so the writer can resize the map, which LMDB
 /// only allows while no transaction is open in this process.

@@ -8,8 +8,8 @@
 //! | `objects_key` | source, class, rpsl_pk | id | the unique key; key lookups; per source/class scans |
 //! | `objects_uuid` | row UUID | id | `pk` filters |
 //! | `idx_rpsl_pk` | rpsl_pk, id | | `rpsl_pk IN (...)` across classes and sources |
-//! | `idx_lookup` | attribute, value, id | | `parsed_data->attr ? value` (`-i`, `!o`, member-of, ...) |
-//! | `idx_lookup` | attribute, `0xFF`, id | | `parsed_data ? attr` |
+//! | `idx_lookup` | attribute code, value, id | | `parsed_data->attr ? value` (`-i`, `!o`, member-of, ...) |
+//! | `idx_lookup` | attribute code, `0xFF`, id | | `parsed_data ? attr`, for `member-of` and `mbrs-by-ref` only |
 //! | `set_members` | rpsl_pk, source, class | members, mbrs-by-ref | set expansion (`!i`, `!a`) |
 //! | `idx_ip{4,6}_range` | ip_first, ip_last, id | | exact and more-specific (`!r`, `-x`, `-M`) |
 //! | `idx_ip{4,6}_cover` | cover length, cover network, id | ip_first, ip_last | less-specific (`-l`, `-L`, `!r..,l/L`) |
@@ -52,6 +52,21 @@ pub const LOOKUP_FIELD_NAMES: &[&str] = &[
 ];
 
 const PRESENCE: u8 = 0xFF;
+
+/// Attributes whose presence (`parsed_data ? attr`) is indexed. v4 only
+/// asks that of `member-of` (the preload's `mbrs-by-ref` resolution);
+/// `mbrs-by-ref` is kept for the same reason. Presence of any other
+/// attribute is answered by a scan.
+const PRESENCE_INDEXED: &[&str] = &["member-of", "mbrs-by-ref"];
+
+/// The one-byte code of a look-up attribute in `idx_lookup` keys: its
+/// position in [`LOOKUP_FIELD_NAMES`].
+fn lookup_code(attr: &str) -> Option<u8> {
+    LOOKUP_FIELD_NAMES
+        .iter()
+        .position(|a| *a == attr)
+        .map(|i| i as u8)
+}
 
 fn status_bytes(r: &RpslObjectRef<'_>) -> [u8; 3] {
     [
@@ -153,14 +168,18 @@ fn entries(r: &RpslObjectRef<'_>, id: u64) -> Vec<(Idx, Vec<u8>, Vec<u8>)> {
         serde_json::from_str(r.parsed_data).unwrap_or(serde_json::Value::Null);
     let mut seen = BTreeSet::new();
     for (attr, values) in lookup_values(&parsed) {
-        let mut k = Vec::new();
-        push_str(&mut k, attr.as_bytes());
-        k.push(PRESENCE);
-        k.extend_from_slice(&idb);
-        out.push((Idx::Lookup, k, Vec::new()));
+        let Some(code) = lookup_code(attr) else {
+            continue;
+        };
+        if PRESENCE_INDEXED.contains(&attr) {
+            out.push((
+                Idx::Lookup,
+                vec![code, PRESENCE].into_iter().chain(idb).collect(),
+                Vec::new(),
+            ));
+        }
         for v in values {
-            let mut k = Vec::new();
-            push_str(&mut k, attr.as_bytes());
+            let mut k = vec![code];
             push_index_str(&mut k, v);
             k.extend_from_slice(&idb);
             if seen.insert(k.clone()) {
@@ -283,6 +302,30 @@ pub(crate) fn add(wtxn: &mut RwTxn<'_>, t: &Tables, r: &RpslObjectRef<'_>, id: u
     Ok(())
 }
 
+/// Rebuild `idx_lookup` from the objects table (schema migration 1 to 2).
+pub(crate) fn rebuild_lookup(wtxn: &mut RwTxn<'_>, t: &Tables) -> Result<()> {
+    t.idx_lookup.clear(wtxn)?;
+    let mut entries_out: Vec<Vec<u8>> = Vec::new();
+    {
+        for item in t.objects.iter(wtxn)? {
+            let (k, v) = item?;
+            let id =
+                u64::from_be_bytes(k.try_into().map_err(|_| StoreError::Corrupt("object id"))?);
+            let r: RpslObjectRef<'_> = decode(v)?;
+            for (i, key, _) in entries(&r, id) {
+                if matches!(i, Idx::Lookup) {
+                    entries_out.push(key);
+                }
+            }
+        }
+    }
+    entries_out.sort_unstable();
+    for k in entries_out {
+        t.idx_lookup.put(wtxn, &k, &[])?;
+    }
+    Ok(())
+}
+
 /// Remove every index entry for an object.
 pub(crate) fn remove(
     wtxn: &mut RwTxn<'_>,
@@ -337,8 +380,13 @@ pub(crate) fn ids_by_lookup(
     attr: &str,
     value: Option<&str>,
 ) -> Result<Vec<u64>> {
-    let mut p = Vec::new();
-    push_str(&mut p, attr.as_bytes());
+    let Some(code) = lookup_code(attr) else {
+        return Ok(Vec::new());
+    };
+    if value.is_none() && !PRESENCE_INDEXED.contains(&attr) {
+        return ids_with_attribute_scan(t, txn, attr);
+    }
+    let mut p = vec![code];
     let cut = match value {
         Some(v) => push_index_str(&mut p, v),
         None => {
@@ -363,6 +411,23 @@ pub(crate) fn ids_by_lookup(
             }
         }
         out.push(id);
+    }
+    Ok(out)
+}
+
+/// `parsed_data ? attr` for an attribute whose presence is not indexed.
+fn ids_with_attribute_scan(t: &Tables, txn: &RoTxn<'_>, attr: &str) -> Result<Vec<u64>> {
+    let mut out = Vec::new();
+    for item in t.objects.iter(txn)? {
+        let (k, v) = item?;
+        let o: RpslObjectRef<'_> = decode(v)?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(o.parsed_data).unwrap_or(serde_json::Value::Null);
+        if parsed.get(attr).is_some() {
+            out.push(u64::from_be_bytes(
+                k.try_into().map_err(|_| StoreError::Corrupt("object id"))?,
+            ));
+        }
     }
     Ok(out)
 }
