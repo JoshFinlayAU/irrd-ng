@@ -15,5 +15,7 @@ serde_json.workspace = true
 store.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+
 [lints]
 workspace = true
