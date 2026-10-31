@@ -103,6 +103,7 @@ fn write_str<W: Write>(out: &mut W, s: &str) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::types::Timestamp;

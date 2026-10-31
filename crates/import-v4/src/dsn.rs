@@ -244,6 +244,7 @@ impl ServerCertVerifier for ChainOnly {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

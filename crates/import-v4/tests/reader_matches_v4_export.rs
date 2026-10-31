@@ -9,6 +9,8 @@
 //!   IRRD_NG_TEST_V4_DSN     postgresql://irrd:irrd@127.0.0.1:9432/v4_seeded
 //!   IRRD_NG_TEST_V4_EXPORT  parity/.work/seeded/v4/export
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -16,11 +18,14 @@ use std::path::PathBuf;
 use import_v4::rows::{Cell, V4Table};
 use import_v4::{Batch, Options, Sink, canonical};
 
+/// A rendered row and the key export_v4.py sorts it by.
+type SortedLine = (Vec<String>, Vec<u8>);
+
 #[derive(Default)]
 struct Collect {
     revision: String,
     finished: bool,
-    tables: BTreeMap<&'static str, Vec<(Vec<String>, Vec<u8>)>>,
+    tables: BTreeMap<&'static str, Vec<SortedLine>>,
 }
 
 /// export_v4.py's row order.
