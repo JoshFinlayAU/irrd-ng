@@ -464,3 +464,133 @@ fn route_searches_at_prefix_length_edges() {
         "::/0 2001:db8::1/128 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128"
     );
 }
+
+/// Route6 objects in and around `::/96` (v4's run had `::/0` too, out of
+/// scope there, so it is left out), where IPy guesses the broadcast
+/// address as IPv4 and v4 stores and compares `ip_last` as IPv4 text.
+const EDGE96: &str = "\
+route6:         ::/8
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/64
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/104
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/128
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::1/128
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::102:300/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::ffff:0:0/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::ffff:c000:200/120
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::1:0:0/96
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::2:0:0/95
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         2001:db8::/32
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         ::/95
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+
+route6:         0:0:0:1::/64
+origin:         AS65599
+mnt-by:         MNT-EDGE
+source:         EDGE96
+";
+
+/// Regression: IPv6 searches in and around `::/96` give v4's results.
+/// Counts measured on v4 4.5.4 with the same objects (`!r` with each
+/// option, `-x/-l/-L/-M`, free text, free text with `-T route6`).
+#[test]
+fn ipv6_searches_inside_96() {
+    let p = std::env::temp_dir().join(format!("irrd-ng-query-edge96-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&p);
+    let _t = Tmp(p.clone());
+    let mut o = StoreOptions::new(&p);
+    o.initial_map_size = 32 << 20;
+    let st = Store::open(&o, StoreSettings::default()).expect("store");
+    load(&st, "EDGE96", EDGE96);
+    let s = Arc::new(QuerySettings {
+        version: "4.5.4".into(),
+        sources: vec!["EDGE96".into()],
+        ..QuerySettings::default()
+    });
+    let count = |q: &str| one(&st, &s, q).matches("origin:").count();
+    let cases: &[(&str, [usize; 10])] = &[
+        ("::/0", [0, 0, 0, 15, 0, 0, 0, 15, 0, 0]),
+        ("::/8", [1, 0, 1, 13, 1, 0, 1, 13, 1, 1]),
+        ("::/95", [1, 1, 3, 7, 1, 1, 3, 7, 3, 3]),
+        ("::/96", [1, 1, 4, 5, 1, 1, 4, 5, 4, 4]),
+        ("::/97", [0, 1, 4, 5, 0, 1, 4, 5, 4, 4]),
+        ("::/104", [1, 1, 5, 3, 1, 1, 5, 3, 5, 5]),
+        ("::/120", [1, 1, 6, 2, 1, 1, 6, 2, 6, 6]),
+        ("::/128", [1, 1, 7, 0, 1, 1, 7, 0, 7, 7]),
+        ("::1", [1, 1, 7, 0, 1, 1, 7, 0, 7, 7]),
+        ("::102:304", [0, 1, 5, 0, 0, 1, 5, 0, 5, 5]),
+        ("::ffff:0:0/96", [1, 1, 3, 1, 1, 1, 3, 1, 3, 3]),
+        ("::1:0:0/96", [1, 1, 4, 0, 1, 1, 4, 0, 4, 4]),
+        ("::/64", [1, 1, 2, 11, 1, 1, 2, 11, 2, 2]),
+    ];
+    for (prefix, expected) in cases {
+        let got = [
+            count(&format!("!r{prefix}")),
+            count(&format!("!r{prefix},l")),
+            count(&format!("!r{prefix},L")),
+            count(&format!("!r{prefix},M")),
+            count(&format!("-x {prefix}")),
+            count(&format!("-l {prefix}")),
+            count(&format!("-L {prefix}")),
+            count(&format!("-M {prefix}")),
+            count(prefix),
+            count(&format!("-T route6 {prefix}")),
+        ];
+        assert_eq!(&got, expected, "{prefix}");
+    }
+}

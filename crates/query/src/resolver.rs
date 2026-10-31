@@ -263,11 +263,64 @@ impl IpBounds {
         }
     }
 
-    /// A broadcast address in the other family (IPv6 within `::/96`, where
-    /// IPy guesses IPv4) never equals and always sorts below an IPv6
-    /// `ip_last`. Those queries are degenerate; irrd-ng answers them empty.
+    /// Whether the broadcast address is in the query's own family. For an
+    /// IPv6 prefix within `::/96`, IPy re-guesses the broadcast as IPv4,
+    /// and v4 compares `ip_last` against that IPv4 text. PostgreSQL orders
+    /// every IPv4 `inet` below every IPv6 one, so `ip_last = <v4>` is never
+    /// true, `ip_last >= <v4>` always is, and `ip_first <= <v4>` never is
+    /// for IPv6 rows. The callers reproduce exactly those predicates.
     fn consistent(&self) -> bool {
         self.version == self.bcast_version
+    }
+
+    fn q_net(&self) -> Inet {
+        (family_rank(self.version), self.net)
+    }
+
+    fn q_bcast(&self) -> Inet {
+        (family_rank(self.bcast_version), self.bcast)
+    }
+
+    /// The row's `(ip_first, ip_last)` if its `ip_version` is the query's.
+    fn row(&self, o: &RpslObjectRef<'_>) -> Option<(Inet, Inet)> {
+        if o.ip_version != Some(self.version) {
+            return None;
+        }
+        Some((inet(&o.ip_first?), inet(&o.ip_last?)))
+    }
+
+    /// `ip_first = net AND ip_last = broadcast AND ip_version = v`
+    fn exact(&self, o: &RpslObjectRef<'_>) -> bool {
+        self.row(o)
+            .is_some_and(|(f, l)| f == self.q_net() && l == self.q_bcast())
+    }
+
+    /// `ip_first <= net AND ip_last >= broadcast AND ip_version = v`
+    fn less_or_exact(&self, o: &RpslObjectRef<'_>) -> bool {
+        self.row(o)
+            .is_some_and(|(f, l)| f <= self.q_net() && l >= self.q_bcast())
+    }
+
+    /// v4's non-prefix `ip_more_specific()` predicate.
+    fn more_specific(&self, o: &RpslObjectRef<'_>) -> bool {
+        let (n, b) = (self.q_net(), self.q_bcast());
+        self.row(o)
+            .is_some_and(|(f, l)| f >= n && f <= b && l <= b && l >= n && !(f == n && l == b))
+    }
+}
+
+/// An `inet` host value as PostgreSQL orders it: every IPv4 address
+/// below every IPv6 one, then by address.
+type Inet = (u8, u128);
+
+fn family_rank(version: u8) -> u8 {
+    u8::from(version != 4)
+}
+
+fn inet(a: &IpAddr) -> Inet {
+    match a {
+        IpAddr::V4(v) => (0, u128::from(u32::from(*v))),
+        IpAddr::V6(v) => (1, u128::from(*v)),
     }
 }
 
@@ -536,19 +589,29 @@ impl QueryResolver {
         ip: &Ip,
     ) -> QResult<Vec<Found<'t>>> {
         let q = IpBounds::of(ip);
-        if !q.consistent() {
-            return Ok(Vec::new());
-        }
-        let ids = view
-            .range_less_specific(q.space(), q.net, q.bcast)?
-            .into_iter()
-            .map(|(id, _, _)| id)
-            .collect();
         if f.prefix_query_permitted(&self.settings) {
-            self.collect(view, ids, f, |o| prefix_relation(o, &q, false))
-        } else {
-            self.collect(view, ids, f, |_| true)
+            // `prefix >>= cidr(str(ip))`: the broadcast plays no part.
+            let ids = view
+                .range_less_specific(q.space(), q.net, q.bcast)?
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect();
+            return self.collect(view, ids, f, |o| prefix_relation(o, &q, false));
         }
+        let ids = self.less_specific_candidates(view, &q)?;
+        self.collect(view, ids, f, |o| q.less_or_exact(o))
+    }
+
+    /// A superset of the rows `ip_first <= net AND ip_last >= broadcast`
+    /// can match. With an IPv4 broadcast the second test holds for every
+    /// IPv6 `ip_last`, so every row starting at or below `net` qualifies.
+    fn less_specific_candidates(&self, view: &ReadView<'_>, q: &IpBounds) -> QResult<Vec<u64>> {
+        let c = if q.consistent() {
+            view.range_less_specific(q.space(), q.net, q.bcast)?
+        } else {
+            view.range_first_at_most(q.space(), q.net)?
+        };
+        Ok(c.into_iter().map(|(id, _, _)| id).collect())
     }
 
     /// `route_search()`: `!r`, `-x`, `-l`, `-L`, `-M`.
@@ -561,9 +624,6 @@ impl QueryResolver {
         let mut f = self.prepare();
         f.object_classes(vec!["route".into(), "route6".into()]);
         let q = IpBounds::of(ip);
-        if !q.consistent() {
-            return Ok(Vec::new());
-        }
         match lookup {
             RouteLookupType::Exact => {
                 let ids = view
@@ -571,17 +631,12 @@ impl QueryResolver {
                     .into_iter()
                     .map(|(id, _, _)| id)
                     .collect();
-                self.collect(view, ids, &f, |_| true)
+                self.collect(view, ids, &f, |o| q.exact(o))
             }
             RouteLookupType::LessSpecificWithExact => self.ip_less_specific(view, &f, ip),
             RouteLookupType::LessSpecificOneLevel => {
-                let ids = view
-                    .range_less_specific(q.space(), q.net, q.bcast)?
-                    .into_iter()
-                    .filter(|(_, first, last)| !(*first == q.net && *last == q.bcast))
-                    .map(|(id, _, _)| id)
-                    .collect();
-                let found = self.collect(view, ids, &f, |_| true)?;
+                let ids = self.less_specific_candidates(view, &q)?;
+                let found = self.collect(view, ids, &f, |o| q.less_or_exact(o) && !q.exact(o))?;
                 let size = |o: &RpslObjectRef<'_>| match (o.ip_first, o.ip_last) {
                     (Some(a), Some(b)) => addr_u128(&b).wrapping_sub(addr_u128(&a)),
                     _ => u128::MAX,
@@ -600,7 +655,7 @@ impl QueryResolver {
                 if f.prefix_query_permitted(&self.settings) {
                     self.collect(view, ids, &f, |o| prefix_relation(o, &q, true))
                 } else {
-                    self.collect(view, ids, &f, |_| true)
+                    self.collect(view, ids, &f, |o| q.more_specific(o))
                 }
             }
         }

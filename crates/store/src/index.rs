@@ -204,8 +204,12 @@ fn entries(r: &RpslObjectRef<'_>, id: u64) -> Vec<(Idx, Vec<u8>, Vec<u8>)> {
         out.push((Idx::SetMembers, k, v));
     }
 
+    // An IPv6 object within `::/96` has an IPv4 `ip_last`: v4 stores
+    // `str(IP.broadcast())`, and IPy re-guesses the version from the
+    // integer. It is indexed in the IPv6 tables by the integer value; the
+    // query engine applies v4's family-aware comparisons on top.
     if let (Some(first), Some(last)) = (r.ip_first, r.ip_last)
-        && first.is_ipv4() == last.is_ipv4()
+        && (first.is_ipv4() == last.is_ipv4() || first.is_ipv6())
     {
         let (bits, width) = family(&first);
         let (f, l) = (ip_to_u128(&first), ip_to_u128(&last));
@@ -297,6 +301,31 @@ fn table(t: &Tables, i: Idx) -> crate::env::Table {
 /// Write every index entry for an object.
 pub(crate) fn add(wtxn: &mut RwTxn<'_>, t: &Tables, r: &RpslObjectRef<'_>, id: u64) -> Result<()> {
     for (i, k, v) in entries(r, id) {
+        table(t, i).put(wtxn, &k, &v)?;
+    }
+    Ok(())
+}
+
+/// Add the address range entries of IPv6 objects with an IPv4 `ip_last`,
+/// which schema versions before 3 did not index (migration 2 to 3).
+pub(crate) fn index_mixed_family_ranges(wtxn: &mut RwTxn<'_>, t: &Tables) -> Result<()> {
+    let mut add: Vec<(Idx, Vec<u8>, Vec<u8>)> = Vec::new();
+    for item in t.objects.iter(wtxn)? {
+        let (k, v) = item?;
+        let id = u64::from_be_bytes(k.try_into().map_err(|_| StoreError::Corrupt("object id"))?);
+        let r: RpslObjectRef<'_> = decode(v)?;
+        if let (Some(f), Some(l)) = (r.ip_first, r.ip_last)
+            && f.is_ipv6()
+            && l.is_ipv4()
+        {
+            add.extend(
+                entries(&r, id)
+                    .into_iter()
+                    .filter(|(i, _, _)| matches!(i, Idx::Ip6Range | Idx::Ip6Cover)),
+            );
+        }
+    }
+    for (i, k, v) in add {
         table(t, i).put(wtxn, &k, &v)?;
     }
     Ok(())
@@ -486,6 +515,38 @@ impl Space {
             Space::Ipv6
         }
     }
+}
+
+/// Objects whose range starts at or below `first` (any end).
+pub(crate) fn ids_range_first_at_most(
+    t: &Tables,
+    txn: &RoTxn<'_>,
+    space: Space,
+    first: u128,
+) -> Result<Vec<(u64, u128, u128)>> {
+    let (_, width) = space.bits_width();
+    let (range, _) = space.tables(t);
+    let mut hi = Vec::new();
+    push_uint(&mut hi, first, width);
+    hi.extend_from_slice(&[0xFF; 25]);
+    let bounds = (
+        std::ops::Bound::Unbounded,
+        std::ops::Bound::Included(hi.as_slice()),
+    );
+    let mut out = Vec::new();
+    for item in range.range(txn, &bounds)? {
+        let (k, _) = item?;
+        let f = read_uint(k, width).ok_or(StoreError::Corrupt("index key"))?;
+        let l = read_uint(&k[width..], width).ok_or(StoreError::Corrupt("index key"))?;
+        if f <= first {
+            out.push((
+                id_from_tail(k).ok_or(StoreError::Corrupt("index key"))?,
+                f,
+                l,
+            ));
+        }
+    }
+    Ok(out)
 }
 
 /// Objects whose range is exactly `[first, last]`.
