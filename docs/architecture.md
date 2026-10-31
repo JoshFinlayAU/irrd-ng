@@ -92,6 +92,8 @@ The static build never touches libc's resolver: names are resolved by hickory fr
 
 Signatures on NRTMv4 Update Notification Files are ES256 JWS, verified with the pure-Rust `p256` crate; the error texts are joserfc's. pydantic's validation of the notification file and the snapshot and delta headers is reproduced with its error messages, because v4 logs them.
 
+There's one place we deliberately don't follow v4 here. v4's NRTMv4 client keeps the file hashes it has seen across sessions, and file names like `snapshot-1` get reused when a server resets its session, so after a reset v4 decides the server is rewriting history and stays stuck on every run until someone edits the database by hand. irrd-ng only compares hashes within one session, so it reloads from the new snapshot and carries on. That's DIV-003, and the mirroring side-by-side checks both halves of it: v4 still gets stuck, and irrd-ng ends up identical to the upstream.
+
 ## Getting into irrd-ng from v4
 
 `irrd-ng import --from-postgres <dsn>` is a one-shot, read-only migration from a v4 4.5.x database. It checks the alembic revision first and refuses anything that isn't 4.5. It reads inside a read-only, repeatable-read transaction so it sees one consistent snapshot, streams in batches so memory stays bounded, and writes with the same upsert semantics, so running it twice changes nothing.
@@ -119,13 +121,13 @@ v4 shells out to `gpg` through python-gnupg. We use sequoia-openpgp with its pur
 
 The catch is that `fingerprint`, `owner` and `method` on key-cert objects come out of gpg's import, so they have to match gpg exactly. That meant testing gpg 2.4.7 directly and reproducing its behaviour: the armour header lost to RPSL normalisation, CRC and END-line rules, user IDs without a valid self-signature being dropped, the primary user ID moving to the front, and the Latin-1 mangling of non-ASCII names in `owner` ("BÃ¶ing"). Every key-cert in the cached dumps matches.
 
-Two costs to be aware of: sequoia is LGPL-2.0-or-later, which has relinking implications for a static binary and is part of the open licence decision. And we accept two upstream timing advisories (in `rsa` and `crypto-bigint`) because they affect private-key operations and we only ever verify public signatures.
+Two costs to be aware of: sequoia is LGPL-2.0-or-later, and it ends up inside a static binary. That's fine because irrd-ng itself is LGPL-2.1-or-later and ships its source, so anyone can rebuild it against a modified sequoia, which is what the LGPL asks for. And we accept two upstream timing advisories (in `rsa` and `crypto-bigint`) because they affect private-key operations and we only ever verify public signatures.
 
 ## Config
 
 Same `irrd.yaml`, same keys, same defaults, same validation errors in the same order, same unknown-key handling, same environment overrides (`IRRD_<KEY>`), same SIGHUP behaviour. Every setting carries whether it takes effect on restart, on SIGHUP, or on next use, copied from v4.
 
-The one thing irrd-ng needs that v4 doesn't is somewhere to put the store. We didn't want to invent an `irrd.yaml` key, because then a v4 config wouldn't be a valid irrd-ng config (or worse, v4 would choke on an irrd-ng one). So it's an environment variable, `IRRD_NG_STORE_PATH`, defaulting to `/var/lib/irrd-ng`. It's listed as a proposed divergence.
+The one thing irrd-ng needs that v4 doesn't is somewhere to put the store. We didn't want to invent an `irrd.yaml` key, because then a v4 config wouldn't be a valid irrd-ng config (or worse, v4 would choke on an irrd-ng one). So it's an environment variable, `IRRD_NG_STORE_PATH`, defaulting to `/var/lib/irrd-ng`. It's listed as P-18 in `docs/divergences.md`, waiting for review.
 
 ## How we know it matches
 
@@ -146,10 +148,13 @@ Beyond the behaviour divergences, a few structural ones are worth calling out:
 - **Crashes become errors.** Where a bad input makes v4 die with a Python traceback, irrd-ng reports the same exception as a normal error and, on SIGHUP, keeps running with the old config.
 - **Stable ordering where v4's is random.** v4 sometimes builds output from Python sets, which come out in a different order every run. We can't match a random order, so we use a fixed one (file order, or key order).
 
+## Licence
+
+irrd-ng is LGPL-2.1-or-later (`LICENSE`). It's a reimplementation of v4, and a lot of it is ported straight from v4's code, messages and tests, so v4's BSD-2-Clause notice is kept in `NOTICE` as that licence requires.
+
 ## What's still open
 
 - Where the PGP keyring lives (the plan is a store table filled from key-cert imports, Phase 7).
-- The licence, before any public release.
-- The proposed divergences in `docs/divergences.md` waiting for review.
+- The Phase 2 proposals P-15 to P-20 in `docs/divergences.md`, waiting for review.
 
 The performance story isn't written yet on purpose. We expect queries to be a lot faster than v4, for the structural reasons above, but the rule for this project is that performance claims come with numbers from the load bench against v4 on the same data, and that bench lands in Phase 3.

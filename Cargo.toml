@@ -7,6 +7,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.99"
 repository = "https://github.com/JoshFinlayAU/irrd-ng"
+license = "LGPL-2.1-or-later"
 publish = false
 
 [workspace.dependencies]

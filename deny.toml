@@ -43,7 +43,7 @@ allow = [
     "CDLA-Permissive-2.0",
 ]
 
-# The workspace crates are unpublished and carry no licence until one is chosen.
+# The workspace crates are LGPL-2.1-or-later and unpublished.
 [licenses.private]
 ignore = true
 
