@@ -33,7 +33,7 @@ pub use known_keys::{
     AUTH_SET_CREATION_COMMON_KEY, KEY_SPECS, KNOWN_FLEXIBLE_KEYS, KNOWN_SOURCES_KEYS, KeySpec,
     PASSWORD_HASHERS, RPSL_SET_CLASSES, Reload, STORAGE_KEYS, spec_for,
 };
-pub use python::{DateTime, Dict, PyException, Value, str_list_repr, str_repr};
+pub use python::{DateTime, Dict, PyException, Value, bytes_repr, str_list_repr, str_repr};
 
 /// v4's `CONFIG_PATH_DEFAULT`.
 pub const CONFIG_PATH_DEFAULT: &str = "/etc/irrd.yaml";

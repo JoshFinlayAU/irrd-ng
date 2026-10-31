@@ -509,7 +509,7 @@ pub fn str_repr(s: &str) -> String {
 }
 
 /// Python's `repr()` of a `bytes`.
-pub(crate) fn bytes_repr(b: &[u8]) -> String {
+pub fn bytes_repr(b: &[u8]) -> String {
     let quote = if b.contains(&b'\'') && !b.contains(&b'"') {
         b'"'
     } else {

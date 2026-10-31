@@ -89,6 +89,30 @@ impl BulkRouteRoaValidator {
     }
 }
 
+/// `SingleRouteROAValidator.validate_route(route, asn, source)`: look up
+/// the ROAs covering one route in the store, as v4 does for each NRTM
+/// operation. `rpki_excluded` is `get_setting("sources.{source}.rpki_excluded")`.
+pub fn validate_route_single(
+    view: &ReadView<'_>,
+    route: &store::IpPrefix,
+    asn: u32,
+    rpki_excluded: bool,
+) -> Result<RpkiStatus> {
+    if rpki_excluded {
+        return Ok(RpkiStatus::NotFound);
+    }
+    let covering = view.roas_covering(route)?;
+    if covering.is_empty() {
+        return Ok(RpkiStatus::NotFound);
+    }
+    for roa in &covering {
+        if roa.asn != 0 && roa.asn == i64::from(asn) && i64::from(route.len) <= roa.max_length {
+            return Ok(RpkiStatus::Valid);
+        }
+    }
+    Ok(RpkiStatus::Invalid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

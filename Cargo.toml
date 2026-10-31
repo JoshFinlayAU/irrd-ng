@@ -26,6 +26,15 @@ rustls = { version = "0.23.37", default-features = false, features = ["ring", "s
 rustls-pki-types = { version = "1.15.1", default-features = false, features = ["std"] }
 webpki-roots = "1.0.11"
 p256 = { version = "0.14.0", default-features = false, features = ["arithmetic", "pkcs8", "std"] }
+# Mirroring client: HTTP(S) with rustls (ring provider, Mozilla roots built
+# in, like v4's certifi bundle), FTP, DNS without libc's resolver, gzip and
+# the NRTMv4 hash and signature checks. All pure Rust for the static build.
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls-manual-roots-no-provider", "gzip", "deflate"] }
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"] }
+suppaftp = { version = "12.2.1", default-features = false, features = ["tokio"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+sha2 = { version = "0.11.1", default-features = false }
+tempfile = "3.27.0"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 # Pure-Rust crypto so the static musl builds carry no C dependencies.
 sequoia-openpgp = { version = "2.4.2", default-features = false, features = ["crypto-rust", "allow-experimental-crypto", "allow-variable-time-crypto"] }

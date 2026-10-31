@@ -9,13 +9,25 @@ publish.workspace = true
 
 [dependencies]
 config.workspace = true
+flate2.workspace = true
+hickory-resolver.workspace = true
+p256 = { workspace = true, features = ["ecdsa", "pem"] }
+reqwest.workspace = true
 rpki.workspace = true
 rpsl.workspace = true
+rustls.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 store.workspace = true
+suppaftp.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
 tracing.workspace = true
+webpki-roots.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

@@ -11,5 +11,5 @@ pub mod messages;
 mod roa;
 mod scopefilter;
 
-pub use roa::BulkRouteRoaValidator;
+pub use roa::{BulkRouteRoaValidator, validate_route_single};
 pub use scopefilter::{ScopeFilterConfig, ScopeFilterValidator};
