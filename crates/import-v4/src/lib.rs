@@ -19,6 +19,7 @@ use std::time::Instant;
 use postgres::{Client, IsolationLevel, NoTls, Transaction};
 use tracing::info;
 
+pub mod canonical;
 mod dsn;
 pub mod messages;
 pub mod rows;
@@ -144,7 +145,11 @@ pub fn describe(dsn: &str) -> String {
 }
 
 /// Read the whole v4 database into `sink`.
-pub fn import<S: Sink>(client: &mut Client, sink: &mut S, opts: &Options) -> Result<Stats, ImportError> {
+pub fn import<S: Sink>(
+    client: &mut Client,
+    sink: &mut S,
+    opts: &Options,
+) -> Result<Stats, ImportError> {
     let start = Instant::now();
     let batch_rows = opts.batch_rows.max(1);
     let (tx_msgs, rx_msgs) = mpsc::sync_channel::<Msg>(2);
@@ -165,7 +170,9 @@ pub fn import<S: Sink>(client: &mut Client, sink: &mut S, opts: &Options) -> Res
         }
         // Hanging up makes the reader's next send fail, so it stops early.
         drop(rx_msgs);
-        let stats = reader.join().unwrap_or_else(|p| std::panic::resume_unwind(p));
+        let stats = reader
+            .join()
+            .unwrap_or_else(|p| std::panic::resume_unwind(p));
         sink_result?;
         let stats = stats?;
         sink.finish().map_err(|e| sink_error("database", e))?;
@@ -183,7 +190,10 @@ enum Msg {
     Batch(Batch),
 }
 
-fn sink_error<E: std::error::Error + Send + Sync + 'static>(table: &'static str, e: E) -> ImportError {
+fn sink_error<E: std::error::Error + Send + Sync + 'static>(
+    table: &'static str,
+    e: E,
+) -> ImportError {
     ImportError::Sink {
         table,
         source: Box::new(e),

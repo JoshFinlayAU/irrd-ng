@@ -21,6 +21,85 @@ pub trait V4Table: Sized {
     const COLUMNS: &'static [&'static str];
 
     fn from_row(row: &Row) -> Result<Self, postgres::Error>;
+
+    /// Every column with its v4 name, in schema order.
+    fn cells(&self) -> Vec<(&'static str, Cell<'_>)>;
+}
+
+/// One column value, typed loosely enough to render any table generically.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Cell<'a> {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Text(&'a str),
+    Uuid(&'a Uuid),
+    Timestamp(Timestamp),
+    Inet(&'a Inet),
+    Numeric(u128),
+    Enum(&'static str),
+    /// jsonb, as PostgreSQL's text rendering.
+    Json(&'a str),
+    Bytes(&'a [u8]),
+    TextArray(&'a [String]),
+}
+
+pub trait AsCell {
+    fn as_cell(&self) -> Cell<'_>;
+}
+
+impl<T: AsCell> AsCell for Option<T> {
+    fn as_cell(&self) -> Cell<'_> {
+        self.as_ref().map_or(Cell::Null, AsCell::as_cell)
+    }
+}
+
+macro_rules! as_cell {
+    ($($ty:ty => |$v:ident| $e:expr),+ $(,)?) => {
+        $(impl AsCell for $ty {
+            fn as_cell(&self) -> Cell<'_> {
+                let $v = self;
+                $e
+            }
+        })+
+    };
+}
+
+as_cell!(
+    bool => |v| Cell::Bool(*v),
+    i32 => |v| Cell::Int(i64::from(*v)),
+    i64 => |v| Cell::Int(*v),
+    String => |v| Cell::Text(v),
+    Uuid => |v| Cell::Uuid(v),
+    Timestamp => |v| Cell::Timestamp(*v),
+    Inet => |v| Cell::Inet(v),
+    NumericU128 => |v| Cell::Numeric(v.0),
+    JsonText => |v| Cell::Json(&v.0),
+    Vec<u8> => |v| Cell::Bytes(v),
+    Vec<String> => |v| Cell::TextArray(v),
+    RpkiStatus => |v| Cell::Enum(v.label()),
+    ScopeFilterStatus => |v| Cell::Enum(v.label()),
+    RoutePreferenceStatus => |v| Cell::Enum(v.label()),
+    DatabaseOperation => |v| Cell::Enum(v.label()),
+    JournalEntryOrigin => |v| Cell::Enum(v.label()),
+    UpdateRequestType => |v| Cell::Enum(v.label()),
+);
+
+/// The v4 column name behind a select expression (`ip_size::text`).
+const fn column_name(sql: &'static str) -> &'static str {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b':' && bytes[i + 1] == b':' {
+            let (head, _) = bytes.split_at(i);
+            return match std::str::from_utf8(head) {
+                Ok(s) => s,
+                Err(_) => sql,
+            };
+        }
+        i += 1;
+    }
+    sql
 }
 
 macro_rules! v4_table {
@@ -49,6 +128,10 @@ macro_rules! v4_table {
                         v
                     }),+
                 })
+            }
+
+            fn cells(&self) -> Vec<(&'static str, Cell<'_>)> {
+                vec![$((column_name($sql), self.$field.as_cell())),+]
             }
         }
     };

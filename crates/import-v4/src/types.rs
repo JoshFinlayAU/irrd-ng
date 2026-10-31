@@ -296,7 +296,7 @@ mod tests {
     fn timestamps_render_in_utc_with_microseconds() {
         assert_eq!(Timestamp(0).to_string(), "1970-01-01T00:00:00.000000Z");
         assert_eq!(
-            Timestamp(1_793_406_381_624_268).to_string(),
+            Timestamp(1_793_407_181_624_268).to_string(),
             "2026-10-31T00:39:41.624268Z"
         );
         assert_eq!(Timestamp(-1).to_string(), "1969-12-31T23:59:59.999999Z");

@@ -15,15 +15,15 @@
 use std::sync::Arc;
 
 use postgres::config::SslMode;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::WebPkiServerVerifier;
-use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{CertificateError, DigitallySignedStruct, RootCertStore, SignatureScheme};
 
-use crate::messages;
 use crate::ImportError;
+use crate::messages;
 
 /// How the server certificate is checked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,7 +168,12 @@ impl ServerCertVerifier for NoVerify {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
@@ -177,7 +182,12 @@ impl ServerCertVerifier for NoVerify {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -262,8 +272,14 @@ mod tests {
         let d = parse("host=h dbname=irrd sslmode=require sslrootcert='/ca.pem'").unwrap();
         assert_eq!(d.config, "host=h dbname=irrd");
         assert_eq!(d.verify, Verify::Chain);
-        assert_eq!(parse("host=h sslmode=require").unwrap().verify, Verify::None);
-        assert_eq!(parse("host=h sslmode=disable").unwrap().mode, SslMode::Disable);
+        assert_eq!(
+            parse("host=h sslmode=require").unwrap().verify,
+            Verify::None
+        );
+        assert_eq!(
+            parse("host=h sslmode=disable").unwrap().mode,
+            SslMode::Disable
+        );
     }
 
     #[test]
