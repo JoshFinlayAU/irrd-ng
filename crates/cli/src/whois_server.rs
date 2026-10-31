@@ -194,7 +194,7 @@ mod server_tests {
         let shared = Arc::new(WhoisShared {
             store: st.clone(),
             settings: RwLock::new(settings.clone()),
-            nrtm: Arc::new(query::NrtmNotServed),
+            nrtm: Arc::new(query::NrtmServer),
         });
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -221,7 +221,7 @@ mod server_tests {
         st.write(|tx| tx.record_serial_seen("TEST", 1))
             .expect("write");
         assert!(st.read().is_ok());
-        let mut s = WhoisSession::new(settings, Arc::new(query::NrtmNotServed), "192.0.2.1", "x");
+        let mut s = WhoisSession::new(settings, Arc::new(query::NrtmServer), "192.0.2.1", "x");
         let r = s.query_http(&st, "!~panic");
         assert_eq!(r.response_type, query::ResponseType::ErrorInternal);
         assert_eq!(s.result(), query::messages::INTERNAL_ERROR);

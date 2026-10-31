@@ -2576,6 +2576,7 @@ dependencies = [
  "serde_json",
  "store",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

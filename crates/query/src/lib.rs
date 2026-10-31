@@ -8,8 +8,8 @@
 //!
 //! ```no_run
 //! # fn demo(store: &store::Store, settings: std::sync::Arc<query::QuerySettings>) {
-//! use query::{NrtmNotServed, WhoisSession};
-//! let mut session = WhoisSession::new(settings, std::sync::Arc::new(NrtmNotServed), "192.0.2.1", "192.0.2.1:4321");
+//! use query::{NrtmServer, WhoisSession};
+//! let mut session = WhoisSession::new(settings, std::sync::Arc::new(NrtmServer), "192.0.2.1", "192.0.2.1:4321");
 //! let mut out = Vec::new();
 //! session.query_whois(store, "!gAS65537", &mut out);
 //! # }
@@ -27,7 +27,7 @@ pub mod response;
 pub mod settings;
 mod status;
 
-pub use nrtm::{NrtmNotServed, NrtmRequest, NrtmV3};
+pub use nrtm::{NrtmRequest, NrtmServer, NrtmV3};
 pub use parser::{SOCKET_DEFAULT_TIMEOUT, WhoisSession};
 pub use resolver::{QueryError, QueryResolver, RouteLookupType};
 pub use response::{Response, ResponseMode, ResponseType};

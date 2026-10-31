@@ -198,6 +198,30 @@ fn str_list(v: Option<Value>) -> Vec<String> {
     }
 }
 
+/// The `nrtm_dummified_*` settings of a source, as `dummify_object_text()`
+/// reads them.
+pub(crate) fn dummify_settings(cfg: &Configuration, source: &str) -> rpsl::text::DummifySettings {
+    let k = |key: &str| format!("sources.{source}.{key}");
+    let object_classes = match setting(cfg, &k("nrtm_dummified_object_classes")) {
+        Some(v) if v.truthy() => str_list(Some(v))
+            .iter()
+            .map(|c| rpsl::python::lower(rpsl::python::strip(c)).into_owned())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let attributes = match setting(cfg, &k("nrtm_dummified_attributes")) {
+        Some(Value::Dict(d)) => d.iter().map(|(k, v)| (k.py_str(), v.py_str())).collect(),
+        _ => Vec::new(),
+    };
+    rpsl::text::DummifySettings {
+        object_classes,
+        attributes,
+        remarks: setting(cfg, &k("nrtm_dummified_remarks"))
+            .filter(Value::truthy)
+            .map(|v| v.py_str()),
+    }
+}
+
 /// The whois engine's settings.
 pub(crate) fn query_settings(cfg: &Configuration) -> query::QuerySettings {
     let mut per_source = HashMap::new();
@@ -225,6 +249,18 @@ pub(crate) fn query_settings(cfg: &Configuration) -> query::QuerySettings {
                 nrtm_host: truthy(cfg, &k("nrtm_host")),
                 nrtm_access_list: str_setting(cfg, &k("nrtm_access_list")),
                 nrtm_access_list_unfiltered: str_setting(cfg, &k("nrtm_access_list_unfiltered")),
+                nrtm_query_serial_range_limit: setting(cfg, &k("nrtm_query_serial_range_limit"))
+                    .as_ref()
+                    .map(config_value)
+                    .unwrap_or_default(),
+                nrtm_query_serial_days_limit: setting(cfg, &k("nrtm_query_serial_days_limit"))
+                    .as_ref()
+                    .map(config_value)
+                    .unwrap_or_default(),
+                nrtm_response_header: setting(cfg, &k("nrtm_response_header"))
+                    .filter(Value::truthy)
+                    .map(|v| v.py_str()),
+                dummify: dummify_settings(cfg, name),
             },
         );
     }

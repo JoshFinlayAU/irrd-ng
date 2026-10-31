@@ -101,6 +101,14 @@ pub struct SourceQuerySettings {
     pub nrtm_access_list: Option<String>,
     /// `nrtm_access_list_unfiltered`
     pub nrtm_access_list_unfiltered: Option<String>,
+    /// `nrtm_query_serial_range_limit`, as configured.
+    pub nrtm_query_serial_range_limit: ConfigValue,
+    /// `nrtm_query_serial_days_limit`, as configured.
+    pub nrtm_query_serial_days_limit: ConfigValue,
+    /// `nrtm_response_header`, when truthy.
+    pub nrtm_response_header: Option<String>,
+    /// The `nrtm_dummified_*` settings.
+    pub dummify: rpsl::text::DummifySettings,
 }
 
 /// Everything the whois engine reads from `irrd.yaml`.
