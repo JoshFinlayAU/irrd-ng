@@ -4,7 +4,7 @@
     corpus_bindings.py [--per N] [--out bindings.json] DUMP [DUMP ...]
 
 Reads RPSL dumps (plain or .gz, or '-' for stdin; on Tier 2 the stream is
-`COPY (SELECT object_text ...)` from the reference database) and writes one
+`SELECT object_text ...` from the reference database) and writes one
 JSON object: placeholder name -> list of values. corpus_expand.py substitutes
 them into parity/corpus/whois/*.q. Everything is deterministic: samples are
 the objects whose key hashes lowest, rankings break ties by name, so the
@@ -52,6 +52,9 @@ def paragraphs(stream):
                 buf = []
             continue
         buf.append(line)
+        if len(buf) > 200000:  # no paragraph is this long: bad input, do not hoard it
+            yield buf
+            buf = []
     if buf:
         yield buf
 

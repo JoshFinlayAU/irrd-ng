@@ -22,10 +22,12 @@ cd "$dir"
 w=$dir/run/work && mkdir -p "$w"
 if [[ ! -s $w/bindings.json ]]; then
   echo "== bindings from $v4db (object_text of the query classes only, streamed, not stored)"
-  docker exec "$pg" psql -U irrd -d "$v4db" -At -c "COPY (SELECT object_text || E'\n' FROM rpsl_objects
+  # Plain SELECT, not COPY: COPY's text format escapes the newlines inside
+  # object_text. FETCH_COUNT keeps psql from buffering every row.
+  docker exec "$pg" psql -U irrd -d "$v4db" -At -v FETCH_COUNT=20000 -c "SELECT object_text FROM rpsl_objects
       WHERE object_class IN ('as-set','route-set','aut-num','route','route6','mntner','as-block','filter-set',
       'peering-set','rtr-set','inet-rtr','key-cert','inetnum','inet6num','domain','irt','organisation')
-      AND source <> 'RPKI') TO STDOUT" \
+      AND source <> 'RPKI'" \
     | systemd-run --scope -q -p MemoryMax=4G python3 -I tools/corpus_bindings.py --per 100 --rank 25 --out "$w/bindings.json" -
 fi
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
