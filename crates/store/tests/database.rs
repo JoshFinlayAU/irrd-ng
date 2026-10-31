@@ -239,7 +239,7 @@ fn object_writing_and_status_checking() {
     // TEST is not synchronised: its own serials 1, 2. TEST2 is: the
     // mirror's serials. v4's serial_global for the delete is 7 because two
     // sequence values were burnt by the rolled-back transaction; LMDB rolls
-    // the sequence back too, so it is 5 here (proposed divergence).
+    // the sequence back too, so it is 5 here (P-15).
     let pk4 = "192.0.2.0/24,AS65537".to_owned();
     let pk6 = "2001:db8::/64,AS65537".to_owned();
     use DatabaseOperation::*;

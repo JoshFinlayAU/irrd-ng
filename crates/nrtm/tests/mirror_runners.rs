@@ -462,6 +462,41 @@ async fn nrtm4_history_rewrite() {
     }
 }
 
+// DIV-003: hashes stored under an earlier session are not compared, so a
+// server session reset that reuses "snapshot-N" and "delta-N" references
+// reloads from the new snapshot instead of failing on every run as v4 does.
+#[tokio::test]
+async fn nrtm4_session_reset_ignores_old_session_hashes() {
+    let e = env();
+    let repo = default_repo(&e);
+    let previous = serde_json::json!({
+        "snapshot-3": ["old-session-snapshot.json", "old-hash"],
+        "delta-3": ["delta.3.json", "incorrect-hash"],
+    });
+    put_status(&e, |s| {
+        s.nrtm4_client_session_id = Some(Uuid::new_v4());
+        s.nrtm4_client_version = Some(4);
+        s.nrtm4_client_current_key = Some(PUBLIC.into());
+        s.nrtm4_client_previous_file_hashes = Some(store::Json::from_value(&previous));
+    });
+    let c = ctx(&e, vec![nrtm4_source(&repo.unf_url, PUBLIC)]);
+    assert_eq!(runner::run(&c, "TEST").await, Ok(true));
+    let l = log_text();
+    assert!(l.contains("Session ID has changed"), "{l}");
+    assert!(!l.contains("rewriting history"), "{l}");
+    let st = status(&e, "TEST").expect("status");
+    assert_eq!(st.nrtm4_client_session_id, Some(sid()));
+    assert_eq!(st.nrtm4_client_version, Some(3));
+    let hashes: serde_json::Value = serde_json::from_str(
+        st.nrtm4_client_previous_file_hashes
+            .as_ref()
+            .expect("hashes")
+            .as_str(),
+    )
+    .expect("json");
+    assert_eq!(hashes, repo.hashes);
+}
+
 #[tokio::test]
 async fn nrtm4_known_key_wins_over_config_key() {
     let e = env();

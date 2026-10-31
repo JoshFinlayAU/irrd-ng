@@ -180,6 +180,11 @@ pub fn find_next_version(
 
 /// `_validate_aggregate_previous_file_hashes_from_unf()`: the new
 /// `previous_file_hashes`, refusing a server that rewrites history.
+///
+/// File references are only unique within a session, so hashes stored
+/// under another session are not compared (DIV-003). v4 compares them
+/// anyway and, after a server session reset, fails every run with
+/// "Server is rewriting history" for good.
 pub fn aggregate_previous_file_hashes(
     source: &str,
     unf: &Unf,
@@ -202,6 +207,9 @@ pub fn aggregate_previous_file_hashes(
                 .collect(),
         )
     };
+    if last.session_id != Some(unf.session_id) {
+        return Ok(as_json(&current));
+    }
     let previous = match &last.previous_file_hashes {
         Some(serde_json::Value::Object(m)) if !m.is_empty() => m,
         _ => return Ok(as_json(&current)),
