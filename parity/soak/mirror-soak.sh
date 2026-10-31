@@ -39,6 +39,8 @@
 # NRTMv4), so each upstream sees two ordinary mirrors. Downloads identify as
 # v4 does ("irrd/4.5.4"), with no contact details.
 #
+# SOAK_SOURCES="RIPE-NONAUTH ALTDB" picks a subset (the short live check).
+#
 # Memory caps (the VM has 32 GB and other workloads): PostgreSQL 4 GB,
 # Redis 1 GB, IRRd v4 6 GB, irrd-ng 6 GB, each export for a comparison 2 GB.
 # Peak is about 19 GB.
@@ -55,6 +57,44 @@ LOG="$SOAK/soak.jsonl"
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 
 RIPE_KEY_URL=https://ftp.ripe.net/ripe/dbase/nrtmv4/nrtmv4_public_key.txt
+
+# SOAK_SOURCES picks the upstreams (default: all four).
+SOAK_SOURCES=${SOAK_SOURCES:-RIPE-NONAUTH RADB ARIN ALTDB}
+
+sources_yaml() {
+  local s
+  for s in $SOAK_SOURCES; do
+    case $s in
+      RIPE-NONAUTH) cat <<EOF
+    RIPE-NONAUTH:
+      nrtm4_client_notification_file_url: https://nrtm.db.ripe.net/nrtmv4/RIPE-NONAUTH/update-notification-file.jose
+      nrtm4_client_initial_public_key: |
+$(printf '%s\n' "$1" | sed 's/^/        /')
+EOF
+      ;;
+      RADB) cat <<EOF
+    RADB:
+      import_source: ftp://ftp.radb.net/radb/dbase/radb.db.gz
+      import_serial_source: ftp://ftp.radb.net/radb/dbase/RADB.CURRENTSERIAL
+      object_class_filter: [as-set, aut-num, route-set, route, route6]
+EOF
+      ;;
+      ARIN) cat <<EOF
+    ARIN:
+      import_source: https://ftp.arin.net/pub/rr/arin.db.gz
+      import_serial_source: https://ftp.arin.net/pub/rr/ARIN.CURRENTSERIAL
+EOF
+      ;;
+      ALTDB) cat <<EOF
+    ALTDB:
+      import_source: ftp://ftp.altdb.net/pub/altdb/altdb.db.gz
+      import_serial_source: ftp://ftp.altdb.net/pub/altdb/ALTDB.CURRENTSERIAL
+EOF
+      ;;
+      *) echo "unknown soak source $s" >&2; exit 2 ;;
+    esac
+  done
+}
 
 write_configs() {
   local key
@@ -76,20 +116,7 @@ irrd:
   rpki: {roa_source: null}
   log: {level: INFO}
   sources:
-    RIPE-NONAUTH:
-      nrtm4_client_notification_file_url: https://nrtm.db.ripe.net/nrtmv4/RIPE-NONAUTH/update-notification-file.jose
-      nrtm4_client_initial_public_key: |
-$(printf '%s\n' "$key" | sed 's/^/        /')
-    RADB:
-      import_source: ftp://ftp.radb.net/radb/dbase/radb.db.gz
-      import_serial_source: ftp://ftp.radb.net/radb/dbase/RADB.CURRENTSERIAL
-      object_class_filter: [as-set, aut-num, route-set, route, route6]
-    ARIN:
-      import_source: https://ftp.arin.net/pub/rr/arin.db.gz
-      import_serial_source: https://ftp.arin.net/pub/rr/ARIN.CURRENTSERIAL
-    ALTDB:
-      import_source: ftp://ftp.altdb.net/pub/altdb/altdb.db.gz
-      import_serial_source: ftp://ftp.altdb.net/pub/altdb/ALTDB.CURRENTSERIAL
+$(sources_yaml "$key")
 EOF
   cp "$cfg" "$SOAK/irrd-ng/irrd.yaml"
 }

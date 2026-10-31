@@ -155,12 +155,17 @@ impl reqwest::dns::Resolve for DnsResolver {
 /// `REQUESTS_CA_BUNDLE` or `CURL_CA_BUNDLE` (a PEM file, or a directory of
 /// them) when set, otherwise its built-in Mozilla bundle.
 fn root_store() -> Result<rustls::RootCertStore, PyErr> {
+    root_store_from(
+        ["REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .find(|v| !v.is_empty()),
+    )
+}
+
+fn root_store_from(bundle: Option<std::ffi::OsString>) -> Result<rustls::RootCertStore, PyErr> {
     use rustls::pki_types::CertificateDer;
     use rustls::pki_types::pem::PemObject as _;
-    let bundle = ["REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]
-        .iter()
-        .filter_map(std::env::var_os)
-        .find(|v| !v.is_empty());
     let Some(bundle) = bundle else {
         return Ok(rustls::RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -405,6 +410,21 @@ mod tests {
     #[test]
     fn percent() {
         assert_eq!(percent_decode("/a%20b/c%2"), "/a b/c%2");
+    }
+
+    #[test]
+    fn ca_bundle_from_the_environment() {
+        let dir = tempfile::tempdir().expect("dir");
+        let missing = dir.path().join("none.pem");
+        assert_eq!(
+            root_store_from(Some(missing.clone().into_os_string())).err(),
+            Some(PyErr::Os(format!(
+                "Could not find a suitable TLS CA certificate bundle, invalid path: {}",
+                missing.display()
+            )))
+        );
+        let builtin = root_store_from(None).expect("built in");
+        assert_eq!(builtin.len(), webpki_roots::TLS_SERVER_ROOTS.len());
     }
 
     #[tokio::test]
