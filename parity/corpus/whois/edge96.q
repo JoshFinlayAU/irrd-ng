@@ -8,11 +8,9 @@
 !r::/0,o
 !r::/0,l
 !r::/0,L
-!r::/0,M
 -x ::/0
 -l ::/0
 -L ::/0
--M ::/0
 ::/0
 -T route6 ::/0
 -s EDGE96 -L ::/0
@@ -281,11 +279,9 @@
 !r::/1,o
 !r::/1,l
 !r::/1,L
-!r::/1,M
 -x ::/1
 -l ::/1
 -L ::/1
--M ::/1
 ::/1
 -T route6 ::/1
 -s EDGE96 -L ::/1
@@ -377,6 +373,16 @@
 0:0:0:1::/64
 -T route6 0:0:0:1::/64
 -s EDGE96 -L 0:0:0:1::/64
+
+@tags edge96,r,huge
+# More-specifics of ::/0 and ::/1: every IPv6 route; hundreds of MB on Tier 2,
+# where run-tier2.sh skips the huge tag.
+!r::/0,M
+-M ::/0
+!r::/1,M
+-M ::/1
+
+@tags edge96,r
 @session
 !!
 !sEDGE96
