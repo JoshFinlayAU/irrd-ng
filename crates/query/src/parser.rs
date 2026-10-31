@@ -100,6 +100,11 @@ impl WhoisSession {
             return Response::new(ResponseType::ErrorUser, ResponseMode::Irrd);
         }
 
+        #[cfg(feature = "fault-injection")]
+        if query == "!~panic" {
+            panic!("fault injection");
+        }
+
         let mut query = query;
         if let Some(rest) = query.strip_prefix("-V ") {
             // query.split(" ", 2): exactly three parts, or ValueError.

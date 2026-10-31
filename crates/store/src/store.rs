@@ -20,6 +20,9 @@ struct Job {
     reserve: usize,
 }
 
+/// The name of the single writer thread.
+pub const WRITER_THREAD_NAME: &str = "store-writer";
+
 /// Most jobs grouped into one LMDB transaction.
 const MAX_GROUP: usize = 256;
 
@@ -97,7 +100,7 @@ impl Store {
             let inner2 = inner.clone();
             let shared2 = shared.clone();
             let handle = std::thread::Builder::new()
-                .name("store-writer".into())
+                .name(WRITER_THREAD_NAME.into())
                 .spawn(move || writer_loop(&inner2, &shared2, rx))
                 .map_err(|e| StoreError::Io(options.path.clone(), e))?;
             Some(Arc::new(Writer {

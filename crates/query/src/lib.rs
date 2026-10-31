@@ -43,23 +43,74 @@ pub fn lookup_field_names() -> Vec<&'static str> {
 impl WhoisSession {
     /// Run a whois query and append the bytes v4 would send for it
     /// (`generate_response()`) to `out`.
+    ///
+    /// A panic while answering is contained here: it is logged with the
+    /// query, and the client gets v4's answer to an unexpected exception
+    /// in a query (`handle_query()`'s internal error), as if the engine had
+    /// raised one.
     pub fn query_whois(
         &mut self,
         store: &store::Store,
         query: &str,
         out: &mut Vec<u8>,
     ) -> Response {
-        let r = self.handle_query(store, query);
-        r.clean(self.result_mut());
-        r.render(self.result(), out);
-        r
+        let start = out.len();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let r = self.handle_query(store, query);
+            r.clean(self.result_mut());
+            r.render(self.result(), out);
+            r
+        }));
+        match caught {
+            Ok(r) => r,
+            Err(payload) => {
+                out.truncate(start);
+                let r = self.panicked(query, payload.as_ref());
+                r.render(self.result(), out);
+                r
+            }
+        }
     }
 
     /// Run a query for `/v1/whois/`: the response after `clean_response()`,
-    /// with the text in [`WhoisSession::result`].
+    /// with the text in [`WhoisSession::result`]. Panics are contained as
+    /// in [`WhoisSession::query_whois`].
     pub fn query_http(&mut self, store: &store::Store, query: &str) -> Response {
-        let r = self.handle_query(store, query);
-        r.clean(self.result_mut());
-        r
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let r = self.handle_query(store, query);
+            r.clean(self.result_mut());
+            r
+        }));
+        match caught {
+            Ok(r) => r,
+            Err(payload) => self.panicked(query, payload.as_ref()),
+        }
+    }
+
+    fn panicked(&mut self, query: &str, payload: &(dyn std::any::Any + Send)) -> Response {
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_owned());
+        let shown: String = query.chars().take(500).collect();
+        tracing::error!(
+            target: "irrd.server.whois.query_parser",
+            "{}",
+            messages::log_exception(&shown, &format!("panic: {msg}"))
+        );
+        let mode = if query.starts_with('!') {
+            ResponseMode::Irrd
+        } else {
+            ResponseMode::Ripe
+        };
+        let result = self.result_mut();
+        result.clear();
+        result.push_str(messages::INTERNAL_ERROR);
+        Response {
+            response_type: ResponseType::ErrorInternal,
+            mode,
+            remove_auth_hashes: true,
+        }
     }
 }

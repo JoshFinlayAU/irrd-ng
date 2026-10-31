@@ -161,3 +161,71 @@ mod tests {
         assert_eq!(decode_backslashreplace("é".as_bytes()), "é");
     }
 }
+
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    async fn ask(addr: std::net::SocketAddr, q: &str) -> String {
+        let mut s = TcpStream::connect(addr).await.expect("connect");
+        s.write_all(format!("{q}\n").as_bytes())
+            .await
+            .expect("write");
+        let mut out = String::new();
+        s.read_to_string(&mut out).await.expect("read");
+        out
+    }
+
+    /// A panic while answering one query is contained to that query: the
+    /// client gets v4's internal error, the same connection can go on in
+    /// multiple-command mode, and other connections keep being served.
+    #[test]
+    fn panic_is_contained_to_one_query() {
+        let dir = std::env::temp_dir().join(format!("irrd-ng-whois-panic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut o = store::StoreOptions::new(&dir);
+        o.initial_map_size = 16 << 20;
+        let st = Store::open(&o, store::StoreSettings::default()).expect("store");
+        let settings = Arc::new(QuerySettings {
+            version: "4.5.4".into(),
+            ..QuerySettings::default()
+        });
+        let shared = Arc::new(WhoisShared {
+            store: st.clone(),
+            settings: RwLock::new(settings.clone()),
+            nrtm: Arc::new(query::NrtmNotServed),
+        });
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            tokio::spawn(serve(listener, shared, 2));
+            assert_eq!(
+                ask(addr, "!~panic").await,
+                "F An internal error occurred while processing this query.\n"
+            );
+            assert_eq!(
+                ask(addr, "-k\n!~panic\n!v\n!q").await,
+                "%  No entries found for the selected source(s).\n\n\nF An internal error occurred while processing this query.\nA22\nIRRd -- version 4.5.4\nC\n"
+            );
+            for _ in 0..4 {
+                assert_eq!(ask(addr, "!v").await, "A22\nIRRd -- version 4.5.4\nC\n");
+            }
+        });
+        // The read transaction of the panicking query was released.
+        st.write(|tx| tx.record_serial_seen("TEST", 1))
+            .expect("write");
+        assert!(st.read().is_ok());
+        let mut s = WhoisSession::new(settings, Arc::new(query::NrtmNotServed), "192.0.2.1", "x");
+        let r = s.query_http(&st, "!~panic");
+        assert_eq!(r.response_type, query::ResponseType::ErrorInternal);
+        assert_eq!(s.result(), query::messages::INTERNAL_ERROR);
+        drop(st);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

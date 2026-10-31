@@ -372,3 +372,95 @@ fn templates_match_reference() {
         "%% ERROR: Unknown object class: foo\n\n\n"
     );
 }
+
+const EDGES: &str = "\
+route:          0.0.0.0/0
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+
+route:          192.0.2.1/32
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+
+route:          255.255.255.255/32
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+
+route6:         ::/0
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+
+route6:         2001:db8::1/128
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+
+route6:         ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128
+origin:         AS65599
+mnt-by:         MNT-A
+source:         TEST3
+";
+
+/// Regression: prefix masks at /0 and at full length (/32, /128) once
+/// overflowed. Every route search variant at the edges of both address
+/// families, with the counts v4's SQL predicates give.
+#[test]
+fn route_searches_at_prefix_length_edges() {
+    let p = std::env::temp_dir().join(format!("irrd-ng-query-edges-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&p);
+    let _t = Tmp(p.clone());
+    let mut o = StoreOptions::new(&p);
+    o.initial_map_size = 32 << 20;
+    let st = Store::open(&o, StoreSettings::default()).expect("store");
+    load(&st, "TEST3", EDGES);
+    let s = Arc::new(QuerySettings {
+        version: "4.5.4".into(),
+        sources: vec!["TEST3".into()],
+        ..QuerySettings::default()
+    });
+    let count = |q: &str| {
+        let r = one(&st, &s, q);
+        assert!(!r.contains("internal error"), "{q}: {r}");
+        r.matches("origin:").count()
+    };
+    // (query, !r count, -x/-l/-L/-M count): exact, one level less, less
+    // with exact, more specific.
+    let cases: &[(&str, [usize; 4])] = &[
+        ("0.0.0.0/0", [1, 0, 1, 2]),
+        ("192.0.2.1/32", [1, 1, 2, 0]),
+        ("192.0.2.1", [1, 1, 2, 0]),
+        ("255.255.255.255/32", [1, 1, 2, 0]),
+        ("192.0.2.0/24", [0, 1, 1, 1]),
+        ("::/0", [1, 0, 1, 2]),
+        ("2001:db8::1/128", [1, 1, 2, 0]),
+        ("2001:db8::1", [1, 1, 2, 0]),
+        ("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128", [1, 1, 2, 0]),
+        ("2001:db8::/32", [0, 1, 1, 1]),
+    ];
+    for (prefix, [exact, one_less, less, more]) in cases {
+        assert_eq!(count(&format!("!r{prefix}")), *exact, "!r{prefix}");
+        assert_eq!(count(&format!("!r{prefix},l")), *one_less, "!r{prefix},l");
+        assert_eq!(count(&format!("!r{prefix},L")), *less, "!r{prefix},L");
+        assert_eq!(count(&format!("!r{prefix},M")), *more, "!r{prefix},M");
+        assert_eq!(count(&format!("-x {prefix}")), *exact, "-x {prefix}");
+        assert_eq!(count(&format!("-l {prefix}")), *one_less, "-l {prefix}");
+        assert_eq!(count(&format!("-L {prefix}")), *less, "-L {prefix}");
+        assert_eq!(count(&format!("-M {prefix}")), *more, "-M {prefix}");
+        let o = one(&st, &s, &format!("!r{prefix},o"));
+        assert!(!o.contains("internal error"));
+        // Free text takes the less-specific path.
+        assert_eq!(count(prefix), *less, "{prefix}");
+    }
+    assert_eq!(
+        irrd_body(&one(&st, &s, "!gAS65599")),
+        "0.0.0.0/0 192.0.2.1/32 255.255.255.255/32"
+    );
+    assert_eq!(
+        irrd_body(&one(&st, &s, "!6AS65599")),
+        "::/0 2001:db8::1/128 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128"
+    );
+}

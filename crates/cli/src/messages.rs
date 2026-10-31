@@ -164,3 +164,13 @@ pub(crate) fn bind_failed(what: &str, interface: &str, port: u16, e: &std::io::E
 
 /// `Whois server shutting down` (v4's `irrd/server/whois/server.py`).
 pub(crate) const WHOIS_SHUTTING_DOWN: &str = "Whois server shutting down";
+
+/// irrd-ng's own: a thread panicked (the query, if any, is logged by the
+/// engine).
+pub(crate) fn panicked(thread: &str, info: &str, backtrace: &str) -> String {
+    format!("Thread {thread} panicked: {info}\n{backtrace}")
+}
+
+/// irrd-ng's own: the store writer died, so the daemon stops.
+pub(crate) const WRITER_PANICKED: &str =
+    "The store writer thread panicked; irrd-ng cannot write to the store and is shutting down";

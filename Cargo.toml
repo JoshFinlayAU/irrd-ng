@@ -67,7 +67,10 @@ redundant_clone = "warn"
 [profile.release]
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# A panic ends one whois connection or HTTP request, not the daemon, and
+# arithmetic overflow panics instead of silently giving a wrong answer.
+panic = "unwind"
+overflow-checks = true
 strip = "symbols"
 
 [profile.bench]
