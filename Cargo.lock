@@ -2132,12 +2132,13 @@ dependencies = [
 name = "query"
 version = "0.0.0"
 dependencies = [
+ "nrtm",
+ "rpki",
  "rpsl",
  "serde",
  "serde_json",
  "store",
  "tracing",
- "uuid",
 ]
 
 [[package]]

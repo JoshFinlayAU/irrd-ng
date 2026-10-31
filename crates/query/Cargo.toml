@@ -15,7 +15,8 @@ store.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-uuid.workspace = true
+nrtm.workspace = true
+rpki.workspace = true
 
 [lints]
 workspace = true
