@@ -208,6 +208,15 @@ impl<'a> ReadView<'a> {
         index::ids_range_more_specific(&self.t, self.txn, space, first, last)
     }
 
+    /// Objects whose range starts at or below `first`, whatever its end.
+    pub fn range_first_at_most(
+        &self,
+        space: Space,
+        first: u128,
+    ) -> Result<Vec<(ObjectId, u128, u128)>> {
+        index::ids_range_first_at_most(&self.t, self.txn, space, first)
+    }
+
     /// Objects with this `asn_first`.
     pub fn ids_by_asn_first(&self, asn: u32) -> Result<Vec<ObjectId>> {
         index::ids_asn_first(&self.t, self.txn, asn)

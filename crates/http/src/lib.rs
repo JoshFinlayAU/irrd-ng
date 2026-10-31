@@ -82,6 +82,35 @@ const SECURITY_HEADERS: &[(&str, &str)] = &[
 
 const TEXT_PLAIN: &str = "text/plain; charset=utf-8";
 
+/// A complete response body that never reports itself finished before it
+/// is polled. hyper treats a body that is already at its end as "no body"
+/// and then drops a `content-length: 0` header we set and appends its own
+/// after all the others; with this wrapper our header stays where v4 sends
+/// it (straight after `server`). hyper still takes the length from the
+/// exact size hint.
+#[derive(Debug)]
+pub struct ReplyBody(Full<Bytes>);
+
+impl hyper::body::Body for ReplyBody {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>> {
+        std::pin::Pin::new(&mut self.get_mut().0).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        false
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.0.size_hint()
+    }
+}
+
 /// A response being built, with headers in the order v4 sends them.
 struct Reply {
     status: StatusCode,
@@ -277,8 +306,12 @@ fn finish(
     settings: &HttpSettings,
     session_cookie: bool,
     head: bool,
-) -> Response<Full<Bytes>> {
-    let mut resp = Response::new(Full::new(if head { Bytes::new() } else { reply.body }));
+) -> Response<ReplyBody> {
+    let mut resp = Response::new(ReplyBody(Full::new(if head {
+        Bytes::new()
+    } else {
+        reply.body
+    })));
     *resp.status_mut() = reply.status;
     let h = resp.headers_mut();
     let mut put = |k: &str, v: &str| {
@@ -341,7 +374,7 @@ async fn handle(
     state: Arc<HttpState>,
     peer: SocketAddr,
     req: Request<Incoming>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+) -> Result<Response<ReplyBody>, Infallible> {
     let start = Instant::now();
     let settings = state.http.read().map(|s| s.clone()).unwrap_or_default();
     let headers = req.headers();
