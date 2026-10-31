@@ -288,14 +288,16 @@ fn prefix_relation(o: &RpslObjectRef<'_>, q: &IpBounds, strictly_inside: bool) -
     }
     let bits = if q.version == 4 { 32 } else { 128 };
     let mask = |len: u32| -> u128 {
+        let m = if bits == 128 {
+            u128::MAX
+        } else {
+            (1u128 << bits) - 1
+        };
         if len == 0 {
             0
+        } else if len >= bits {
+            m
         } else {
-            let m = if bits == 128 {
-                u128::MAX
-            } else {
-                (1u128 << bits) - 1
-            };
             m & !(m >> len)
         }
     };
