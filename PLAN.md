@@ -10,7 +10,7 @@ The web UI is out of scope for this plan, but its data (users, permissions, API 
 
 ## Baseline
 
-- IRRd **4.5.4**, tagged 19 October 2026 (commit `8e8080dab744`). It is the latest stable release, and it is also the exact version the production reference server `the reference server` reports for `!v`, so the pinned baseline and the live reference agree.
+- IRRd **4.5.4**, tagged 19 October 2026 (commit `8e8080dab744`). It is the latest stable release, and it is also the exact version the production reference server reports for `!v`, so the pinned baseline and the live reference agree.
 - There is no official v4 container image. We build one from the tagged source, pin it by digest, and record version, commit and digest in `parity/BASELINE`.
 - Bumping the baseline (4.5.5, 4.6) is a separate, deliberate change with its own parity run.
 
@@ -36,9 +36,9 @@ v4 is about 25,800 lines of Python (excluding tests, vendored code and migration
 
 ### What the production reference can and cannot test
 
-the reference server carries seven sources: RPKI, RADB, APNIC, RIPE, ARIN, AFRINIC and LACNIC. Every one is a non-authoritative mirror with RPKI filtering on, the scope filter off, no route preference and no local journal. ARIN, AFRINIC, LACNIC and RADB are class-filtered to `as-set`, `aut-num`, `route-set`, `route` and `route6`. RIPE and APNIC are unfiltered.
+The reference server carries seven sources: RPKI, RADB, APNIC, RIPE, ARIN, AFRINIC and LACNIC. Every one is a non-authoritative mirror with RPKI filtering on, the scope filter off, no route preference and no local journal. ARIN, AFRINIC, LACNIC and RADB are class-filtered to `as-set`, `aut-num`, `route-set`, `route` and `route6`. RIPE and APNIC are unfiltered.
 
-That makes the reference server a good reference for the read path at real scale: whois, `/v1/whois/`, GraphQL, set expansion and RPKI status. It cannot exercise submissions, auth, notifications, email, NRTMv3 or NRTMv4 serving, exports, the scope filter, route preference or suspension. Those are tested only against the local pinned v4 container, where we configure authoritative sources and journals ourselves.
+That makes it a good reference for the read path at real scale: whois, `/v1/whois/`, GraphQL, set expansion and RPKI status. It cannot exercise submissions, auth, notifications, email, NRTMv3 or NRTMv4 serving, exports, the scope filter, route preference or suspension. Those are tested only against the local pinned v4 container, where we configure authoritative sources and journals ourselves.
 
 ## Corrections to the spoke CLAUDE.md
 
@@ -63,7 +63,7 @@ Stack, storage engine, crate layout, targets and conventions are as written in C
 
 **D2. Standby: native replication, built in Phase 9.** v4 standbys are PostgreSQL streaming replicas, which have no LMDB equivalent. A standby irrd-ng follows the active over an authenticated stream of the store's own change log (every table, not only RPSL objects), and `readonly_standby: true` keeps its v4 meaning. Pointing the standby at the active needs one new irrd-ng key, which is a listed divergence.
 
-**D3. Full-scale reference data: a read-only `pg_dump` of the reference server on a scratch VM.** The dump is restored into a frozen v4 4.5.4 on a dedicated VM (4 vCPU, 16 GB RAM, 80 GB SSD, sized from the reference server's measured 14 GB database on 2026-10-31), which also hosts the load bench, and irrd-ng imports the same dump. Approved as the one sanctioned use of the reference server's database: read-only, a dump only, never a write and never the importer pointed at the reference server live. This box has about 5 GB of free RAM and 36 GB of free disk with other containers running, so it runs Tier 1 only. The VM is `irrd-ng-parity`, VM 106 on Josh's home Proxmox at 10.80.111.210, created 31 October 2026 with Docker installed (see `memory/parity-vm.md`).
+**D3. Full-scale reference data: a read-only `pg_dump` of the reference server on a scratch VM.** The dump is restored into a frozen v4 4.5.4 on a dedicated VM (4 vCPU, 16 GB RAM, 80 GB SSD, sized from the reference server's measured 14 GB database on 2026-10-31), which also hosts the load bench, and irrd-ng imports the same dump. Approved as the one sanctioned use of the reference server's database: read-only, a dump only, never a write and never the importer pointed at the live server. This box has about 5 GB of free RAM and 36 GB of free disk with other containers running, so it runs Tier 1 only. The VM is `irrd-ng-parity`, VM 106 on Josh's home Proxmox at 10.80.111.210, created 31 October 2026 with Docker installed (see `memory/parity-vm.md`).
 
 **D4. Working mode: autonomous to done.** The irrexplorer-ng model. Questions were asked once, here. From Phase 0 on, the phases run through to the Definition of Done without stopping for confirmation. Every judgement call goes into `memory/decisions-log.md` with its reason, and Josh gets a short report at the end of each phase. When something is ambiguous, pick the option that best preserves v4 parity, log it and carry on. When something is blocked, take the next-best option inside these decisions, log it and keep going. Stop only if no fallback exists, and say so plainly.
 
@@ -103,7 +103,7 @@ The writer batches mirror and ROA updates into large transactions and never hold
 - **Tier 3 live spot checks.** Read-only queries against the reference server, compared only for objects whose source serial matches, to catch framing and format problems against a real deployment.
 - **Mutation suites.** Identical submissions and NRTM streams go to both servers, then responses, mails (Date and Message-ID masked), journals and resulting object text are compared. v4's own `irrd/integration_tests/run.py` already drives two instances through submissions, mail and mirroring, and seeds these suites.
 - **Three-way load check.** The harness loads the dumps into v4 with v4's loader, and into irrd-ng twice: once with irrd-ng's own loader and once with `import --from-postgres` from the v4 database. All three must agree, which tests the loader and the importer against each other.
-- **Corpus.** v4 docs and tests, bgpq4 and peval invocations, the queries irrexplorer-ng makes, and anonymised the reference server query logs if available. v4's `irrd/scripts/query_qa_comparison.py` is a ready-made two-instance whois comparator and bootstraps `parity/run.sh`.
+- **Corpus.** v4 docs and tests, bgpq4 and peval invocations, the queries irrexplorer-ng makes, and anonymised query logs from the reference server if available. v4's `irrd/scripts/query_qa_comparison.py` is a ready-made two-instance whois comparator and bootstraps `parity/run.sh`.
 - **Fuzzing and soak.** cargo-fuzz targets for the RPSL parser, the whois query parser and the NRTMv3 stream parser. A multi-day soak with mirroring and query load before release.
 - **Divergences.** Every intentional difference goes in `docs/divergences.md` with a reason, and only after review. Expected output is never edited to make a diff pass.
 
