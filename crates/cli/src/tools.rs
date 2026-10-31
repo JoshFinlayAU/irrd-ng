@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use crate::messages;
+use crate::{db_tools, messages};
 
 pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
@@ -14,10 +14,10 @@ const TOOLS: &[(&str, Tool)] = &[
     ("irrd", not_implemented),
     ("irrdctl", not_implemented),
     ("irrd_submit_email", not_implemented),
-    ("irrd_database_upgrade", not_implemented),
-    ("irrd_database_downgrade", not_implemented),
-    ("irrd_load_database", not_implemented),
-    ("irrd_update_database", not_implemented),
+    ("irrd_database_upgrade", db_tools::database_upgrade),
+    ("irrd_database_downgrade", db_tools::database_downgrade),
+    ("irrd_load_database", db_tools::load_database),
+    ("irrd_update_database", db_tools::update_database),
     ("irrd_set_last_modified_auth", not_implemented),
     ("irrd_expire_journal", not_implemented),
     ("irrd_mirror_force_reload", not_implemented),
@@ -26,8 +26,15 @@ const TOOLS: &[(&str, Tool)] = &[
     ("import", crate::import::run),
 ];
 
+/// Tools only reachable as `irrd-ng <tool>`, not listed in the usage.
+const HIDDEN: &[(&str, Tool)] = &[("export-jsonl", db_tools::export_jsonl)];
+
 pub(crate) fn lookup(name: &str) -> Option<Tool> {
-    TOOLS.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+    TOOLS
+        .iter()
+        .chain(HIDDEN)
+        .find(|(n, _)| *n == name)
+        .map(|(_, t)| *t)
 }
 
 pub(crate) fn names() -> Vec<&'static str> {

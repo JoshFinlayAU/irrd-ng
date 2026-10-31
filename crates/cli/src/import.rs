@@ -1,9 +1,10 @@
 //! `irrd-ng import`: the one-shot migration from an IRRd 4.5 database.
 //!
-//!   irrd-ng import --from-postgres <dsn> --store <path> [--batch-rows <n>]
+//!   irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>]
 //!
 //! Reads the v4 database in one read-only snapshot and upserts every row
-//! into the store at `<path>`, creating it if needed. Safe to re-run: a
+//! into the store, creating it if needed. The store is `--store`, else
+//! `IRRD_NG_STORE_PATH`, else `/var/lib/irrd-ng`, as for every tool. Safe to re-run: a
 //! second run over the same store changes nothing and duplicates nothing.
 
 use std::ffi::OsString;
@@ -17,7 +18,7 @@ use crate::messages;
 
 struct Args {
     dsn: String,
-    store: String,
+    store: std::path::PathBuf,
     batch_rows: usize,
 }
 
@@ -42,7 +43,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
         };
         match flag.as_str() {
             "--from-postgres" => dsn = Some(value()?),
-            "--store" => store = Some(value()?),
+            "--store" => store = Some(std::path::PathBuf::from(value()?)),
             "--batch-rows" => {
                 let v = value()?;
                 batch_rows = v
@@ -57,7 +58,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
     }
     Ok(Args {
         dsn: dsn.ok_or_else(|| messages::import_required("--from-postgres"))?,
-        store: store.ok_or_else(|| messages::import_required("--store"))?,
+        store: store.unwrap_or_else(crate::settings::store_path),
         batch_rows,
     })
 }
@@ -74,7 +75,7 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    crate::logging::init();
+    crate::logging::init_stderr();
     match import(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

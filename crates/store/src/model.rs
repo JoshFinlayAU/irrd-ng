@@ -1037,17 +1037,30 @@ pub struct NewRpslObject {
 }
 
 /// An object whose RPKI, scope filter or route preference status changed,
-/// as v4's validators hand it to `update_*_status`: the row and the status
-/// it had before.
+/// as v4's validators hand it to `update_*_status`: a dict of columns read
+/// earlier plus `old_status`. The journal decisions use these values, not
+/// the row as stored, exactly as v4 does. `S` is the type of `old_status`
+/// (`()` for route preference, which has none).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusChange<S> {
     /// `pk`: the row UUID.
     pub pk: Uuid,
-    /// `rpsl_pk`, used by `update_scopefilter_status`, which v4 matches on
-    /// the RPSL primary key rather than the row.
+    /// `rpsl_pk`. `update_scopefilter_status` matches rows on it.
     pub rpsl_pk: String,
-    /// The status before the change (`old_status`).
+    /// `source`
+    pub source: String,
+    /// `object_class`
+    pub object_class: String,
+    /// `object_text`
+    pub object_text: String,
+    /// `prefix`
+    pub prefix: Option<IpPrefix>,
+    /// `old_status`
     pub old_status: S,
-    /// The new status.
-    pub new_status: S,
+    /// `rpki_status` (the new one, for an RPKI change).
+    pub rpki_status: RpkiStatus,
+    /// `scopefilter_status` (the new one, for a scope filter change).
+    pub scopefilter_status: ScopeFilterStatus,
+    /// `route_preference_status`
+    pub route_preference_status: RoutePreferenceStatus,
 }

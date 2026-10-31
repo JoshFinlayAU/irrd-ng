@@ -330,8 +330,12 @@ name = "cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "config",
  "import-v4",
  "mimalloc",
+ "nrtm",
+ "rpki",
+ "rpsl",
  "store",
  "tracing",
  "tracing-subscriber",
@@ -1546,6 +1550,14 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nrtm"
 version = "0.0.0"
+dependencies = [
+ "config",
+ "rpki",
+ "rpsl",
+ "serde_json",
+ "store",
+ "tracing",
+]
 
 [[package]]
 name = "num-bigint"
@@ -2153,6 +2165,9 @@ dependencies = [
 [[package]]
 name = "rpki"
 version = "0.0.0"
+dependencies = [
+ "store",
+]
 
 [[package]]
 name = "rpsl"

@@ -15,8 +15,11 @@ use std::process::ExitCode;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod import;
+mod argparse;
+mod db_tools;
 mod logging;
 mod messages;
+mod settings;
 mod tools;
 
 fn main() -> ExitCode {
