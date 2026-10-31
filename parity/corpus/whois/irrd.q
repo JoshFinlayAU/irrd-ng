@@ -134,6 +134,11 @@
 !a4{route_set}
 !a{aut_num}
 
+@tags irrd,r,huge
+# Every IPv4 route in the database: 5 MB on Tier 1, gigabytes on Tier 2,
+# where run-tier2.sh skips the huge tag.
+!r0.0.0.0/0,M
+
 @tags irrd,e
 !e
 !e-lc
@@ -191,7 +196,6 @@
 !r192.0.2.0/33
 !r192.0.2.0/-1
 !r192.0.2.0/24.0
-!r0.0.0.0/0,M
 !r0.0.0.0/0
 !r::/0
 !r2001:db8::/32

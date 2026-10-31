@@ -567,6 +567,7 @@ def main():
     ap.add_argument("--redact", action="store_true", help="never write response bytes")
     ap.add_argument("--save-responses", action="store_true", help="write raw responses of differing items")
     ap.add_argument("--only", help="comma-separated tags; run only items with one of them")
+    ap.add_argument("--skip", help="comma-separated tags; leave out items with any of them")
     ap.add_argument("--max-report", type=int, default=200, help="differences written in full to diffs.txt")
     ap.add_argument("--unordered", help="allowlist of v4-nondeterministic answers (corpus/whois/unordered.tsv)")
     ap.add_argument("--strict", action="store_true", help="count permutations allowed by --unordered as differences")
@@ -578,6 +579,9 @@ def main():
     if args.only:
         want = set(args.only.split(","))
         items = [i for i in items if want & set(i.tags)]
+    if args.skip:
+        drop = set(args.skip.split(","))
+        items = [i for i in items if not drop & set(i.tags)]
     if args.suite == "http":
         items = [i for i in items if not i.is_session and "whois-only" not in i.tags]
     os.makedirs(args.out, exist_ok=True)

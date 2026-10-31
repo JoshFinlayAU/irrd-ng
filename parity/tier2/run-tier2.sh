@@ -26,16 +26,17 @@ if [[ ! -s $w/bindings.json ]]; then
       WHERE object_class IN ('as-set','route-set','aut-num','route','route6','mntner','as-block','filter-set',
       'peering-set','rtr-set','inet-rtr','key-cert','inetnum','inet6num','domain','irt','organisation')
       AND source <> 'RPKI') TO STDOUT" \
-    | python3 -I tools/corpus_bindings.py --per 100 --rank 25 --out "$w/bindings.json" -
+    | systemd-run --scope -q -p MemoryMax=4G python3 -I tools/corpus_bindings.py --per 100 --rank 25 --out "$w/bindings.json" -
 fi
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 out=$dir/out/$stamp && mkdir -p "$out"
 python3 -I tools/corpus_expand.py --bindings "$w/bindings.json" --scale "$scale" --out "$w/corpus.tsv" corpus/whois/*.q
 status=0
-python3 -I tools/whois_diff.py --suite whois --corpus "$w/corpus.tsv" --ref 127.0.0.1:9043 --test 127.0.0.1:8043 \
-  --unordered corpus/whois/unordered.tsv --redact --jobs "$jobs" --out "$out/whois" || status=1
-python3 -I tools/whois_diff.py --suite http --corpus "$w/corpus.tsv" --ref 127.0.0.1:9080 --test 127.0.0.1:8080 \
-  --unordered corpus/whois/unordered.tsv --redact --jobs "$jobs" --out "$out/http" || status=1
+free -g | sed -n 2p
+systemd-run --scope -q -p MemoryMax=8G python3 -I tools/whois_diff.py --suite whois --corpus "$w/corpus.tsv" --ref 127.0.0.1:9043 --test 127.0.0.1:8043 \
+  --unordered corpus/whois/unordered.tsv --skip huge --redact --jobs "$jobs" --out "$out/whois" || status=1
+systemd-run --scope -q -p MemoryMax=8G python3 -I tools/whois_diff.py --suite http --corpus "$w/corpus.tsv" --ref 127.0.0.1:9080 --test 127.0.0.1:8080 \
+  --unordered corpus/whois/unordered.tsv --skip huge --redact --jobs "$jobs" --out "$out/http" || status=1
 if [[ $bgpq4 == 1 ]]; then
   ./bgpq4.sh --ref 127.0.0.1:9043 --test 127.0.0.1:8043 --bindings "$w/bindings.json" --sets 8 --redact --out "$out/bgpq4" || status=1
 fi
