@@ -464,36 +464,39 @@ impl<'t, 'e> WriteTx<'t, 'e> {
                 self.modify_by_uuid(&c.pk, |r| r.rpki_status = status)?;
             }
         }
-        let mut becoming = Vec::new();
         for c in now_valid.iter().chain(now_not_found) {
-            becoming.push((c, true));
-        }
-        for c in now_invalid {
-            becoming.push((c, false));
-        }
-        for (c, to_visible) in becoming {
-            let Some(row) = self.row_by_uuid(&c.pk)? else {
-                continue;
-            };
             let before = object_is_visible(
                 c.old_status,
-                row.scopefilter_status,
-                row.route_preference_status,
+                c.scopefilter_status,
+                c.route_preference_status,
             );
             let now = object_is_visible(
-                c.new_status,
-                row.scopefilter_status,
-                row.route_preference_status,
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
             );
-            if to_visible && now && !before {
+            if now && !before {
                 self.journal_status_change(
-                    &row,
+                    c,
                     DatabaseOperation::AddOrUpdate,
                     JournalEntryOrigin::RpkiStatus,
                 )?;
-            } else if !to_visible && !now && before {
+            }
+        }
+        for c in now_invalid {
+            let before = object_is_visible(
+                c.old_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
+            let now = object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
+            if !now && before {
                 self.journal_status_change(
-                    &row,
+                    c,
                     DatabaseOperation::Delete,
                     JournalEntryOrigin::RpkiStatus,
                 )?;
@@ -528,30 +531,30 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             }
         }
         for c in now_in_scope {
-            let Some(row) = self.row_by_uuid(&c.pk)? else {
-                continue;
-            };
-            let before =
-                object_is_visible(row.rpki_status, c.old_status, row.route_preference_status);
-            let now = object_is_visible(row.rpki_status, c.new_status, row.route_preference_status);
+            let before = object_is_visible(c.rpki_status, c.old_status, c.route_preference_status);
+            let now = object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
             if now && !before {
                 self.journal_status_change(
-                    &row,
+                    c,
                     DatabaseOperation::AddOrUpdate,
                     JournalEntryOrigin::ScopeFilter,
                 )?;
             }
         }
         for c in now_out_scope_as.iter().chain(now_out_scope_prefix) {
-            let Some(row) = self.row_by_uuid(&c.pk)? else {
-                continue;
-            };
-            let before =
-                object_is_visible(row.rpki_status, c.old_status, row.route_preference_status);
-            let now = object_is_visible(row.rpki_status, c.new_status, row.route_preference_status);
+            let before = object_is_visible(c.rpki_status, c.old_status, c.route_preference_status);
+            let now = object_is_visible(
+                c.rpki_status,
+                c.scopefilter_status,
+                c.route_preference_status,
+            );
             if !now && before {
                 self.journal_status_change(
-                    &row,
+                    c,
                     DatabaseOperation::Delete,
                     JournalEntryOrigin::ScopeFilter,
                 )?;
@@ -561,59 +564,57 @@ impl<'t, 'e> WriteTx<'t, 'e> {
     }
 
     /// `update_route_preference_status(rpsl_objs_now_visible,
-    /// rpsl_objs_now_suppressed)`, by row UUID.
+    /// rpsl_objs_now_suppressed)`. Journal entries first (for objects
+    /// visible under RPKI and scope filter), then the status update.
     pub fn update_route_preference_status(
         &mut self,
-        now_visible: &[Uuid],
-        now_suppressed: &[Uuid],
+        now_visible: &[StatusChange<()>],
+        now_suppressed: &[StatusChange<()>],
     ) -> Result<()> {
         self.check_write_permitted()?;
         for (list, op) in [
             (now_visible, DatabaseOperation::AddOrUpdate),
             (now_suppressed, DatabaseOperation::Delete),
         ] {
-            for pk in list {
-                let Some(row) = self.row_by_uuid(pk)? else {
-                    continue;
-                };
+            for c in list {
                 if object_is_visible(
-                    row.rpki_status,
-                    row.scopefilter_status,
+                    c.rpki_status,
+                    c.scopefilter_status,
                     RoutePreferenceStatus::Visible,
                 ) {
-                    self.journal_status_change(&row, op, JournalEntryOrigin::RoutePreference)?;
+                    self.journal_status_change(c, op, JournalEntryOrigin::RoutePreference)?;
                 }
             }
         }
-        for pk in now_visible {
-            self.modify_by_uuid(pk, |r| {
+        for c in now_visible {
+            self.modify_by_uuid(&c.pk, |r| {
                 r.route_preference_status = RoutePreferenceStatus::Visible
             })?;
         }
-        for pk in now_suppressed {
-            self.modify_by_uuid(pk, |r| {
+        for c in now_suppressed {
+            self.modify_by_uuid(&c.pk, |r| {
                 r.route_preference_status = RoutePreferenceStatus::Suppressed
             })?;
         }
         Ok(())
     }
 
-    fn journal_status_change(
+    fn journal_status_change<S>(
         &mut self,
-        row: &RpslObjectRow,
+        c: &StatusChange<S>,
         op: DatabaseOperation,
         origin: JournalEntryOrigin,
     ) -> Result<()> {
         self.record_operation(
             op,
-            &row.rpsl_pk,
-            &row.source,
-            &row.object_class,
-            &row.object_text,
+            &c.rpsl_pk,
+            &c.source,
+            &c.object_class,
+            &c.object_text,
             origin,
             None,
         )?;
-        self.object_modified(&row.object_class, &row.source, row.prefix, Some(origin));
+        self.object_modified(&c.object_class, &c.source, c.prefix, Some(origin));
         Ok(())
     }
 
@@ -1106,13 +1107,6 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.t.objects_uuid.delete(self.txn, r.pk.as_bytes())?;
         self.t.objects.delete(self.txn, &id_bytes(id))?;
         Ok(r.to_row())
-    }
-
-    fn row_by_uuid(&self, pk: &Uuid) -> Result<Option<RpslObjectRow>> {
-        let Some(id) = query::id_by_uuid(&self.t, self.txn, pk)? else {
-            return Ok(None);
-        };
-        Ok(query::object_by_id(&self.t, self.txn, id)?.map(|r| r.to_row()))
     }
 
     fn modify_by_uuid(&mut self, pk: &Uuid, f: impl FnOnce(&mut RpslObjectRow)) -> Result<()> {

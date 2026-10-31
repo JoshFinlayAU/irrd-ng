@@ -134,7 +134,13 @@ impl<'a> ReadView<'a> {
         }
         let t = self.t;
         let txn = self.txn;
-        Ok(t.objects_key.prefix_iter(txn, &p)?.map(move |item| {
+        type KvIter<'x> = Box<dyn Iterator<Item = heed::Result<(&'x [u8], &'x [u8])>> + 'x>;
+        let raw: KvIter<'a> = if p.is_empty() {
+            Box::new(t.objects_key.iter(txn)?)
+        } else {
+            Box::new(t.objects_key.prefix_iter(txn, &p)?)
+        };
+        Ok(raw.map(move |item| {
             let (_, v) = item?;
             let id = id_of(v)?;
             let o =
@@ -235,26 +241,35 @@ impl<'a> ReadView<'a> {
         if let Some(s) = source {
             push_str(&mut p, s.as_bytes());
         }
-        let lo = match (source, start) {
+        use std::ops::Bound;
+        let lo: Bound<Vec<u8>> = match (source, start) {
             (Some(_), Some(s)) => {
                 let mut k = p.clone();
                 k.extend_from_slice(&serial_bytes(s));
-                k
+                Bound::Included(k)
             }
-            _ => p.clone(),
+            (Some(_), None) => Bound::Included(p.clone()),
+            (None, _) => Bound::Unbounded,
         };
-        let mut hi = p.clone();
-        match (source, end) {
-            (Some(_), Some(e)) => hi.extend_from_slice(&serial_bytes(e)),
-            _ => hi.extend_from_slice(&[0xFF; 9]),
-        }
-        let bounds = (std::ops::Bound::Included(lo), std::ops::Bound::Included(hi));
+        let hi: Bound<Vec<u8>> = match (source, end) {
+            (Some(_), Some(e)) => {
+                let mut k = p.clone();
+                k.extend_from_slice(&serial_bytes(e));
+                Bound::Included(k)
+            }
+            (Some(_), None) => {
+                let mut k = p.clone();
+                k.extend_from_slice(&[0xFF; 9]);
+                Bound::Included(k)
+            }
+            (None, _) => Bound::Unbounded,
+        };
         let txn = self.txn;
         let iter = self.t.journal.range(
             txn,
             &(
-                bounds.0.as_ref().map(|v| v.as_slice()),
-                bounds.1.as_ref().map(|v| v.as_slice()),
+                lo.as_ref().map(|v| v.as_slice()),
+                hi.as_ref().map(|v| v.as_slice()),
             ),
         )?;
         Ok(iter.map(|item| {

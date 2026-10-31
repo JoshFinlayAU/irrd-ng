@@ -13,7 +13,14 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+config.workspace = true
 mimalloc.workspace = true
+nrtm.workspace = true
+rpki.workspace = true
+rpsl.workspace = true
+store.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
