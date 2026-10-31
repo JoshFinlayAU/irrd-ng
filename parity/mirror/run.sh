@@ -21,8 +21,9 @@
 #   UPD  export only, read from local files (file://, gzipped).
 #
 # Steps: initial load; changes; force reload; changes after reload; NRTMv4
-# key rotation (announce, then rotate); NRTMv4 session reset; a broken
-# delta and its repair; an expired Update Notification File and recovery.
+# key rotation (announce, then rotate); a broken delta and its repair; an
+# expired Update Notification File and recovery; an NRTMv4 session reset
+# (which v4's client cannot follow, see step 11); more changes.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -158,7 +159,7 @@ expected() {
   b=$(psql upstream "select nrtm4_server_session_id || ':' || nrtm4_server_version from database_status where source='UPB'")
   c=$(cat "$WORK/srv/exports/UPC.CURRENTSERIAL" 2>/dev/null || echo none)
   d=$(cat "$WORK/srv/exports/UPD.CURRENTSERIAL" 2>/dev/null || echo none)
-  printf 'UPA=%s UPB=%s UPC=%s UPD=%s' "$a" "$b" "$c" "$d"
+  printf 'UPA=%s UPB=%s UPC=%s UPD=%s' "$a" "${UPB_FROZEN:-$b}" "$c" "$d"
 }
 
 v4_state() {
@@ -184,9 +185,8 @@ print(" ".join(sorted(out)))'
 
 wait_synced() {
   local want v4 ng
-  want=$(expected)
   for _ in $(seq 1 90); do
-    v4=$(v4_state); ng=$(ng_state)
+    want=$(expected); v4=$(v4_state); ng=$(ng_state)
     if [[ $v4 == "$want" && $ng == "$want" ]]; then
       log "synced: $want"
       return 0
@@ -335,27 +335,17 @@ main() {
   compare 05-rotation-announced
 
   log "step 06: NRTMv4 key rotated"
+  local since
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   write_upstream "$KEY_B"
   "${DC[@]}" kill -s HUP upstream >/dev/null
   sleep 3
-  local since
-  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   update_upstream 4 UPB
   wait_synced || true
   compare 06-rotated
   check_both_logged 06-rotated "$since" "signing key rotated from"
 
-  log "step 07: NRTMv4 session reset upstream"
-  local snap
-  snap=$(psql upstream "select nrtm4_server_last_snapshot_filename from database_status where source='UPB'")
-  rm -f "$(nrtm4_dir)/$snap"
-  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  sleep 3
-  wait_synced || true
-  compare 07-session-reset
-  check_both_logged 07-session-reset "$since" "Session ID has changed"
-
-  log "step 08: a broken delta"
+  log "step 07: a broken delta"
   mkdir -p "$WORK/overlay/nrtm4/UPB"
   cp "$(nrtm4_dir)/update-notification-file.jose" "$WORK/overlay/nrtm4/UPB/"
   local before
@@ -369,30 +359,51 @@ main() {
   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   rm -f "$WORK/overlay/nrtm4/UPB/update-notification-file.jose"
   sleep 12
-  compare 08-broken-delta
-  check_both_logged 08-broken-delta "$since" "Invalid hash in"
+  compare 07-broken-delta
+  check_both_logged 07-broken-delta "$since" "Invalid hash in"
 
-  log "step 09: the delta repaired"
+  log "step 08: the delta repaired"
   rm -f "$WORK/overlay/nrtm4/UPB/$delta"
   wait_synced || true
-  compare 09-delta-repaired
+  compare 08-delta-repaired
 
-  log "step 10: an expired Update Notification File"
+  log "step 09: an expired Update Notification File"
   printf '%s\n' "$KEY_B" > "$WORK/overlay/key-b.pem"
   docker run --rm --user root --entrypoint /opt/irrd/bin/python -v "$HERE:/harness:ro" -v "$WORK:/work" "$V4_IMAGE" \
     /harness/tamper.py expire-unf /work/srv/nrtm4/UPB/update-notification-file.jose \
     /work/overlay/nrtm4/UPB/update-notification-file.jose /work/overlay/key-b.pem 25
   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   sleep 10
-  compare 10-expired-unf
-  check_both_logged 10-expired-unf "$since" "older than 24 hours"
+  compare 09-expired-unf
+  check_both_logged 09-expired-unf "$since" "older than 24 hours"
   rm -f "$WORK/overlay/nrtm4/UPB/update-notification-file.jose"
 
-  log "step 11: recovery and a last round of changes everywhere"
+  log "step 10: recovery and a round of changes everywhere"
   update_upstream 6 "${SOURCES[@]}"
   export_upstream UPA UPC UPD
   wait_synced || true
-  compare 11-final
+  compare 10-recovered
+
+  # v4's client keeps previous_file_hashes across sessions, so a new
+  # session whose file references reuse version numbers ("snapshot-1")
+  # fails its history check on every run: v4 loads the new snapshot, then
+  # rolls the whole run back. irrd-ng must do the same.
+  log "step 11: NRTMv4 session reset upstream (v4 cannot follow it)"
+  local snap
+  snap=$(psql upstream "select nrtm4_server_last_snapshot_filename from database_status where source='UPB'")
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  UPB_FROZEN=$(v4_state | tr ' ' '\n' | sed -n 's/^UPB=//p')
+  rm -f "$(nrtm4_dir)/$snap"
+  sleep 15
+  compare 11-session-reset
+  check_both_logged 11-session-reset "$since" "Session ID has changed"
+  check_both_logged 11-session-reset "$since" "Server is rewriting history"
+
+  log "step 12: changes everywhere else while UPB is stuck"
+  update_upstream 7 UPA UPC UPD
+  export_upstream UPC UPD
+  wait_synced || true
+  compare 12-final
 
   "${DC[@]}" logs --no-color mirror-v4 > "$WORK/logs/mirror-v4.log" 2>&1 || true
   "${DC[@]}" logs --no-color irrd-ng > "$WORK/logs/irrd-ng.log" 2>&1 || true
