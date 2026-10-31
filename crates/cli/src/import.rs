@@ -91,22 +91,29 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
         }
     };
     crate::logging::init_stderr();
-    match import(&args) {
+    let mut load_started = false;
+    match import(&args, &mut load_started) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{}", messages::import_failed(&format!("{e:#}")));
+            if load_started {
+                // The whole-store marker stays set: the store refuses to
+                // open until it is imported again.
+                eprintln!("{}", messages::import_store_incomplete(&args.store));
+            }
             ExitCode::from(1)
         }
     }
 }
 
-fn import(args: &Args) -> anyhow::Result<()> {
+fn import(args: &Args, load_started: &mut bool) -> anyhow::Result<()> {
     let start = Instant::now();
     tracing::info!(
         "{}",
         import_v4::messages::connecting(&import_v4::describe(&args.dsn))
     );
     let mut client = import_v4::connect(&args.dsn)?;
+    import_v4::check_source(&mut client)?;
     // Bulk-load mode: no sync per commit, one at the end. The whole-store
     // marker is durable while the import runs, so a store whose import was
     // killed refuses to open instead of serving partial data.
@@ -116,6 +123,7 @@ fn import(args: &Args) -> anyhow::Result<()> {
     };
     let store = Store::open(&options, StoreSettings::default())?;
     let load = store.begin_whole_store_load(WHOLE_STORE_LABEL)?;
+    *load_started = true;
     let mut sink = StoreSink::with_batch_rows(&store, args.write_rows);
     let stats = import_v4::import(
         &mut client,
@@ -134,7 +142,10 @@ fn import(args: &Args) -> anyhow::Result<()> {
         messages::import_synced(sync_start.elapsed().as_secs_f64())
     );
     for (table, n) in &stats.tables {
-        println!("{table}\t{n}");
+        println!(
+            "{}",
+            messages::import_table_line(table, *n, sink.deleted().get(table))
+        );
     }
     println!(
         "{}",

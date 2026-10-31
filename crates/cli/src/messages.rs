@@ -127,3 +127,15 @@ pub(crate) fn import_syncing() -> String {
 pub(crate) fn import_synced(secs: f64) -> String {
     format!("Store written to disk in {secs:.1}s")
 }
+
+pub(crate) fn import_table_line(table: &str, read: u64, deleted: u64) -> String {
+    format!("{table}\t{read}\tdeleted {deleted}")
+}
+
+pub(crate) fn import_store_incomplete(store: &std::path::Path) -> String {
+    format!(
+        "The store at {} is incomplete and will refuse to open. Run the import again into a \
+         fresh store, or after removing this one.",
+        store.display()
+    )
+}

@@ -150,6 +150,24 @@ pub fn describe(dsn: &str) -> String {
     }
 }
 
+/// Check the source's schema revision before anything else is touched, so
+/// a database that cannot be imported is refused before a store is opened.
+/// [`import`] checks again inside its snapshot.
+pub fn check_source(client: &mut Client) -> Result<String, ImportError> {
+    let mut tx = client
+        .build_transaction()
+        .isolation_level(IsolationLevel::RepeatableRead)
+        .read_only(true)
+        .start()
+        .map_err(ImportError::Connect)?;
+    let revision = schema_revision(&mut tx)?;
+    tx.rollback().map_err(ImportError::Connect)?;
+    if revision != messages::V4_SCHEMA_HEAD {
+        return Err(ImportError::WrongSchema(revision));
+    }
+    Ok(revision)
+}
+
 /// Read the whole v4 database into `sink`.
 pub fn import<S: Sink>(
     client: &mut Client,

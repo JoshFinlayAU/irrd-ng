@@ -8,15 +8,19 @@
 //!
 //! Rows are buffered and written in transactions of about
 //! [`WRITE_BATCH_ROWS`] rows. Every put is an idempotent upsert on the
-//! table's key, so re-running an import over the same store changes nothing
-//! and duplicates nothing.
+//! table's key, and rows the store holds but the source no longer has are
+//! deleted (unjournaled): the big tables by a merge-join against the
+//! source's key-ordered stream, the small ones by a set difference at the
+//! end. So a re-import leaves the store equal to the source, and re-running
+//! over an unchanged source changes nothing.
 
+use std::collections::{BTreeMap, HashSet};
 use std::net::IpAddr;
 
 use store::{
-    AuthApiTokenRow, AuthMntnerRow, AuthPermissionRow, AuthUserRow, AuthWebAuthnRow, ChangeLogRow,
-    IpPrefix, Json, ProtectedNameRow, RoaRow, RpslObjectRow, SettingRow, Store, SuspendedObjectRow,
-    WriteTx,
+    AuthApiTokenRow, AuthMntnerRow, AuthPermissionRow, AuthTable, AuthUserRow, AuthWebAuthnRow,
+    ChangeLogRow, IpPrefix, Json, ProtectedNameRow, RoaRow, RpslObjectRow, SettingRow, Store,
+    SuspendedObjectRow, Uuid, WriteTx,
 };
 
 use crate::rows::{self, Batch};
@@ -103,6 +107,48 @@ pub struct StoreSink<'s> {
     pending: Vec<Row>,
     written: u64,
     batch_rows: usize,
+    /// How far the merge-join prune of each big table has got.
+    pruned: Prune,
+    /// Keys the source holds in the small tables, for the set difference.
+    seen: Seen,
+    deleted: Deleted,
+}
+
+/// The store keys each big table's prune has covered (opaque, from
+/// `store::Pruned::through`).
+#[derive(Debug, Default)]
+struct Prune {
+    objects: Option<Vec<u8>>,
+    journal: Option<Vec<u8>>,
+    roas: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Default)]
+struct Seen {
+    status: HashSet<String>,
+    suspended: HashSet<Uuid>,
+    protected: HashSet<Uuid>,
+    settings: HashSet<String>,
+    users: HashSet<Uuid>,
+    permissions: HashSet<Uuid>,
+    mntners: HashSet<Uuid>,
+    tokens: HashSet<Uuid>,
+    webauthn: HashSet<Uuid>,
+    change_log: HashSet<Uuid>,
+}
+
+/// Rows deleted per table because the source no longer has them.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Deleted(pub BTreeMap<&'static str, u64>);
+
+impl Deleted {
+    pub fn get(&self, table: &str) -> u64 {
+        self.0.get(table).copied().unwrap_or(0)
+    }
+
+    fn add(&mut self, table: &'static str, n: u64) {
+        *self.0.entry(table).or_default() += n;
+    }
 }
 
 impl<'s> StoreSink<'s> {
@@ -120,7 +166,15 @@ impl<'s> StoreSink<'s> {
             pending: Vec::with_capacity(batch_rows.min(WRITE_BATCH_ROWS)),
             written: 0,
             batch_rows,
+            pruned: Prune::default(),
+            seen: Seen::default(),
+            deleted: Deleted::default(),
         }
+    }
+
+    /// Rows deleted per table, complete once the import has finished.
+    pub fn deleted(&self) -> &Deleted {
+        &self.deleted
     }
 
     /// Rows written so far.
@@ -128,22 +182,147 @@ impl<'s> StoreSink<'s> {
         self.written
     }
 
-    fn flush(&mut self) -> Result<(), StoreSinkError> {
-        if self.pending.is_empty() {
+    /// Write the pending rows in one transaction. A re-import must leave
+    /// the store equal to the source, so first each big table is pruned as
+    /// a merge-join: the source streams it in the store's key order, so the
+    /// store keys between the previous batch's highest key and this batch's
+    /// that the batch does not hold are gone from the source. With
+    /// `to_end`, the rest of each big table goes too (the stream is over).
+    fn flush_with(&mut self, to_end: bool) -> Result<(), StoreSinkError> {
+        if self.pending.is_empty() && !to_end {
             return Ok(());
         }
         let rows = std::mem::take(&mut self.pending);
         let n = rows.len() as u64;
+        let after = (
+            self.pruned.objects.clone(),
+            self.pruned.journal.clone(),
+            self.pruned.roas.clone(),
+        );
         // The closure can be re-run after a map resize, so it only reads
-        // `rows`.
-        self.store.write(move |tx| {
+        // `rows` and `after`, and hands the new prune positions back.
+        let (objects, journal, roas) = self.store.write(move |tx| {
+            let mut obj_keys = Vec::new();
+            let mut jr_keys = Vec::new();
+            let mut roa_keys = Vec::new();
+            for r in &rows {
+                match r {
+                    Row::Object(o) => obj_keys.push((
+                        o.source.as_str(),
+                        o.object_class.as_str(),
+                        o.rpsl_pk.as_str(),
+                    )),
+                    Row::Journal(e) => jr_keys.push((e.source.as_str(), e.serial_nrtm)),
+                    Row::Roa(r) => roa_keys.push(r),
+                    _ => {}
+                }
+            }
+            let objects = tx.prune_rpsl_objects(after.0.as_deref(), &obj_keys, to_end)?;
+            let journal = tx.prune_journal(after.1.as_deref(), &jr_keys, to_end)?;
+            let roas = tx.prune_roas(after.2.as_deref(), &roa_keys, to_end)?;
             for r in &rows {
                 r.put(tx)?;
             }
-            Ok(())
+            Ok((objects, journal, roas))
         })?;
+        self.deleted.add("rpsl_objects", objects.deleted);
+        self.deleted.add("rpsl_database_journal", journal.deleted);
+        self.deleted.add("roa_object", roas.deleted);
+        self.pruned = Prune {
+            objects: objects.through,
+            journal: journal.through,
+            roas: roas.through,
+        };
         self.written += n;
         self.pending = Vec::with_capacity(self.batch_rows.min(WRITE_BATCH_ROWS));
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), StoreSinkError> {
+        self.flush_with(false)
+    }
+
+    /// The small tables: delete what the store holds and the source does
+    /// not, as a set difference.
+    fn prune_small_tables(&mut self) -> Result<(), StoreSinkError> {
+        let seen = std::mem::take(&mut self.seen);
+        let counts = self.store.write(move |tx| {
+            let v = tx.read_unflushed();
+            let status: Vec<String> = v
+                .database_statuses()?
+                .into_iter()
+                .map(|r| r.source)
+                .filter(|k| !seen.status.contains(k))
+                .collect();
+            let suspended = gone(
+                v.suspended_objects()?.into_iter().map(|r| r.pk),
+                &seen.suspended,
+            );
+            let protected = gone(
+                v.protected_names()?.into_iter().map(|r| r.pk),
+                &seen.protected,
+            );
+            let settings: Vec<String> = v
+                .settings()?
+                .into_iter()
+                .map(|r| r.name)
+                .filter(|k| !seen.settings.contains(k))
+                .collect();
+            let users = gone(v.auth_users()?.into_iter().map(|r| r.pk), &seen.users);
+            let permissions = gone(
+                v.auth_permissions()?.into_iter().map(|r| r.pk),
+                &seen.permissions,
+            );
+            let mntners = gone(v.auth_mntners()?.into_iter().map(|r| r.pk), &seen.mntners);
+            let tokens = gone(v.auth_api_tokens()?.into_iter().map(|r| r.pk), &seen.tokens);
+            let webauthn = gone(
+                v.auth_webauthns()?.into_iter().map(|r| r.pk),
+                &seen.webauthn,
+            );
+            let change_log = gone(v.change_logs()?.into_iter().map(|r| r.pk), &seen.change_log);
+            for k in &status {
+                tx.delete_database_status(k)?;
+            }
+            for k in &suspended {
+                tx.delete_suspended_object_raw(k)?;
+            }
+            for k in &protected {
+                tx.delete_protected_name_raw(k)?;
+            }
+            for k in &settings {
+                tx.delete_setting_raw(k)?;
+            }
+            for k in &tokens {
+                tx.delete_auth_api_token_raw(k)?;
+            }
+            for (table, keys) in [
+                (AuthTable::User, &users),
+                (AuthTable::Permission, &permissions),
+                (AuthTable::Mntner, &mntners),
+                (AuthTable::Webauthn, &webauthn),
+                (AuthTable::ChangeLog, &change_log),
+            ] {
+                for k in keys {
+                    tx.delete_auth_row_raw(table, k)?;
+                }
+            }
+            let n = |v: usize| v as u64;
+            Ok([
+                ("database_status", n(status.len())),
+                ("rpsl_objects_suspended", n(suspended.len())),
+                ("protected_rpsl_name", n(protected.len())),
+                ("setting", n(settings.len())),
+                ("auth_user", n(users.len())),
+                ("auth_permission", n(permissions.len())),
+                ("auth_mntner", n(mntners.len())),
+                ("auth_api_token", n(tokens.len())),
+                ("auth_webauthn", n(webauthn.len())),
+                ("change_log", n(change_log.len())),
+            ])
+        })?;
+        for (table, n) in counts {
+            self.deleted.add(table, n);
+        }
         Ok(())
     }
 
@@ -160,6 +339,7 @@ impl Sink for StoreSink<'_> {
     type Error = StoreSinkError;
 
     fn write(&mut self, batch: Batch) -> Result<(), StoreSinkError> {
+        self.note_keys(&batch);
         match batch {
             Batch::RpslObjects(v) => each(self, v, |r| Ok(Row::Object(Box::new(object(r)?)))),
             Batch::Journal(v) => each(self, v, |r| Ok(Row::Journal(Box::new(journal(r)?)))),
@@ -262,8 +442,38 @@ impl Sink for StoreSink<'_> {
     }
 
     fn finish(&mut self) -> Result<(), StoreSinkError> {
-        self.flush()
+        // The last batch, then everything the big tables hold beyond it.
+        self.flush_with(true)?;
+        self.prune_small_tables()
     }
+}
+
+impl StoreSink<'_> {
+    /// Remember the small tables' keys for the set difference at the end.
+    fn note_keys(&mut self, batch: &Batch) {
+        let s = &mut self.seen;
+        match batch {
+            Batch::DatabaseStatus(v) => s.status.extend(v.iter().map(|r| r.source.clone())),
+            Batch::Suspended(v) => s.suspended.extend(v.iter().map(|r| r.pk)),
+            Batch::ProtectedNames(v) => s.protected.extend(v.iter().map(|r| r.pk)),
+            Batch::Settings(v) => s.settings.extend(v.iter().map(|r| r.name.clone())),
+            Batch::AuthUsers(v) => s.users.extend(v.iter().map(|r| r.pk)),
+            Batch::AuthPermissions(v) => s.permissions.extend(v.iter().map(|r| r.pk)),
+            Batch::AuthMntners(v) => s.mntners.extend(v.iter().map(|r| r.pk)),
+            Batch::AuthApiTokens(v) => s.tokens.extend(v.iter().map(|r| r.pk)),
+            Batch::AuthWebauthn(v) => s.webauthn.extend(v.iter().map(|r| r.pk)),
+            Batch::ChangeLog(v) => s.change_log.extend(v.iter().map(|r| r.pk)),
+            Batch::RpslObjects(_)
+            | Batch::Journal(_)
+            | Batch::Roas(_)
+            | Batch::SerialGlobalLastValue(_) => {}
+        }
+    }
+}
+
+/// The keys the store holds that the source does not.
+fn gone(store_keys: impl Iterator<Item = Uuid>, source: &HashSet<Uuid>) -> Vec<Uuid> {
+    store_keys.filter(|k| !source.contains(k)).collect()
 }
 
 fn each<T>(
