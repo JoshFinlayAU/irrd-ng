@@ -54,7 +54,29 @@ enum Row {
 }
 
 impl Row {
+    /// Whether the store already holds exactly this row. A re-run then
+    /// writes nothing for it: with LMDB's copy-on-write even an identical
+    /// upsert rewrites every page on its path, which on a store that does
+    /// not fit in memory makes a re-import far slower than the first run.
+    /// Checked for objects and the journal, the tables that grow to millions
+    /// of rows with large pages; ROAs are small and have no point lookup.
+    fn unchanged(&self, tx: &WriteTx<'_, '_>) -> store::Result<bool> {
+        let view = tx.read_unflushed();
+        Ok(match self {
+            Row::Object(r) => view
+                .object(&r.source, &r.object_class, &r.rpsl_pk)?
+                .is_some_and(|old| old.to_row() == **r),
+            Row::Journal(e) => view
+                .journal_entry(&e.source, e.serial_nrtm)?
+                .is_some_and(|old| old.to_entry() == **e),
+            _ => false,
+        })
+    }
+
     fn put(&self, tx: &mut WriteTx<'_, '_>) -> store::Result<()> {
+        if self.unchanged(tx)? {
+            return Ok(());
+        }
         match self {
             Row::Object(r) => tx.put_rpsl_object(r),
             Row::Journal(r) => tx.put_journal_entry(r),
