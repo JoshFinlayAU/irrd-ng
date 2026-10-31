@@ -243,14 +243,19 @@ pub async fn ftp_download(
             parsed.password().map(percent_decode).unwrap_or_default(),
         )
     };
-    let path = percent_decode(parsed.path());
-    let mut parts: Vec<&str> = path.split('/').collect();
-    let file = parts.pop().unwrap_or_default().to_owned();
-    let dirs: Vec<String> = parts
-        .into_iter()
-        .filter(|d| !d.is_empty())
-        .map(str::to_owned)
-        .collect();
+    // urllib: dirs = path.split("/"), unquoted; the last is the file; a
+    // leading empty part is dropped; then one CWD to the joined dirs
+    // (ftplib turns '' into '.').
+    let raw_path = parsed.path();
+    let mut dirs: Vec<String> = raw_path.split('/').map(percent_decode).collect();
+    let file = dirs.pop().unwrap_or_default();
+    if dirs.first().is_some_and(String::is_empty) {
+        dirs.remove(0);
+    }
+    let target = match dirs.join("/") {
+        t if t.is_empty() => ".".to_owned(),
+        t => t,
+    };
 
     let urlopen = |e: String| format!("<urlopen error {e}>");
     let ftp_err = |e: suppaftp::FtpError| -> String {
@@ -295,9 +300,7 @@ pub async fn ftp_download(
         })
         .await,
     )?;
-    for d in &dirs {
-        step(tokio::time::timeout(timeout, async { ftp.cwd(d).await.map_err(ftp_err) }).await)?;
-    }
+    step(tokio::time::timeout(timeout, async { ftp.cwd(&target).await.map_err(ftp_err) }).await)?;
     step(
         tokio::time::timeout(timeout, async {
             ftp.transfer_type(FileType::Binary).await.map_err(ftp_err)

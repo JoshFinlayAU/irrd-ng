@@ -1,0 +1,88 @@
+# Mirroring differential (Phase 4): one IRRd v4 upstream, mirrored side by
+# side by a second IRRd v4 and by irrd-ng (the static musl build, in an
+# empty image). Driven by parity/mirror/run.sh; nothing here talks to the
+# internet. Host ports are 96xx, clear of the other harnesses.
+#
+# Every container has a memory cap.
+name: irrd-mirror-diff
+
+x-v4: &v4
+  image: irrd-ng-parity/irrd-v4:4.5.4
+  user: root
+  environment:
+    IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
+  mem_limit: 1g
+
+services:
+  postgres:
+    image: postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_USER: irrd
+      POSTGRES_PASSWORD: irrd
+      POSTGRES_DB: upstream
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    volumes:
+      - ./initdb.sql:/docker-entrypoint-initdb.d/initdb.sql:ro
+    tmpfs: [/var/lib/postgresql]
+    ports: ["127.0.0.1:9632:5432"]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "irrd"]
+      interval: 2s
+      retries: 30
+
+  redis-up:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+    mem_limit: 256m
+
+  redis-mirror:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+    mem_limit: 256m
+
+  # Exports and NRTMv4 files over HTTP (80) and FTP (21), with an overlay
+  # for tampered files.
+  files:
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    user: root
+    entrypoint: ["/opt/irrd/bin/python", "-u", "/harness/files_server.py", "/srv", "/overlay"]
+    volumes:
+      - ./files_server.py:/harness/files_server.py:ro
+      - ${WORK}/srv:/srv:ro
+      - ${WORK}/overlay:/overlay:ro
+    mem_limit: 256m
+
+  upstream:
+    <<: *v4
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ${WORK}/upstream:/etc/irrd
+      - ${WORK}/srv:/srv
+      - ${WORK}/data:/data
+    ports: ["127.0.0.1:9643:8043", "127.0.0.1:9680:8080"]
+
+  mirror-v4:
+    <<: *v4
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ${WORK}/mirror-v4:/etc/irrd
+      - ${WORK}/srv/exports:/exports:ro
+    ports: ["127.0.0.1:9644:8043", "127.0.0.1:9681:8080"]
+
+  irrd-ng:
+    image: irrd-mirror-diff/irrd-ng:local
+    build:
+      context: ${WORK}/irrd-ng-image
+    command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
+    environment:
+      IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
+      IRRD_NG_STORE_PATH: /data
+    volumes:
+      - ${WORK}/irrd-ng:/etc/irrd:ro
+      - ${WORK}/srv/exports:/exports:ro
+      - ${WORK}/ng-data:/data
+      - ${WORK}/ng-out:/out
+    tmpfs: [/tmp, /run/irrd]
+    ports: ["127.0.0.1:9645:8043", "127.0.0.1:9682:8080"]
+    mem_limit: 1g
