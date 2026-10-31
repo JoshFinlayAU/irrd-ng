@@ -37,6 +37,13 @@ status=0
 free -g | sed -n 2p
 systemd-run --scope -q -p MemoryMax=12G python3 -I tools/whois_diff.py --suite whois --corpus "$w/corpus.tsv" --ref 127.0.0.1:9043 --test 127.0.0.1:8043 \
   --unordered corpus/whois/unordered.tsv --skip huge --redact --jobs "$jobs" --out "$out/whois" || status=1
+# v4's HTTP workers can be restarted by uvicorn at any time, and a new one
+# waits for a preload signal that never comes (v4/preload-kick.sh); send one.
+docker exec tier2-v4 python3 -c "
+from irrd.conf import config_init
+config_init('/etc/irrd/irrd.yaml')
+from irrd.storage.preload import Preloader
+Preloader(enable_queries=False).signal_reload()"
 systemd-run --scope -q -p MemoryMax=12G python3 -I tools/whois_diff.py --suite http --corpus "$w/corpus.tsv" --ref 127.0.0.1:9080 --test 127.0.0.1:8080 \
   --unordered corpus/whois/unordered.tsv --requests corpus/http/requests.tsv --skip huge --redact --jobs "$jobs" --out "$out/http" || status=1
 if [[ $bgpq4 == 1 ]]; then

@@ -614,6 +614,7 @@ def main():
     ap.add_argument("--save-responses", action="store_true", help="write raw responses of differing items")
     ap.add_argument("--only", help="comma-separated tags; run only items with one of them")
     ap.add_argument("--skip", help="comma-separated tags; leave out items with any of them")
+    ap.add_argument("--rerun", help="results.jsonl of an earlier run: replay only the items that differed there")
     ap.add_argument("--max-report", type=int, default=200, help="differences written in full to diffs.txt")
     ap.add_argument("--requests", help="http suite: extra METHOD<TAB>PATH requests (corpus/http/requests.tsv)")
     ap.add_argument("--unordered", help="allowlist of v4-nondeterministic answers (corpus/whois/unordered.tsv)")
@@ -626,6 +627,9 @@ def main():
     if args.only:
         want = set(args.only.split(","))
         items = [i for i in items if want & set(i.tags)]
+    if args.rerun:
+        with open(args.rerun) as f:
+            again = {json.loads(ln)["id"] for ln in f if '"differ"' in ln}
     if args.skip:
         drop = set(args.skip.split(","))
         items = [i for i in items if not drop & set(i.tags)]
@@ -638,6 +642,8 @@ def main():
                     if ln and not ln.startswith("#"):
                         method, path = ln.split("\t", 1)
                         items.append(Item(f"requests:{n}", [f"{method} {path}".encode()], ["request"]))
+    if args.rerun:
+        items = [i for i in items if i.id in again]
     os.makedirs(args.out, exist_ok=True)
     if args.save_responses and not args.redact:
         os.makedirs(os.path.join(args.out, "responses"), exist_ok=True)

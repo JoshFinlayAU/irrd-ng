@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     --bindings) bindings=$2; shift 2 ;;
     --scale) scale=$2; shift 2 ;;
     --out) out=$2; shift 2 ;;
-    --only|--jobs|--timeout|--max-report) extra+=("$1" "$2"); shift 2 ;;
+    --only|--skip|--rerun|--jobs|--timeout|--max-report) extra+=("$1" "$2"); shift 2 ;;
     --redact|--save-responses|--strict) extra+=("$1"); shift ;;
     -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
@@ -93,8 +93,8 @@ run_suite() {
 }
 case $suite in
   whois) run_suite whois "$ref" "$whois_test" ;;
-  http) run_suite http "$http_ref" "$http_test" ;;
-  all) run_suite whois "$ref" "$whois_test"; run_suite http "$http_ref" "$http_test" ;;
+  http) v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;
+  all) run_suite whois "$ref" "$whois_test"; v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;
   graphql|nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
   *) echo "unknown suite $suite" >&2; exit 2 ;;
 esac
