@@ -731,8 +731,19 @@ impl WhoisSession {
     fn flatten(&mut self, found: &[Found<'_>]) {
         if self.key_fields_only {
             self.filter_key_fields(found);
-            return;
+        } else {
+            self.flatten_objects(found);
         }
+        let out = &mut self.result;
+        let end = out.trim_end_matches(['\n', '\r']).len();
+        out.truncate(end);
+        let start = out.len() - out.trim_start_matches(['\n', '\r']).len();
+        if start > 0 {
+            out.drain(..start);
+        }
+    }
+
+    fn flatten_objects(&mut self, found: &[Found<'_>]) {
         let rpki_aware = self.resolver.rpki_aware;
         let out = &mut self.result;
         for (_, obj) in found {
@@ -749,12 +760,6 @@ impl WhoisSession {
                 out.push('\n');
             }
             out.push('\n');
-        }
-        let end = out.trim_end_matches(['\n', '\r']).len();
-        out.truncate(end);
-        let start = out.len() - out.trim_start_matches(['\n', '\r']).len();
-        if start > 0 {
-            out.drain(..start);
         }
     }
 
