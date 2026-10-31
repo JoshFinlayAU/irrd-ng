@@ -20,5 +20,5 @@
 tokens	^!(g|6)	-	P-13	irrd/storage/preload.py routes_for_origins builds a Python set of prefix strings; " ".join(set) order depends on the per-process hash seed
 tokens	^!a	-	P-13	same set, via QueryResolver.routes_for_as_set
 tokens	(^| )-i 	^(%% ERROR: )?Inverse attribute search not supported	P-13	irrd/rpsl/rpsl_objects.py lookup_field_names() returns a set; the error lists it with ", ".join
-objects	.	-	P-14	irrd/storage/queries.py orders by ip_first, asn_first, rpsl_pk only (plus source priority where ordered_by_sources); the same rpsl_pk in two sources (or a person and a role sharing a nic-hdl) ties on all three keys, and Postgres returns ties in no fixed order, even between two queries on one v4
+objects	^	-	P-14	irrd/storage/queries.py orders by ip_first, asn_first, rpsl_pk only (plus source priority where ordered_by_sources); the same rpsl_pk in two sources (or a person and a role sharing a nic-hdl) ties on all three keys, and Postgres returns ties in no fixed order, even between two queries on one v4
 header	^[A-Z]+ /$	allow	P-13	Starlette builds the allow header of a 405 from a Python set ("GET, HEAD" or "HEAD, GET" by hash seed)
