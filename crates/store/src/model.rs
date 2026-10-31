@@ -234,12 +234,17 @@ pub(crate) fn max_for_bits(bits: u32) -> u128 {
     }
 }
 
+/// The network mask of a `len`-bit prefix in a `bits`-wide space. Shifts
+/// by the full width are undefined, so /0 and /bits are explicit.
 pub(crate) fn net_mask(len: u8, bits: u32) -> u128 {
     let len = u32::from(len);
+    let max = max_for_bits(bits);
     if len == 0 {
         0
+    } else if len >= bits {
+        max
     } else {
-        max_for_bits(bits) & !(max_for_bits(bits) >> len)
+        max & !(max >> len)
     }
 }
 

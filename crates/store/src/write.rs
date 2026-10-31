@@ -863,9 +863,12 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             timestamp: Timestamp::now(),
         };
         self.t.journal.put(self.txn, &key, &encode(&entry)?)?;
-        self.t
-            .journal_global
-            .put(self.txn, &serial_bytes(serial_global), &key)?;
+        self.t.journal_global.put_with_flags(
+            self.txn,
+            heed::PutFlags::APPEND,
+            &serial_bytes(serial_global),
+            &key,
+        )?;
         self.tracker
             .new_serials_per_source
             .entry(source.to_owned())
@@ -1062,6 +1065,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         {
             self.remove_row(other)?;
         }
+        let mut fresh = false;
         let id = match existing {
             Some(id) => {
                 let old = self
@@ -1080,10 +1084,22 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             None => {
                 let id = self.alloc_object_id()?;
                 self.t.objects_key.put(self.txn, &key, &id_bytes(id))?;
+                fresh = true;
                 id
             }
         };
-        self.t.objects.put(self.txn, &id_bytes(id), &encode(row)?)?;
+        if fresh {
+            // New ids are always above every existing one: append, which
+            // fills pages instead of splitting them in half.
+            self.t.objects.put_with_flags(
+                self.txn,
+                heed::PutFlags::APPEND,
+                &id_bytes(id),
+                &encode(row)?,
+            )?;
+        } else {
+            self.t.objects.put(self.txn, &id_bytes(id), &encode(row)?)?;
+        }
         self.t
             .objects_uuid
             .put(self.txn, row.pk.as_bytes(), &id_bytes(id))?;

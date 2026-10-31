@@ -31,6 +31,9 @@ pub struct ImportSettings {
     pub strict_import_keycert_objects: bool,
     /// Return on the first error instead of logging and skipping.
     pub direct_error_return: bool,
+    /// Keep each object's plain rendering, which the update import compares
+    /// against the stored text.
+    pub keep_plain_text: bool,
 }
 
 /// What the parsers need besides the settings.
@@ -51,7 +54,8 @@ pub struct ParseEnv<'a> {
 pub struct ImportedObject {
     /// The row to upsert.
     pub object: NewRpslObject,
-    /// `render_rpsl_text()` without `last_modified`, for update comparisons.
+    /// `render_rpsl_text()` without `last_modified`, for update comparisons
+    /// (empty unless [`ImportSettings::keep_plain_text`]).
     pub plain_text: String,
 }
 
@@ -249,7 +253,11 @@ fn prepare(
         Ok(object) => Prepared::Ok(
             Box::new(ImportedObject {
                 object,
-                plain_text: obj.render_rpsl_text(),
+                plain_text: if settings.keep_plain_text {
+                    obj.render_rpsl_text()
+                } else {
+                    String::new()
+                },
             }),
             is_keycert,
         ),
@@ -257,13 +265,23 @@ fn prepare(
     }
 }
 
-/// Parse every paragraph as `MirrorFileImportParserBase.parse_object`
-/// does, logging what v4 logs.
-pub fn parse_paragraphs(
+/// Paragraphs parsed in parallel at a time; bounds memory on large files.
+const CHUNK: usize = 1 << 16;
+
+/// Why streaming stopped.
+#[derive(Debug)]
+pub enum StreamError {
+    /// The import itself failed (v4's return value or exception).
+    Import(ImportError),
+    /// Writing to the store failed.
+    Store(store::StoreError),
+}
+
+fn parse_parallel(
     paragraphs: &[String],
     settings: &ImportSettings,
     env: &ParseEnv<'_>,
-) -> Result<ParsedFile, ImportError> {
+) -> Vec<Prepared> {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
@@ -288,56 +306,117 @@ pub fn parse_paragraphs(
             }
         }
     });
+    prepared
+}
 
-    let mut out = ParsedFile::default();
-    let c = &mut out.counters;
+/// Parse every paragraph as `MirrorFileImportParserBase.parse_object`
+/// does, logging what v4 logs, and hand each resulting action to `sink`
+/// in file order. Parsing runs a chunk at a time, so memory stays bounded
+/// by the chunk, not the file.
+pub fn parse_streaming(
+    paragraphs: &[String],
+    settings: &ImportSettings,
+    env: &ParseEnv<'_>,
+    sink: &mut dyn FnMut(ImportAction) -> store::Result<()>,
+) -> Result<Counters, StreamError> {
+    let mut c = Counters::default();
     let mut unknown_seen = HashSet::new();
-    for (paragraph, mut p) in paragraphs.iter().zip(prepared) {
-        c.obj_parsed += 1;
-        // A key-cert is parsed again strictly, in order, to load it into
-        // the keyring.
-        if settings.strict_import_keycert_objects && matches!(p, Prepared::Ok(_, true)) {
-            p = prepare(paragraph, settings, env, true);
-        }
-        match p {
-            Prepared::Ok(obj, _) => out.actions.push(ImportAction::Upsert(obj)),
-            Prepared::Legacy => c.obj_parsed -= 1,
-            Prepared::Unknown(class) => {
-                if settings.direct_error_return {
-                    return Err(ImportError::Rpsl(messages::unknown_object_class(&class)));
-                }
-                c.obj_unknown += 1;
-                if unknown_seen.insert(class.clone()) {
-                    c.unknown_object_classes.push(class);
-                }
+    for block in paragraphs.chunks(CHUNK) {
+        let prepared = parse_parallel(block, settings, env);
+        for (paragraph, mut p) in block.iter().zip(prepared) {
+            c.obj_parsed += 1;
+            // A key-cert is parsed again strictly, in order, to load it into
+            // the keyring.
+            if settings.strict_import_keycert_objects && matches!(p, Prepared::Ok(_, true)) {
+                p = prepare(paragraph, settings, env, true);
             }
-            Prepared::ParseErrors(repr) => {
-                let msg = messages::parsing_errors(&repr, paragraph);
-                if settings.direct_error_return {
-                    return Err(ImportError::Rpsl(msg));
+            let fail = |e: ImportError| Err(StreamError::Import(e));
+            match p {
+                Prepared::Ok(obj, _) => {
+                    sink(ImportAction::Upsert(obj)).map_err(StreamError::Store)?
                 }
-                out.actions.push(ImportAction::MirrorError(msg));
-                tracing::error!(
-                    target: LOG_TARGET,
-                    critical = true,
-                    "{}",
-                    messages::parsing_errors_log(&settings.source, &repr, paragraph)
-                );
-                c.obj_errors += 1;
-            }
-            Prepared::BadSource(msg) => {
-                if settings.direct_error_return {
-                    return Err(ImportError::Rpsl(msg));
+                Prepared::Legacy => c.obj_parsed -= 1,
+                Prepared::Unknown(class) => {
+                    if settings.direct_error_return {
+                        return fail(ImportError::Rpsl(messages::unknown_object_class(&class)));
+                    }
+                    c.obj_unknown += 1;
+                    if unknown_seen.insert(class.clone()) {
+                        c.unknown_object_classes.push(class);
+                    }
                 }
-                tracing::error!(target: LOG_TARGET, critical = true, "{}", messages::invalid_source_log(&msg));
-                out.actions.push(ImportAction::MirrorError(msg));
-                c.obj_errors += 1;
+                Prepared::ParseErrors(repr) => {
+                    let msg = messages::parsing_errors(&repr, paragraph);
+                    if settings.direct_error_return {
+                        return fail(ImportError::Rpsl(msg));
+                    }
+                    sink(ImportAction::MirrorError(msg)).map_err(StreamError::Store)?;
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        critical = true,
+                        "{}",
+                        messages::parsing_errors_log(&settings.source, &repr, paragraph)
+                    );
+                    c.obj_errors += 1;
+                }
+                Prepared::BadSource(msg) => {
+                    if settings.direct_error_return {
+                        return fail(ImportError::Rpsl(msg));
+                    }
+                    tracing::error!(target: LOG_TARGET, critical = true, "{}", messages::invalid_source_log(&msg));
+                    sink(ImportAction::MirrorError(msg)).map_err(StreamError::Store)?;
+                    c.obj_errors += 1;
+                }
+                Prepared::Filtered => c.obj_ignored_class += 1,
+                Prepared::Uncaught(m) => return fail(ImportError::Uncaught(m)),
             }
-            Prepared::Filtered => c.obj_ignored_class += 1,
-            Prepared::Uncaught(m) => return Err(ImportError::Uncaught(m)),
         }
     }
-    Ok(out)
+    Ok(c)
+}
+
+/// [`parse_streaming`] into memory.
+pub fn parse_paragraphs(
+    paragraphs: &[String],
+    settings: &ImportSettings,
+    env: &ParseEnv<'_>,
+) -> Result<ParsedFile, ImportError> {
+    let mut actions = Vec::new();
+    let counters = parse_streaming(paragraphs, settings, env, &mut |a| {
+        actions.push(a);
+        Ok(())
+    })
+    .map_err(|e| match e {
+        StreamError::Import(i) => i,
+        StreamError::Store(s) => ImportError::Uncaught(s.to_string()),
+    })?;
+    Ok(ParsedFile { actions, counters })
+}
+
+/// `MirrorFileImportParser.run_import()` against a write transaction:
+/// parse and upsert as it goes (origin `mirror`), then record the serial
+/// if one was given and is not 0.
+pub fn run_file_import(
+    tx: &mut WriteTx<'_, '_>,
+    paragraphs: &[String],
+    settings: &ImportSettings,
+    env: &ParseEnv<'_>,
+    serial: Option<i64>,
+) -> Result<Counters, StreamError> {
+    let source = settings.source.clone();
+    let counters = parse_streaming(paragraphs, settings, env, &mut |a| match a {
+        ImportAction::Upsert(o) => {
+            tx.upsert_rpsl_object(&o.object, JournalEntryOrigin::Mirror, None, None)
+        }
+        ImportAction::MirrorError(e) => tx.record_mirror_error(&source, &e),
+    })?;
+    if let Some(s) = serial
+        && s != 0
+    {
+        tx.record_serial_seen(&source, s)
+            .map_err(StreamError::Store)?;
+    }
+    Ok(counters)
 }
 
 /// `MirrorFileImportParser.run_import()`'s database writes: upsert every

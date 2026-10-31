@@ -130,7 +130,7 @@ fn object_writing_and_status_checking() {
     let (v4a, v6a) = (v4.clone(), v6.clone());
     v4.parsed_data =
         Json::canonical(r#"{"mnt-by": ["MNT-CORRECT"], "source": "TEST"}"#).expect("json");
-    let v4b = v4.clone();
+    let v4b = v4;
     store
         .write(move |tx| {
             tx.upsert_rpsl_object(
@@ -248,10 +248,10 @@ fn object_writing_and_status_checking() {
         journal(&store),
         vec![
             (pk4.clone(), "TEST".into(), 1, AddOrUpdate, A, 1),
-            (pk4.clone(), "TEST".into(), 2, AddOrUpdate, A, 2),
+            (pk4, "TEST".into(), 2, AddOrUpdate, A, 2),
             (pk6.clone(), "TEST2".into(), 42, AddOrUpdate, A, 3),
             (pk6.clone(), "TEST2".into(), 43, AddOrUpdate, A, 4),
-            (pk6.clone(), "TEST2".into(), 44, Delete, A, 5),
+            (pk6, "TEST2".into(), 44, Delete, A, 5),
         ]
     );
     {
@@ -337,7 +337,7 @@ fn object_writing_and_status_checking() {
         assert!(st.last_error_timestamp.is_some());
     }
 
-    let v6d = v6.clone();
+    let v6d = v6;
     store
         .write(move |tx| {
             tx.upsert_rpsl_object(&v6d, JournalEntryOrigin::AuthChange, Some(45), None)?;

@@ -159,7 +159,11 @@ fn check_import_sources(cfg: &Configuration, source: &str) -> Result<(), ExitCod
 
 fn read_paragraphs(path: &str) -> Result<Vec<String>, ExitCode> {
     match std::fs::read(path) {
-        Ok(bytes) => Ok(rpsl::split_rpsl_file(&bytes)),
+        Ok(bytes) => {
+            let text = rpsl::decode_rpsl_file(&bytes);
+            drop(bytes);
+            Ok(rpsl::split_paragraphs_rpsl(&text, true))
+        }
         Err(e) => {
             eprintln!("{}", messages::os_error(&e, path));
             Err(ExitCode::from(1))
@@ -193,7 +197,7 @@ fn prepare(p: &Parser, args: &[OsString]) -> Result<(Prepared, Args), ExitCode> 
     ))
 }
 
-fn parse_file(p: &Prepared) -> Result<file_import::ParsedFile, ExitCode> {
+fn parse_file(p: &Prepared, keep_plain_text: bool) -> Result<file_import::ParsedFile, ExitCode> {
     let rpsl_settings = p.cfg.rpsl_settings().map_err(|e| {
         eprintln!("{e}");
         ExitCode::from(1)
@@ -206,32 +210,16 @@ fn parse_file(p: &Prepared) -> Result<file_import::ParsedFile, ExitCode> {
     };
     let scopefilter = rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg));
     let paragraphs = read_paragraphs(&p.file)?;
-    let import = ImportSettings {
-        source: p.source.clone(),
-        object_class_filter: settings::object_class_filter(&p.cfg, &p.source),
-        strict_import_keycert_objects: settings::truthy(
-            &p.cfg,
-            &format!("sources.{}.strict_import_keycert_objects", p.source),
-        ),
-        direct_error_return: true,
-    };
+    let import = import_settings(p, keep_plain_text);
     let env = ParseEnv {
         rpsl: &rpsl_settings,
         keyring: &keyring,
         roa_validator: Some(&roa),
         scopefilter: &scopefilter,
     };
-    match file_import::parse_paragraphs(&paragraphs, &import, &env) {
-        Ok(parsed) => Ok(parsed),
-        Err(ImportError::Rpsl(msg)) => {
-            println!("{}", messages::error_processing_object(&msg));
-            Err(ExitCode::from(1))
-        }
-        Err(ImportError::Uncaught(msg)) => {
-            eprintln!("{msg}");
-            Err(ExitCode::from(1))
-        }
-    }
+    let result = file_import::parse_paragraphs(&paragraphs, &import, &env);
+    drop(paragraphs);
+    result.map_err(import_failed)
 }
 
 fn store_err(e: store::StoreError) -> ExitCode {
@@ -239,7 +227,8 @@ fn store_err(e: store::StoreError) -> ExitCode {
     ExitCode::from(1)
 }
 
-/// `irrd_load_database`
+/// `irrd_load_database`: parse and write in one transaction, a chunk of
+/// the file at a time, as v4 streams through the file.
 pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     let (p, a) = match prepare(&LOAD, args) {
         Ok(v) => v,
@@ -251,22 +240,97 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
         "{}",
         nrtm::messages::starting_file_import(&p.source, &p.file)
     );
-    let parsed = match parse_file(&p) {
+    let rpsl_settings = match p.cfg.rpsl_settings() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let paragraphs = match read_paragraphs(&p.file) {
         Ok(v) => v,
         Err(c) => return c,
     };
-    file_import::log_file_import_report(&p.source, &parsed.counters);
-    let source = p.source.clone();
-    let actions = std::sync::Arc::new(parsed.actions);
-    let result = p.store.write(move |tx| {
-        tx.delete_all_rpsl_objects_with_journal(&source, false)?;
-        tx.disable_journaling();
-        file_import::apply_file_import(tx, &source, &actions, serial)
+    let reserve = paragraphs.iter().map(String::len).sum::<usize>() * 5;
+    let job = std::sync::Arc::new(LoadJob {
+        paragraphs,
+        import: import_settings(&p, false),
+        rpsl_settings,
+        keyring: rpsl::Keyring::new(),
+        scopefilter: rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg)),
+        rpki_excluded: settings::rpki_excluded_sources(&p.cfg),
     });
+    let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
+    let fail_slot = failure.clone();
+    let result = p.store.write_reserving(reserve, move |tx| {
+        let source = &job.import.source;
+        let roa = rpki::BulkRouteRoaValidator::from_store(
+            &tx.read_unflushed(),
+            job.rpki_excluded.clone(),
+        )?;
+        tx.delete_all_rpsl_objects_with_journal(source, false)?;
+        tx.disable_journaling();
+        let env = ParseEnv {
+            rpsl: &job.rpsl_settings,
+            keyring: &job.keyring,
+            roa_validator: Some(&roa),
+            scopefilter: &job.scopefilter,
+        };
+        match file_import::run_file_import(tx, &job.paragraphs, &job.import, &env, serial) {
+            Ok(c) => Ok(c),
+            Err(file_import::StreamError::Store(e)) => Err(e),
+            Err(file_import::StreamError::Import(e)) => {
+                if let Ok(mut f) = fail_slot.lock() {
+                    *f = Some(e);
+                }
+                Err(store::StoreError::Aborted(String::new()))
+            }
+        }
+    });
+    if let Some(e) = failure.lock().ok().and_then(|mut f| f.take()) {
+        return import_failed(e);
+    }
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok((counters, _)) => {
+            file_import::log_file_import_report(&p.source, &counters);
+            ExitCode::SUCCESS
+        }
         Err(e) => store_err(e),
     }
+}
+
+struct LoadJob {
+    paragraphs: Vec<String>,
+    import: ImportSettings,
+    rpsl_settings: rpsl::RpslSettings,
+    keyring: rpsl::Keyring,
+    scopefilter: rpki::ScopeFilterValidator,
+    rpki_excluded: std::collections::HashSet<String>,
+}
+
+fn import_settings(p: &Prepared, keep_plain_text: bool) -> ImportSettings {
+    ImportSettings {
+        source: p.source.clone(),
+        object_class_filter: settings::object_class_filter(&p.cfg, &p.source),
+        strict_import_keycert_objects: settings::truthy(
+            &p.cfg,
+            &format!("sources.{}.strict_import_keycert_objects", p.source),
+        ),
+        direct_error_return: true,
+        keep_plain_text,
+    }
+}
+
+fn import_failed(e: ImportError) -> ExitCode {
+    match e {
+        ImportError::Rpsl(msg) => {
+            println!("{}", messages::error_processing_object(&msg));
+        }
+        ImportError::Uncaught(msg) => {
+            eprintln!("{msg}");
+        }
+    }
+    ExitCode::from(1)
 }
 
 /// `irrd_update_database`
@@ -280,7 +344,7 @@ pub(crate) fn update_database(args: &[OsString]) -> ExitCode {
         "{}",
         nrtm::messages::starting_update_import(&p.source, &p.file)
     );
-    let parsed = match parse_file(&p) {
+    let parsed = match parse_file(&p, true) {
         Ok(v) => v,
         Err(c) => return c,
     };
@@ -459,6 +523,32 @@ pub(crate) fn export_jsonl(args: &[OsString]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// `irrd-ng store-info`: schema version, map size and per-table sizes.
+pub(crate) fn store_info(_args: &[OsString]) -> ExitCode {
+    let mut options = StoreOptions::new(settings::store_path());
+    options.read_only = true;
+    let st = match Store::open(&options, store::StoreSettings::default()) {
+        Ok(s) => s,
+        Err(e) => return store_err(e),
+    };
+    match (st.info(), st.table_stats()) {
+        (Ok(info), Ok(stats)) => {
+            println!(
+                "path {}\nschema_version {}\nmap_size {}\nused_bytes {}",
+                info.path.display(),
+                info.schema_version,
+                info.map_size,
+                info.used_bytes
+            );
+            for (name, entries, bytes) in stats {
+                println!("{name:<28} {entries:>12} entries {bytes:>14} bytes");
+            }
+            ExitCode::SUCCESS
+        }
+        (Err(e), _) | (_, Err(e)) => store_err(e),
+    }
 }
 
 #[cfg(test)]

@@ -82,6 +82,7 @@ fn file_import_parse() {
         object_class_filter: Some(vec!["route".into(), "key-cert".into()]),
         strict_import_keycert_objects: true,
         direct_error_return: false,
+        keep_plain_text: false,
     };
     let input = paragraphs(&[
         sample("SAMPLE_UNKNOWN_ATTRIBUTE"),
@@ -247,6 +248,7 @@ fn update_import_parse() {
             "key-cert".into(),
             "role".into(),
         ]),
+        keep_plain_text: true,
         ..Default::default()
     };
     let input = paragraphs(&[

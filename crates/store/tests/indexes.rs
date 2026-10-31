@@ -78,7 +78,7 @@ fn range_queries_match_v4_predicates() {
             )
         })
         .collect();
-    let objs = objects.clone();
+    let objs = objects;
     store
         .write(move |tx| {
             for o in &objs {
@@ -310,4 +310,101 @@ fn deleting_removes_every_index_entry() {
     );
     assert!(v.ids_by_asn_first(65537).expect("q").is_empty());
     drop(a);
+}
+
+/// /0 and full-length prefixes in both families: the masks must not shift
+/// by the full width (2a0c:9c80::/128 once became ::/128).
+#[test]
+fn zero_and_full_length_prefixes() {
+    for (s, first, last) in [
+        ("0.0.0.0/0", 0u128, u32::MAX as u128),
+        ("192.0.2.1/32", 0xC000_0201, 0xC000_0201),
+        ("::/0", 0, u128::MAX),
+        (
+            "2a0c:9c80::/128",
+            0x2a0c_9c80u128 << 96,
+            0x2a0c_9c80u128 << 96,
+        ),
+    ] {
+        let p = store::IpPrefix::parse(s).expect("parse");
+        assert_eq!(p.to_string(), s);
+        assert_eq!((p.first(), p.last()), (first, last), "{s}");
+        let n = store::IpPrefix::new(p.addr, p.len).expect("new");
+        assert_eq!(n, p);
+    }
+    assert_eq!(
+        store::IpPrefix::parse("2a0c:9c80::1/128")
+            .expect("p")
+            .to_string(),
+        "2a0c:9c80::1/128"
+    );
+
+    let dir = TempDir::new("fullprefix");
+    let store = open(&dir, settings(&[]));
+    let objs = vec![
+        route("0.0.0.0/0AS1", "TEST", "0.0.0.0/0", 1, "M"),
+        route("192.0.2.1/32AS1", "TEST", "192.0.2.1/32", 1, "M"),
+        route("::/0AS1", "TEST", "::/0", 1, "M"),
+        route(
+            "2A0C:9C80::/128AS204760",
+            "TEST",
+            "2a0c:9c80::/128",
+            204760,
+            "M",
+        ),
+    ];
+    store
+        .write(move |tx| {
+            for o in &objs {
+                tx.upsert_rpsl_object(o, JournalEntryOrigin::Mirror, None, None)?;
+            }
+            Ok(())
+        })
+        .expect("write");
+    let r = store.read().expect("read");
+    let v = r.view();
+    let a = 0x2a0c_9c80u128 << 96;
+    assert_eq!(v.range_exact(Space::Ipv6, a, a).expect("q").len(), 1);
+    assert_eq!(
+        v.range_less_specific(Space::Ipv6, a, a).expect("q").len(),
+        2
+    );
+    assert_eq!(
+        v.range_more_specific(Space::Ipv6, 0, u128::MAX)
+            .expect("q")
+            .len(),
+        1
+    );
+    assert_eq!(
+        v.range_exact(Space::Ipv4, 0xC000_0201, 0xC000_0201)
+            .expect("q")
+            .len(),
+        1
+    );
+    assert_eq!(
+        v.range_less_specific(Space::Ipv4, 0xC000_0201, 0xC000_0201)
+            .expect("q")
+            .len(),
+        2
+    );
+    assert_eq!(
+        v.range_more_specific(Space::Ipv4, 0, u32::MAX as u128)
+            .expect("q")
+            .len(),
+        1
+    );
+    let routes = v.routes_for_origin("TEST", 204760, Some(6)).expect("q");
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].ip_first.to_string(), "2a0c:9c80::");
+    assert_eq!(routes[0].prefix_length, 128);
+    let row = v
+        .object("TEST", "route", "2A0C:9C80::/128AS204760")
+        .expect("q")
+        .expect("row");
+    assert_eq!(row.prefix.expect("prefix").to_string(), "2a0c:9c80::/128");
+    let row = v
+        .object("TEST", "route", "0.0.0.0/0AS1")
+        .expect("q")
+        .expect("row");
+    assert_eq!(row.prefix.expect("prefix").to_string(), "0.0.0.0/0");
 }

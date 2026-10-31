@@ -33,6 +33,10 @@ macro_rules! tables {
         const TABLE_COUNT: usize = [$($name),+].len();
 
         impl Tables {
+            pub(crate) fn named(&self) -> Vec<(&'static str, Table)> {
+                vec![$(($name, self.$field)),+]
+            }
+
             fn from_array(a: [Table; TABLE_COUNT]) -> Self {
                 let mut it = a.into_iter();
                 Tables {
