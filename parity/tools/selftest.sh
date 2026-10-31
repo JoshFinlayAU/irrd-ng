@@ -26,7 +26,7 @@ sleep 1
 fail=0
 check() {
   local name=$1 want=$2 test=$3
-  if ./run.sh --test "$test" --out "$out/$name" > "$out/$name.log" 2>&1; then got=pass; else got=fail; fi
+  if ./run.sh --test "$test" --timeout 5 --out "$out/$name" > "$out/$name.log" 2>&1; then got=pass; else got=fail; fi
   printf '%-12s expect %-4s got %-4s  %s\n' "$name" "$want" "$got" "$(head -1 "$out/$name/summary.txt")"
   [[ $got == "$want" ]] || fail=1
 }

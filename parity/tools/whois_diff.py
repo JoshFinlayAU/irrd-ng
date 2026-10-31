@@ -388,16 +388,31 @@ def same_tokens(a, b):
 
 
 def object_key(par):
-    lines = par.split(b"\n")
-    first = lines[0].split(b":", 1)
-    cls = first[0].strip().lower()
-    key = first[1].strip().upper() if len(first) > 1 else b""
-    if cls in (b"route", b"route6"):
-        for ln in lines[1:]:
-            if ln.lower().startswith(b"origin:"):
-                key += b"|" + ln.split(b":", 1)[1].strip().upper()
-                break
-    return (cls, key)
+    """v4's sort key for an object answer: (ip_first, asn_first, rpsl_pk),
+    approximated by rpsl_pk alone, which determines the other two. rpsl_pk is
+    the first attribute's value, except nic-hdl for person and role, and
+    prefix plus origin for route and route6, upper-cased without spaces. The
+    class is deliberately not part of it: a person and a role with the same
+    nic-hdl tie in v4 too."""
+    attrs = {}
+    first = None
+    for ln in par.split(b"\n"):
+        if ln[:1] in (b" ", b"\t", b"+", b"#", b"%") or b":" not in ln:
+            continue
+        name, value = ln.split(b":", 1)
+        name = name.strip().lower()
+        value = value.split(b"#", 1)[0].strip()
+        if first is None:
+            first = (name, value)
+        attrs.setdefault(name, value)
+    if first is None:
+        return par
+    cls, key = first
+    if cls in (b"person", b"role"):
+        key = attrs.get(b"nic-hdl", key)
+    elif cls in (b"route", b"route6"):
+        key = key + attrs.get(b"origin", b"")
+    return key.upper().replace(b" ", b"")
 
 
 def same_objects(a, b):
