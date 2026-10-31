@@ -4,7 +4,7 @@
 # data, and diff their output and exit codes.
 #
 #   parity/bgpq4.sh [--ref HOST:PORT] [--test HOST:PORT] [--bindings FILE]
-#                   [--sets N] [--out DIR] [--redact]
+#                   [--sets N] [--targets "SET ..."] [--out DIR] [--redact]
 #
 # Defaults are the Tier 1 targets (v4 127.0.0.1:9043, irrd-ng
 # 127.0.0.1:$NG_WHOIS_PORT) and the bindings parity/load.sh wrote. Targets:
@@ -17,13 +17,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 parity=$PWD
 ref=127.0.0.1:9043 test=127.0.0.1:${NG_WHOIS_PORT:-8043}
-bindings=${PARITY_WORK:-$parity/.work}/tier1/bindings.json n=5 out= redact=0
+bindings=${PARITY_WORK:-$parity/.work}/tier1/bindings.json n=5 out= redact=0 targets_arg=
 while [[ $# -gt 0 ]]; do
   case $1 in
     --ref) ref=$2; shift 2 ;;
     --test) test=$2; shift 2 ;;
     --bindings) bindings=$2; shift 2 ;;
     --sets) n=$2; shift 2 ;;
+    --targets) targets_arg=$2; shift 2 ;;
     --out) out=$2; shift 2 ;;
     --redact) redact=1; shift ;;
     -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
@@ -46,6 +47,7 @@ for key, k in (("as_set_large", n), ("as_set_deep", 3), ("route_set_deep", 2), (
 print("\n".join(seen))
 PY
 )
+if [[ -n $targets_arg ]]; then read -ra targets <<< "$targets_arg"; fi
 srcs=$(python3 -I -c "import json,sys; print(','.join(json.load(open(sys.argv[1]))['source'][:2]))" "$bindings")
 
 flagsets=(
