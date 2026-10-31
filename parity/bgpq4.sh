@@ -99,7 +99,8 @@ for target in "${targets[@]}"; do
   done
 done
 
-# peval (IRRToolSet), if available: the same targets as filter expressions.
+# peval (IRRToolSet, built from source; no Debian package), if on PATH:
+# the same targets as filter expressions, IPv4 and IPv6.
 if command -v peval > /dev/null; then
   for target in "${targets[@]}"; do
     for expr in "$target" "afi ipv6.unicast $target"; do
@@ -107,7 +108,7 @@ if command -v peval > /dev/null; then
       for side in v4 ng; do
         hp=$ref; [[ $side == ng ]] && hp=$test
         rc=0
-        timeout 900 peval -h "${hp%:*}" -p "${hp#*:}" -no-as "$expr" > "$out/$side/$key" 2> "$out/$side/$key.err" || rc=$?
+        timeout 900 peval -h "${hp%:*}" -p "${hp#*:}" "$expr" > "$out/$side/$key" 2> "$out/$side/$key.err" || rc=$?
         echo "$rc" > "$out/$side/$key.rc"
       done
       total=$((total + 1))

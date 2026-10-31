@@ -12,6 +12,7 @@ against v4 and irrd-ng with `tools/whois_diff.py`.
 | `sets.q` | the deepest, largest, looping, dangling and `mbrs-by-ref` sets, case, `!e` exclusions, `!s` restrictions |
 | `sessions.q` | keepalive sessions: `!!`, `-k`, `!q`, empty lines, state carried across queries (`!s`, `!e`, `-s`, `-T`, `-K`, `!f`) |
 | `bgpq4.q` | bgpq4 1.12's exact query sequences, captured from its traffic |
+| `peval.q` | peval's (IRRToolSet) query sequences, captured the same way |
 | `irrexplorer.q` | the whois equivalents of what irrexplorer-ng asks (it uses GraphQL; see `../graphql/irrexplorer.graphql`) |
 | `unordered.tsv` | the answers whose order v4 itself does not fix, and how they are compared |
 
