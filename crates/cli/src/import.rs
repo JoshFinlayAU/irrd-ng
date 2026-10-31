@@ -1,6 +1,7 @@
 //! `irrd-ng import`: the one-shot migration from an IRRd 4.5 database.
 //!
 //!   irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>]
+//!                 [--write-batch-rows <n>]
 //!
 //! Reads the v4 database in one read-only snapshot and upserts every row
 //! into the store, creating it if needed. The store is `--store`, else
@@ -20,12 +21,14 @@ struct Args {
     dsn: String,
     store: std::path::PathBuf,
     batch_rows: usize,
+    write_rows: usize,
 }
 
 fn parse(args: &[OsString]) -> Result<Args, String> {
     let mut dsn = None;
     let mut store = None;
     let mut batch_rows = import_v4::DEFAULT_BATCH_ROWS;
+    let mut write_rows = import_v4::to_store::WRITE_BATCH_ROWS;
     let mut it = args
         .iter()
         .skip(1)
@@ -50,7 +53,15 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
                     .parse()
                     .ok()
                     .filter(|n| *n > 0)
-                    .ok_or_else(|| messages::import_bad_batch(&v))?;
+                    .ok_or_else(|| messages::import_bad_int("--batch-rows", &v))?;
+            }
+            "--write-batch-rows" => {
+                let v = value()?;
+                write_rows = v
+                    .parse()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or_else(|| messages::import_bad_int("--write-batch-rows", &v))?;
             }
             "-h" | "--help" => return Err(String::new()),
             other => return Err(messages::import_unknown_arg(other)),
@@ -60,6 +71,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
         dsn: dsn.ok_or_else(|| messages::import_required("--from-postgres"))?,
         store: store.unwrap_or_else(crate::settings::store_path),
         batch_rows,
+        write_rows,
     })
 }
 
@@ -93,7 +105,7 @@ fn import(args: &Args) -> anyhow::Result<()> {
     );
     let mut client = import_v4::connect(&args.dsn)?;
     let store = Store::open(&StoreOptions::new(&args.store), StoreSettings::default())?;
-    let mut sink = StoreSink::new(&store);
+    let mut sink = StoreSink::with_batch_rows(&store, args.write_rows);
     let stats = import_v4::import(
         &mut client,
         &mut sink,

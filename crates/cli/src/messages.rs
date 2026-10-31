@@ -19,8 +19,8 @@ pub(crate) fn not_implemented(name: &str) -> String {
     format!("{name}: not implemented yet")
 }
 
-pub(crate) const IMPORT_USAGE: &str =
-    "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>]";
+pub(crate) const IMPORT_USAGE: &str = "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>] \
+     [--write-batch-rows <n>]";
 
 pub(crate) fn import_missing_value(flag: &str) -> String {
     format!("argument {flag}: expected one argument")
@@ -34,8 +34,8 @@ pub(crate) fn import_unknown_arg(arg: &str) -> String {
     format!("unrecognized arguments: {arg}")
 }
 
-pub(crate) fn import_bad_batch(v: &str) -> String {
-    format!("argument --batch-rows: invalid positive int value: {v:?}")
+pub(crate) fn import_bad_int(flag: &str, v: &str) -> String {
+    format!("argument {flag}: invalid positive int value: {v:?}")
 }
 
 pub(crate) fn import_failed(err: &str) -> String {

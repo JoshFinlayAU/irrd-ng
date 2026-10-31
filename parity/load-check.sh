@@ -49,9 +49,10 @@ done
 has_phase() { [[ ,$phases, == *,$1,* ]]; }
 
 # name<TAB>source<TAB>dump paths inside the v4 container (/cache/...).
-# Every dump runs twice: as published (v4's loader stops at the first object
-# it rejects, and irrd-ng's must fail the same way), and as <name>-clean,
-# the subset v4 accepts (tools/v4_clean_dump.py), which both load in full.
+# Every dump runs as published. v4's loader stops at the first object it
+# rejects, and irrd-ng's must fail the same way; for those dumps a second
+# run, <name>-clean, uses the subset v4 accepts (tools/v4_clean_dump.py),
+# so both loaders are also compared on the full data.
 dumps() {
   raw_dumps | while IFS=$'\t' read -r name source files; do
     printf '%s\t%s\t%s\n' "$name" "$source" "$files"
@@ -133,7 +134,7 @@ ng_load() {
   set +e
   IRRD_NG_STORE_PATH=$out/store python3 -I "$parity/tools/measure.py" "$out/load.json" -- \
     "$IRRD_NG" irrd_load_database --config "$out/irrd.yaml" --source "$source" --serial "$SERIAL" "$dump" \
-    > "$out/load.log" 2>&1
+    > "$out/load.out" 2> "$out/load.log"
   echo $? > "$out/load.exit"
   set -e
   rm -f "$dump"
@@ -169,6 +170,15 @@ compare() {
   local name=$1 d=$work/$1 rc=0
   local ex=$parity/loadcheck/excluded-columns.tsv
   {
+    echo "== v4 vs load: exit code and stdout"
+    if [[ $(cat "$d/v4/load.exit") == "$(cat "$d/ng-load/load.exit")" ]] \
+      && cmp -s "$d/v4/load.out" "$d/ng-load/load.out"; then
+      echo "exit $(cat "$d/v4/load.exit"), stdout identical ($(wc -c < "$d/v4/load.out") bytes)"
+    else
+      echo "DIFFERS: exit v4 $(cat "$d/v4/load.exit") irrd-ng $(cat "$d/ng-load/load.exit")"
+      diff <(head -c 2000 "$d/v4/load.out") <(head -c 2000 "$d/ng-load/load.out") | head -20
+      rc=1
+    fi
     echo "== v4 vs import (exact)"
     python3 -I "$parity/tools/compare_exports.py" "$d/v4/export" "$d/ng-import/export1" \
       --label-left v4 --label-right import || rc=1
@@ -229,6 +239,9 @@ while IFS=$'\t' read -r name source files; do
     [[ $match == 1 ]] || continue
   fi
   read -ra paths <<< "$files"
+  if [[ $name == *-clean ]] && [[ $(cat "$work/${name%-clean}/v4/load.exit" 2>/dev/null) == 0 ]]; then
+    continue # v4 accepted the whole dump; nothing to clean
+  fi
   echo "### $name ($source)"
   if [[ $name == *-clean ]]; then
     mkdir -p "$work/$name"

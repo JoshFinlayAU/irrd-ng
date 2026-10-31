@@ -46,7 +46,7 @@ irrd_database_upgrade --config "$out/irrd.yaml" > "$out/upgrade.log" 2>&1
 set +e
 python3 /tools/measure.py "$out/load.json" -- \
   irrd_load_database --config "$out/irrd.yaml" --source "$source" --serial "$serial" "$dump" \
-  > "$out/load.log" 2>&1
+  > "$out/load.out" 2> "$out/load.log"
 rc=$?
 set -e
 echo "$rc" > "$out/load.exit"

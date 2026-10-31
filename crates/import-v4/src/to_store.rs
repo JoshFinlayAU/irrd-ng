@@ -23,7 +23,7 @@ use crate::rows::{self, Batch};
 use crate::types::{self, Inet};
 use crate::{Sink, messages};
 
-/// Rows per store write transaction.
+/// Rows per store write transaction, by default.
 pub const WRITE_BATCH_ROWS: usize = 50_000;
 
 #[derive(Debug, thiserror::Error)]
@@ -80,14 +80,24 @@ pub struct StoreSink<'s> {
     store: &'s Store,
     pending: Vec<Row>,
     written: u64,
+    batch_rows: usize,
 }
 
 impl<'s> StoreSink<'s> {
     pub fn new(store: &'s Store) -> Self {
+        Self::with_batch_rows(store, WRITE_BATCH_ROWS)
+    }
+
+    /// Commit every `batch_rows` rows. Larger batches mean fewer commits,
+    /// and with LMDB's copy-on-write each commit rewrites every page it
+    /// touched, so on disk this trades memory for import time.
+    pub fn with_batch_rows(store: &'s Store, batch_rows: usize) -> Self {
+        let batch_rows = batch_rows.max(1);
         StoreSink {
             store,
-            pending: Vec::with_capacity(WRITE_BATCH_ROWS),
+            pending: Vec::with_capacity(batch_rows.min(WRITE_BATCH_ROWS)),
             written: 0,
+            batch_rows,
         }
     }
 
@@ -111,13 +121,13 @@ impl<'s> StoreSink<'s> {
             Ok(())
         })?;
         self.written += n;
-        self.pending = Vec::with_capacity(WRITE_BATCH_ROWS);
+        self.pending = Vec::with_capacity(self.batch_rows.min(WRITE_BATCH_ROWS));
         Ok(())
     }
 
     fn push(&mut self, row: Row) -> Result<(), StoreSinkError> {
         self.pending.push(row);
-        if self.pending.len() >= WRITE_BATCH_ROWS {
+        if self.pending.len() >= self.batch_rows {
             self.flush()?;
         }
         Ok(())
