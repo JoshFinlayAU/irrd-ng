@@ -46,7 +46,7 @@ The costs are real and we've tried to be honest about them:
 - **One writer.** All writes go through a dedicated writer thread fed by a channel. Big jobs are batched into large transactions, and we never hold a write transaction across an await or network I/O. Get that wrong and every other writer queues behind it.
 - **Map size.** LMDB needs a maximum size up front. The store grows the map automatically with headroom and will surface it in `/v1/status/`.
 - **Long read transactions pin pages.** Anything long-lived (the event stream, NRTM serving) has to renew its read transaction or the file just keeps growing.
-- **Size on disk.** Currently about 1.7 KB per object, so the reference server's copy is about 9.2 GB as a store against 6.4 GB as a freshly restored Postgres. Most of that is the `objects` table (about 750 bytes per object, verbatim text plus parsed fields) and the lookup index (about 300). There's room to compress, but it needs a schema bump, so it waits until the Phase 3 query indexes settle and we can measure with the bench rather than guess.
+- **Size on disk.** About 1.3 to 1.4 KB per object since schema version 2 (full RADB, 1.37M objects: 1,839 MB loaded with `irrd_load_database`, down from 2,050 MB). Most of it is the `objects` table (about 740 bytes per object, verbatim text plus parsed fields). Version 2 shrank the look-up index from 299 to 166 bytes per object: its keys name the attribute by a one-byte code, and attribute presence (`parsed_data ? attr`) is indexed only for `member-of` and `mbrs-by-ref`, the only presence v4 ever asks about; any other presence check scans. Compressing `objects` would cost the zero-copy reads the query path relies on, so it stays as it is.
 
 ## The store
 
@@ -60,8 +60,22 @@ A few store behaviours worth knowing about:
 
 - **Bulk loads skip per-commit fsync.** A full reload or a v4 import opens LMDB without sync and syncs once at the end. On disk, NTTCOM went from 112 s to 33.5 s with that alone. To make it safe there's a durable marker: a per-source marker for `irrd_load_database`, and a whole-store marker for the import. If the process dies cleanly the marker is cleared. If the box actually crashes, a leftover per-source marker sets that source's `force_reload` (v4's own "this needs a full reload" flag) and everything else keeps serving, while a leftover whole-store marker refuses to open, because a half-imported store must never be served.
 - **Incremental writes stay durable.** `irrd_update_database`, NRTM and submissions commit with sync, exactly as you'd expect.
-- **Insertion order matters more than it should.** Objects are keyed by an internal id assigned on insert, and key-order scans look up each id. Load in random order and a scan of a store bigger than RAM turns into random reads. We found this the hard way on a slow VM disk (an export of the reference copy took 1,075 s). The importer now reads Postgres in the store's key order, which got full RADB from 357 s to 104 s and the export down to 17 s. `irrd_load_database` still inserts in file order, and fixing that properly is on the Phase 3 list.
+- **Insertion order matters.** Objects are keyed by an internal id assigned on insert, and key-order scans look up each id. Load in random order and a scan of a store bigger than RAM turns into random reads. We found this the hard way on a slow VM disk (an export of the reference copy took 1,075 s). The importer reads Postgres in the store's key order (full RADB from 357 s to 104 s, the export down to 17 s), and since Phase 3 `irrd_load_database` parses in file order (every log line, error and counter as v4 has them) and then writes in key order, so its ids follow key order too. That also made the load itself faster, because the index inserts land in order (full RADB: 40 to 48 s down to 35 s, peak RSS 2.55 to 2.48 GB on the dev box). Incremental writes (NRTM, submissions) still get the next id, which is fine at their volume.
 - **We copy v4's quirks here too.** For example v4's upsert resets `created` on every update, because its `ON CONFLICT DO UPDATE` sets every column from the incoming row including the default. We do the same.
+
+## Running it
+
+irrd-ng reads the same `irrd.yaml` as v4. The store's directory is the one thing v4's file has no key for, so it comes from the environment:
+
+```sh
+export IRRD_NG_STORE_PATH=/var/lib/irrd-ng           # the default
+irrd-ng irrd_load_database --config irrd.yaml --source RADB radb.db   # or: irrd-ng import --from-postgres <dsn>
+irrd-ng irrd --config irrd.yaml --foreground
+```
+
+`irrd` serves whois on `server.whois.interface`/`port` and HTTP (`/v1/whois/` so far) on `server.http.interface`/`port`. v4's environment overrides work for any setting, e.g. `IRRD_SERVER_WHOIS_PORT=8043`, which is the easy way to run it beside a v4 on the same host. The HTTP server applies v4's trusted-host check against `server.http.url`, so clients must send a matching `Host`.
+
+Whois connections are served like v4's fixed worker pool: every connection is accepted and waits for one of `server.whois.max_connections` slots, rather than being refused. A panic while answering a query is contained to that query: it is logged with the query, and the client gets v4's internal error, exactly as if v4's code had raised an exception there.
 
 ## Getting into irrd-ng from v4
 
@@ -119,7 +133,6 @@ Beyond the behaviour divergences, a few structural ones are worth calling out:
 
 ## What's still open
 
-- Object id locality for `irrd_load_database` and the store's size per object, both decided with the Phase 3 bench.
 - Where the PGP keyring lives (the plan is a store table filled from key-cert imports, Phase 7).
 - The licence, before any public release.
 - The proposed divergences in `docs/divergences.md` waiting for review.
