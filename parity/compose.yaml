@@ -10,6 +10,8 @@ services:
       POSTGRES_PASSWORD: irrd
       POSTGRES_DB: irrd
     command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    # irrd-ng's v4 import (parity/load.sh) reads the loaded database through this.
+    ports: ["127.0.0.1:${PARITY_PG_PORT:-9532}:5432"]
     volumes: [pgdata:/var/lib/postgresql]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "irrd"]
@@ -32,10 +34,36 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     volumes:
-      - ./v4/irrd.yaml:/etc/irrd/irrd.yaml:ro
+      # parity/load.sh switches this to the whois config (v4/irrd-whois.yaml).
+      - ${PARITY_V4_CONFIG:-./v4/irrd.yaml}:/etc/irrd/irrd.yaml:ro
+      # Dumps and Tier 1 fixtures for irrd_load_database (parity/load.sh).
+      - ${PARITY_CACHE:-./.cache}:/cache:ro
     ports:
       - "127.0.0.1:9043:8043"
       - "127.0.0.1:9080:8080"
+
+  # A second v4 on the same database, for checking the harness and the
+  # corpus against v4 itself (parity/run.sh --test v4-twin): anything that
+  # differs between two v4 processes is nondeterministic in v4.
+  # It has its own Redis: two v4s sharing one preload store hang each
+  # other's HTTP preloaders.
+  irrd-v4-twin:
+    profiles: [twin]
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis-twin: { condition: service_started }
+    environment:
+      IRRD_REDIS_URL: redis://redis-twin
+    volumes:
+      - ${PARITY_V4_CONFIG:-./v4/irrd.yaml}:/etc/irrd/irrd.yaml:ro
+    ports:
+      - "127.0.0.1:${PARITY_TWIN_WHOIS_PORT:-9243}:8043"
+      - "127.0.0.1:${PARITY_TWIN_HTTP_PORT:-9280}:8080"
+
+  redis-twin:
+    profiles: [twin]
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
 
 volumes:
   pgdata:

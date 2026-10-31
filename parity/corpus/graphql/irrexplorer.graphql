@@ -1,0 +1,18 @@
+# GraphQL queries irrexplorer-ng sends to IRRd (src/server/sources/irrd.ts),
+# with ALL_RPKI = [valid, invalid, not_found] and ROUTE_FIELDS selecting
+# rpslPk source ... on RPSLRoute/RPSLRoute6 { prefix asn }.
+# Seed for the graphql suite (later phase); one operation per paragraph.
+
+query($p0: IP!) { q0: rpslObjects(ipAny: $p0, objectClass: ["route"], rpkiStatus: [valid, invalid, not_found]) { rpslPk source ... on RPSLRoute { prefix asn } ... on RPSLRoute6 { prefix asn } } }
+
+query($asn: [ASN!]) { r: rpslObjects(asn: $asn, objectClass: ["route", "route6"], rpkiStatus: [valid, invalid, not_found]) { rpslPk source ... on RPSLRoute { prefix asn } ... on RPSLRoute6 { prefix asn } } }
+
+query($names: [String!]!) { s: recursiveSetMembers(setNames: $names, depth: 1) { rpslPk rootSource members } }
+
+query($m: [String!], $cls: [String!]) { d: rpslObjects(members: $m, objectClass: $cls) { rpslPk source } }
+
+query($pk: [String!]) { a: rpslObjects(rpslPk: $pk, objectClass: ["aut-num"]) { source ... on RPSLAutNum { memberOf mntBy } } }
+
+query($pk: [String!]) { s: rpslObjects(rpslPk: $pk, objectClass: ["as-set"]) { rpslPk source ... on RPSLAsSet { mbrsByRef } } }
+
+query($pk: [String!], $src: [String!], $cls: [String!]) { o: rpslObjects(rpslPk: $pk, sources: $src, objectClass: $cls, rpkiStatus: [valid, invalid, not_found]) { rpslPk source objectText } }
