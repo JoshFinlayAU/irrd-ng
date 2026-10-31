@@ -285,18 +285,19 @@ def run_whois_item(addr, item, timeout):
                 break
             kind, keepalive = classify(v4_query_text(line), keepalive)
             deadline = time.monotonic() + timeout
+            data = b""
             try:
-                if kind in ("skip", "none"):
-                    data = b""
-                elif kind == "close":
+                if kind == "close":
                     data = conn.read_eof(deadline)
-                else:
+                elif kind in ("irrd", "ripe"):
                     data = conn.read_irrd(deadline) if kind == "irrd" else conn.read_ripe(deadline)
                     if not keepalive:
                         # v4 closes right after a single answer.
                         data += conn.read_eof(time.monotonic() + min(timeout, CLOSE_TIMEOUT))
             except TimeoutError:
-                data = conn.take(len(conn.buf)) + b"<<TIMEOUT>>"
+                # Keep what was read: a complete answer followed by a
+                # missing close is reported as exactly that.
+                data += conn.take(len(conn.buf)) + b"<<TIMEOUT>>"
                 segs.append((f"q{idx}", data))
                 break
             segs.append((f"q{idx}", data))
