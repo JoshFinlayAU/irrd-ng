@@ -12,7 +12,7 @@
 # Per server, one at a time (the other is stopped, so they never share the
 # page cache or CPU): start it, run the mix once unmeasured to warm caches,
 # then one measured run per concurrency level while sampling memory every
-# 2 s. Memory:
+# 2 s, plus one run of the light classes alone at concurrency 10. Memory:
 #   v4      sum of RSS and of PSS over the irrd processes (tier2-v4), Redis,
 #           and the Postgres backends (PSS shares shared_buffers fairly)
 #   irrd-ng RSS of the one process, split into anonymous and file-backed
@@ -82,6 +82,20 @@ for s in $servers; do
     done
     printf '%s\t%s\tbgpq4 -4\t%s\n' "$s" "$b" "$(printf '%s\n' "${ms[@]}" | sort -n | awk '{a[NR]=$1} END {print a[2]"\t"a[1]"\t"a[3]}')" >> "$out/big.tsv"
   done
+  # The light classes alone (single lookups, !g/!6, per-member !g/!6): the
+  # mixed run is dominated by the multi-second large-set answers.
+  awk -F'\t' '$2 == "lookup" || $2 == "origin" || $2 == "setmembers"' "$out/mix.tsv" > "$out/mix-light.tsv"
+  ( while :; do echo "$(date +%s) $(mem_sample "$s")"; sleep 2; done ) > "$out/mem-$s-light.tsv" &
+  sampler=$!
+  "$lg" --target "127.0.0.1:$(port "$s")" --mix "$out/mix-light.tsv" --concurrency 10 --duration "$duration" --warmup 5 > "$out/$s-light-c10.json"
+  kill "$sampler"
+  python3 -I - "$out/$s-light-c10.json" "$out/mem-$s-light.tsv" "$s" light-c10 >> "$out/summary.tsv" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))["total"]
+m = [list(map(int, l.split()[1:])) for l in open(sys.argv[2]) if len(l.split()) == 5]
+peak = [max(x[i] for x in m) if m else 0 for i in range(4)]
+print("\t".join(map(str, [sys.argv[3], sys.argv[4], r["qps"], r["p50_us"], r["p99_us"], r["errors"], *peak])))
+PY
   for c in $conc; do
     ( while :; do echo "$(date +%s) $(mem_sample "$s")"; sleep 2; done ) > "$out/mem-$s-c$c.tsv" &
     sampler=$!
