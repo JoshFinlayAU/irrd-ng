@@ -51,6 +51,55 @@ const EXPIRE: Parser = Parser {
     positionals: &[],
 };
 
+const RUN_EXPORT: Parser = Parser {
+    prog: "irrd-ng run-export",
+    usage: "usage: irrd-ng run-export [-h] [--config CONFIG_FILE_PATH] --source SOURCE\n",
+    help: "usage: irrd-ng run-export [-h] [--config CONFIG_FILE_PATH] --source SOURCE\n\nRun the export of one source now, as the scheduler would (SourceExportRunner).\n\noptions:\n  -h, --help            show this help message and exit\n  --config CONFIG_FILE_PATH\n                        use a different IRRd config file (default:\n                        /etc/irrd.yaml)\n  --source SOURCE       the name of the source to export\n",
+    options: &[
+        Opt {
+            flag: "--config",
+            dest: "config_file_path",
+            required: false,
+            int: false,
+            store_true: false,
+        },
+        Opt {
+            flag: "--source",
+            dest: "source",
+            required: true,
+            int: false,
+            store_true: false,
+        },
+    ],
+    positionals: &[],
+};
+
+/// `irrd-ng run-export`: `SourceExportRunner(source).run()` on demand, as
+/// the differential harness runs v4's.
+pub(crate) fn run_export(args: &[OsString]) -> ExitCode {
+    let a = match RUN_EXPORT.parse(args.get(1..).unwrap_or_default()) {
+        Parsed::Args(a) => a,
+        Parsed::Help => return ExitCode::SUCCESS,
+        Parsed::Error => return ExitCode::from(2),
+    };
+    let cfg = match Configuration::load(a.get("config_file_path").map(String::as_str)) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}", messages::configuration_error(&e.to_string()));
+            return ExitCode::from(1);
+        }
+    };
+    logging::init(&cfg);
+    let store = match open_store(&cfg) {
+        Ok(s) => s,
+        Err(c) => return c,
+    };
+    let source = a.get("source").cloned().unwrap_or_default();
+    let ms = settings::mirror_settings(&cfg);
+    nrtm::serve::export::run_export(&store, &ms.source(&source));
+    ExitCode::SUCCESS
+}
+
 /// `NRTM4_SERVER_DELTA_EXPIRY_TIME` plus one day, in microseconds.
 const MINIMUM_EXPIRY_AGE: i64 = 2 * 86_400 * 1_000_000;
 

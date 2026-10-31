@@ -116,16 +116,9 @@ fn export_one(
         destination,
         &format!("{}.CURRENTSERIAL", rpsl::python::upper(source)),
     );
-    let result = write_export(store, settings, &tmp, unfiltered);
-    let serial = match result {
-        Ok(serial) => serial,
-        Err(e) => {
-            // NamedTemporaryFile(delete=False) stays behind in v4 too; tidy
-            // up what we can.
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e);
-        }
-    };
+    // On an error the temporary file stays behind, as v4's
+    // NamedTemporaryFile(delete=False) does.
+    let serial = write_export(store, settings, &tmp, unfiltered)?;
     let tmp_str = tmp.to_string_lossy().into_owned();
     files::chmod(&tmp, EXPORT_PERMISSIONS).map_err(|e| os_error_text(&e, Some(&tmp_str)))?;
     for f in [&filename_export, &filename_serial] {

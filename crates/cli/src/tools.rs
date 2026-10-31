@@ -33,6 +33,7 @@ const TOOLS: &[(&str, Tool)] = &[
 const HIDDEN: &[(&str, Tool)] = &[
     ("export-jsonl", db_tools::export_jsonl),
     ("store-info", db_tools::store_info),
+    ("run-export", crate::serving_tools::run_export),
 ];
 
 pub(crate) fn lookup(name: &str) -> Option<Tool> {
