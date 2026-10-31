@@ -23,7 +23,8 @@
 # Steps: initial load; changes; force reload; changes after reload; NRTMv4
 # key rotation (announce, then rotate); a broken delta and its repair; an
 # expired Update Notification File and recovery; an NRTMv4 session reset
-# (which v4's client cannot follow, see step 11); more changes.
+# (which v4's client cannot follow and irrd-ng does, DIV-003, see step 11);
+# more changes.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -152,14 +153,16 @@ SourceExportRunner('$s').run()" >/dev/null
 }
 
 # What each mirror should reach, from the upstream: per source,
-# "serial_newest_mirror/nrtm4 session:version".
+# "serial_newest_mirror/nrtm4 session:version". `expected v4` keeps UPB
+# where v4 froze after the session reset; irrd-ng follows it (DIV-003).
 expected() {
   local a b c d
   a=$(psql upstream "select serial_newest_seen from database_status where source='UPA'")
   b=$(psql upstream "select nrtm4_server_session_id || ':' || nrtm4_server_version from database_status where source='UPB'")
   c=$(cat "$WORK/srv/exports/UPC.CURRENTSERIAL" 2>/dev/null || echo none)
   d=$(cat "$WORK/srv/exports/UPD.CURRENTSERIAL" 2>/dev/null || echo none)
-  printf 'UPA=%s UPB=%s UPC=%s UPD=%s' "$a" "${UPB_FROZEN:-$b}" "$c" "$d"
+  [[ ${1:-} == v4 ]] && b=${UPB_FROZEN:-$b}
+  printf 'UPA=%s UPB=%s UPC=%s UPD=%s' "$a" "$b" "$c" "$d"
 }
 
 v4_state() {
@@ -185,21 +188,22 @@ print(" ".join(sorted(out)))'
 }
 
 wait_synced() {
-  local want v4 ng
+  local want_v4 want_ng v4 ng
   for _ in $(seq 1 90); do
-    want=$(expected); v4=$(v4_state); ng=$(ng_state)
-    if [[ $v4 == "$want" && $ng == "$want" ]]; then
-      log "synced: $want"
+    want_v4=$(expected v4); want_ng=$(expected ng); v4=$(v4_state); ng=$(ng_state)
+    if [[ $v4 == "$want_v4" && $ng == "$want_ng" ]]; then
+      log "synced: v4 [$want_v4] irrd-ng [$want_ng]"
       return 0
     fi
     sleep 2
   done
-  log "NOT synced after 180s: want [$want] v4 [$v4] irrd-ng [$ng]"
+  log "NOT synced after 180s: want v4 [$want_v4] irrd-ng [$want_ng], have v4 [$v4] irrd-ng [$ng]"
   return 1
 }
 
+# compare STEP [compare_exports.py filters...]
 compare() {
-  local step=$1 out="$WORK/compare/$1"
+  local step=$1 out="$WORK/compare/$1"; shift
   rm -rf "$out"; mkdir -p "$out/v4" "$WORK/ng-out/$step"
   docker run --rm --network "$NET" --user root --entrypoint /opt/irrd/bin/python \
     -v "$ROOT/parity/tools:/tools:ro" -v "$out/v4:/out" "$V4_IMAGE" \
@@ -212,13 +216,59 @@ compare() {
   local objs
   objs=$(wc -l < "$out/v4/rpsl_objects.jsonl")
   if python3 "$ROOT/parity/tools/compare_exports.py" "$out/v4" "$out/irrd-ng" \
-      --exclude-file "$HERE/excluded-columns.tsv" --label-left v4 --label-right irrd-ng > "$out/diff.txt" 2>&1; then
+      --exclude-file "$HERE/excluded-columns.tsv" --label-left v4 --label-right irrd-ng "$@" > "$out/diff.txt" 2>&1; then
     RESULTS+=("PASS  $step  ($objs objects)")
     log "PASS $step ($objs objects)"
   else
     RESULTS+=("FAIL  $step  (see $out/diff.txt)")
     FAILED=1
     log "FAIL $step"; head -40 "$out/diff.txt" >&2
+  fi
+}
+
+# irrd-ng's objects for one source against the upstream's own, for a source
+# where v4's mirror is known to be stuck (DIV-003).
+compare_upstream() {
+  local step=$1 src=$2 out="$WORK/compare/$1-upstream"
+  rm -rf "$out"; mkdir -p "$out/raw"
+  docker run --rm --network "$NET" --user root --entrypoint /opt/irrd/bin/python \
+    -v "$ROOT/parity/tools:/tools:ro" -v "$out/raw:/out" "$V4_IMAGE" \
+    /tools/export_v4.py postgresql://irrd:irrd@postgres/upstream /out >/dev/null
+  # Mirrors see mntners as the upstream publishes them, hashes dummified.
+  python3 "$ROOT/parity/tools/dummify_export.py" "$out/raw" "$out/upstream" "$src"
+  local objs
+  objs=$(grep -c "\"source\":\"$src\"" "$WORK/ng-out/$step/rpsl_objects.jsonl" || true)
+  if python3 "$ROOT/parity/tools/compare_exports.py" "$out/upstream" "$WORK/ng-out/$step" \
+      --exclude-file "$HERE/excluded-columns.tsv" --table rpsl_objects --only-source "$src" \
+      --label-left upstream --label-right irrd-ng > "$out/diff.txt" 2>&1; then
+    RESULTS+=("PASS  $step  irrd-ng $src matches the upstream ($objs objects)")
+    log "PASS $step irrd-ng $src matches the upstream ($objs objects)"
+  else
+    RESULTS+=("FAIL  $step  irrd-ng $src against the upstream (see $out/diff.txt)")
+    FAILED=1
+    log "FAIL $step irrd-ng $src against the upstream"; head -40 "$out/diff.txt" >&2
+  fi
+}
+
+check_logged() {
+  local step=$1 svc=$2 since=$3 pattern=$4 n
+  n=$(count_logs "$svc" "$since" "$pattern")
+  if (( n > 0 )); then
+    RESULTS+=("PASS  $step  $svc logged: $pattern (${n}x)")
+  else
+    RESULTS+=("FAIL  $step  $svc did not log: $pattern")
+    FAILED=1
+  fi
+}
+
+check_not_logged() {
+  local step=$1 svc=$2 since=$3 pattern=$4 n
+  n=$(count_logs "$svc" "$since" "$pattern")
+  if (( n == 0 )); then
+    RESULTS+=("PASS  $step  $svc did not log: $pattern")
+  else
+    RESULTS+=("FAIL  $step  $svc logged: $pattern (${n}x)")
+    FAILED=1
   fi
 }
 
@@ -388,23 +438,30 @@ main() {
   # v4's client keeps previous_file_hashes across sessions, so a new
   # session whose file references reuse version numbers ("snapshot-1")
   # fails its history check on every run: v4 loads the new snapshot, then
-  # rolls the whole run back. irrd-ng must do the same.
-  log "step 11: NRTMv4 session reset upstream (v4 cannot follow it)"
+  # rolls the whole run back. irrd-ng only compares hashes within one
+  # session (DIV-003), so it loads the new snapshot and carries on. UPB is
+  # left out of the v4 comparison from here and checked against the
+  # upstream instead.
+  log "step 11: NRTMv4 session reset upstream (v4 cannot follow it, irrd-ng does)"
   local snap
   snap=$(psql upstream "select nrtm4_server_last_snapshot_filename from database_status where source='UPB'")
   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   UPB_FROZEN=$(v4_state | tr ' ' '\n' | sed -n 's/^UPB=//p')
   rm -f "$(nrtm4_dir)/$snap"
   sleep 15
-  compare 11-session-reset
+  wait_synced || true
+  compare 11-session-reset --skip-source UPB
+  compare_upstream 11-session-reset UPB
   check_both_logged 11-session-reset "$since" "Session ID has changed"
-  check_both_logged 11-session-reset "$since" "Server is rewriting history"
+  check_logged 11-session-reset mirror-v4 "$since" "Server is rewriting history"
+  check_not_logged 11-session-reset irrd-ng "$since" "Server is rewriting history"
 
-  log "step 12: changes everywhere else while UPB is stuck"
-  update_upstream 7 UPA UPC UPD
+  log "step 12: changes everywhere; irrd-ng follows UPB's new session, v4 stays stuck"
+  update_upstream 7 "${SOURCES[@]}"
   export_upstream UPC UPD
   wait_synced || true
-  compare 12-final
+  compare 12-final --skip-source UPB
+  compare_upstream 12-final UPB
 
   "${DC[@]}" logs --no-color mirror-v4 > "$WORK/logs/mirror-v4.log" 2>&1 || true
   "${DC[@]}" logs --no-color irrd-ng > "$WORK/logs/irrd-ng.log" 2>&1 || true
