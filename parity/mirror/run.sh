@@ -163,7 +163,7 @@ expected() {
 }
 
 v4_state() {
-  psql mirror "select string_agg(source || '=' || case when source = 'UPB' then coalesce(nrtm4_client_session_id::text, '') || ':' || coalesce(nrtm4_client_version::text, '') else coalesce(serial_newest_mirror::text, '') end, ' ' order by source) from database_status where source in ('UPA','UPB','UPC','UPD')"
+  psql mirror "select string_agg(source || '=' || case when source = 'UPB' then coalesce(nrtm4_client_session_id::text, '') || ':' || coalesce(nrtm4_client_version::text, '') else coalesce(serial_newest_mirror::text, '') end || case when force_reload then '*' else '' end, ' ' order by source) from database_status where source in ('UPA','UPB','UPC','UPD')"
 }
 
 ng_state() {
@@ -179,7 +179,8 @@ for line in sys.stdin:
         v = "%s:%s" % (r["nrtm4_client_session_id"] or "", r["nrtm4_client_version"] if r["nrtm4_client_version"] is not None else "")
     else:
         v = str(r["serial_newest_mirror"]) if r["serial_newest_mirror"] is not None else ""
-    out.append("%s=%s" % (r["source"], v))
+    # A pending force_reload is not a synced state.
+    out.append("%s=%s%s" % (r["source"], v, "*" if r["force_reload"] else ""))
 print(" ".join(sorted(out)))'
 }
 
