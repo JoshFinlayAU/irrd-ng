@@ -211,27 +211,42 @@ def main():
     per, rank = args.per, args.rank
 
     # Sets: depth, loops, dangling members, expansion size.
-    def depth_and_loop(root):
-        """Longest path of set references from root, and whether a loop is
-        reachable. Iterative, bounded."""
-        best, loop = 0, False
-        stack = [(root, 0, frozenset([root]))]
-        seen = {}
-        steps = 0
-        while stack and steps < 200000:
-            steps += 1
-            name, d, path = stack.pop()
-            best = max(best, d)
-            if seen.get(name, -1) >= d:
+    # Longest chain of set references below each set, and whether a loop is
+    # reachable from it, for every set at once: one iterative DFS, O(V+E).
+    # (Members that close a loop count as depth 0 there.)
+    depth, loops, state = {}, {}, {}
+    for root in members:
+        if root in state:
+            continue
+        stack = [(root, iter(members[root]))]
+        state[root] = 1
+        while stack:
+            node, it = stack[-1]
+            advanced = False
+            for m in it:
+                if m not in members:
+                    continue
+                st = state.get(m)
+                if st is None:
+                    state[m] = 1
+                    stack.append((m, iter(members[m])))
+                    advanced = True
+                    break
+                if st == 1:
+                    loops[node] = True
+            if advanced:
                 continue
-            seen[name] = d
-            for m in members.get(name, []):
-                if m in members:
-                    if m in path:
-                        loop = True
-                        continue
-                    stack.append((m, d + 1, path | {m}))
-        return best, loop
+            stack.pop()
+            state[node] = 2
+            d, lp = 0, loops.get(node, False)
+            for m in members[node]:
+                if m in depth:
+                    d = max(d, depth[m] + 1)
+                    lp = lp or loops.get(m, False)
+            depth[node], loops[node] = d, lp
+
+    def depth_and_loop(root):
+        return depth.get(root, 0), loops.get(root, False)
 
     def expansion_size(root, limit=500000):
         seen, leaves, stack = {root}, set(), [root]
@@ -253,8 +268,8 @@ def main():
         wide = sorted(names, key=lambda n: (-len(members[n]), n))
         cand = list(dict.fromkeys(wide[:300] + sample(names, 300)))
         info = {n: depth_and_loop(n) for n in cand}
-        b[prefix + "_deep"] = [n for n in sorted(cand, key=lambda n: (-info[n][0], n))[:rank]]
-        b[prefix + "_loop"] = sorted([n for n in cand if info[n][1]])[:rank]
+        b[prefix + "_deep"] = sorted(names, key=lambda n: (-depth.get(n, 0), n))[:rank]
+        b[prefix + "_loop"] = sample([n for n in names if loops.get(n)], rank)
         if cls == "as-set":
             b["as_set_wide"] = wide[:rank]
             sizes = {n: expansion_size(n) for n in sorted(cand, key=lambda n: (-info[n][0], -len(members[n]), n))[:150]}
