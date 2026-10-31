@@ -3,6 +3,8 @@
 
 pub mod net;
 pub mod nrtm3;
+pub mod nrtm4;
 pub mod operation;
 pub mod pyerr;
 pub mod retrieval;
+pub mod spool;

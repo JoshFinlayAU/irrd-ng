@@ -304,3 +304,15 @@ pub mod __private {
 
 #[cfg(test)]
 mod tests;
+
+/// v4's `eckey_from_str(value)` (`irrd/utils/crypto.py`) on a string, as
+/// the NRTMv4 client validates a `next_signing_key`: `Ok`, the
+/// `ValueError` text, or `Err(Err(exception))` for an exception that is
+/// not a `ValueError`.
+pub fn eckey_check(value: &str) -> Result<(), Result<String, PyException>> {
+    match eckey::eckey_from_str(&Value::str(value), false) {
+        Ok(()) => Ok(()),
+        Err(eckey::KeyError::Value(v)) => Err(Ok(v)),
+        Err(eckey::KeyError::Crash(e)) => Err(Err(e)),
+    }
+}

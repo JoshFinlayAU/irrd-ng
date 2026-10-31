@@ -11,6 +11,8 @@ publish.workspace = true
 config.workspace = true
 flate2.workspace = true
 hickory-resolver.workspace = true
+postcard.workspace = true
+num-bigint.workspace = true
 p256 = { workspace = true, features = ["ecdsa", "pem"] }
 reqwest.workspace = true
 rpki.workspace = true
@@ -24,6 +26,7 @@ suppaftp.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 webpki-roots.workspace = true
 
 [dev-dependencies]

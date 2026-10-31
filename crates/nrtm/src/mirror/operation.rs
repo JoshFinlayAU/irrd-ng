@@ -164,13 +164,10 @@ pub fn prepare(op: &NrtmOperation, env: &OperationEnv<'_>) -> Result<PreparedOpe
             Err(ParseError::UnknownClass { class }) => {
                 let lower = class.to_lowercase();
                 let log = match &op.object_class_filter {
-                    Some(f) if !f.iter().any(|c| *c == lower) => None,
+                    Some(f) if !f.contains(&lower) => None,
                     _ => Some(messages::ignoring_nrtm_operation(
                         &op.repr(),
-                        &ParseError::UnknownClass {
-                            class: class.clone(),
-                        }
-                        .to_string(),
+                        &ParseError::UnknownClass { class }.to_string(),
                     )),
                 };
                 return done(Prepared::Ignored(log));

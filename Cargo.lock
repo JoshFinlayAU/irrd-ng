@@ -2029,7 +2029,9 @@ dependencies = [
  "config",
  "flate2",
  "hickory-resolver",
+ "num-bigint",
  "p256 0.14.0",
+ "postcard",
  "reqwest",
  "rpki",
  "rpsl",
@@ -2042,6 +2044,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "uuid",
  "webpki-roots",
 ]
 
