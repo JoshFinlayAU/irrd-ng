@@ -115,6 +115,8 @@ pub struct MirrorSettings {
     pub fast_scheduler: bool,
     /// The sources, in configuration order.
     pub sources: Vec<SourceMirrorSettings>,
+    /// ROA import, scope filter and route preference jobs.
+    pub status_jobs: crate::mirror::status_jobs::StatusJobSettings,
 }
 
 impl MirrorSettings {

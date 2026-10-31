@@ -139,10 +139,14 @@ fn load_config(args: &Args) -> Result<Configuration, ExitCode> {
 fn open_store(cfg: &Configuration, bulk_load: bool) -> Result<Store, ExitCode> {
     let mut options = StoreOptions::new(settings::store_path());
     options.bulk_load = bulk_load;
-    Store::open(&options, settings::store_settings(cfg)).map_err(|e| {
+    let store = Store::open(&options, settings::store_settings(cfg)).map_err(|e| {
         eprintln!("{e}");
         ExitCode::from(1)
-    })
+    })?;
+    // v4's DatabaseHandler re-evaluates route preference before every
+    // commit that touched route objects.
+    store.set_route_preference_hook(Some(rpki::route_preference_hook));
+    Ok(store)
 }
 
 /// v4 refuses to run the loaders on a standby.

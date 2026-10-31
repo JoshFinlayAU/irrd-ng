@@ -290,6 +290,90 @@ fn int_setting_or(cfg: &Configuration, name: &str, default: i64) -> Result<i64, 
     }
 }
 
+/// `email.*`, for `send_email`.
+pub(crate) fn mail_settings(cfg: &Configuration) -> mail::MailSettings {
+    let opt = |name: &str| setting(cfg, name).filter(Value::truthy).map(|v| v.py_str());
+    mail::MailSettings {
+        from: opt("email.from"),
+        smtp: opt("email.smtp"),
+        footer: setting(cfg, "email.footer")
+            .filter(|v| !matches!(v, Value::None))
+            .map(|v| v.py_str())
+            .unwrap_or_default(),
+        recipient_override: opt("email.recipient_override"),
+    }
+}
+
+/// The ROA import, scope filter and route preference jobs' settings.
+pub(crate) fn status_job_settings(
+    cfg: &Configuration,
+) -> nrtm::mirror::status_jobs::StatusJobSettings {
+    use nrtm::mirror::status_jobs::{ScopeFilterFingerprint, StatusJobSettings};
+    let opt = |name: &str| setting(cfg, name).filter(Value::truthy).map(|v| v.py_str());
+    let text = |name: &str| setting(cfg, name).map(|v| v.py_str()).unwrap_or_default();
+    let sources_dict = match cfg.user_config().get_str("sources") {
+        Some(Value::Dict(d)) => Some(d.clone()),
+        _ => None,
+    };
+    let raw_source_flag = |key: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(d) = &sources_dict {
+            for (k, v) in d.iter() {
+                if let (Some(name), Value::Dict(sd)) = (k.as_str(), v)
+                    && sd.get_str(key).is_some_and(Value::truthy)
+                {
+                    out.push(name.to_owned());
+                }
+            }
+        }
+        out
+    };
+    let mut authoritative_sources = HashSet::new();
+    for name in configured_sources(cfg) {
+        if truthy(cfg, &format!("sources.{name}.authoritative")) {
+            authoritative_sources.insert(name);
+        }
+    }
+    let items = |name: &str| -> Vec<String> {
+        match setting(cfg, name) {
+            Some(Value::List(l)) | Some(Value::Tuple(l)) => l.iter().map(Value::py_repr).collect(),
+            Some(Value::None) | None => Vec::new(),
+            Some(other) => other
+                .py_iter()
+                .map(|v| v.iter().map(Value::py_repr).collect())
+                .unwrap_or_default(),
+        }
+    };
+    let scopefilter = truthy(cfg, "scopefilter").then(|| ScopeFilterFingerprint {
+        prefixes: items("scopefilter.prefixes"),
+        asns: items("scopefilter.asns"),
+        excluded: raw_source_flag("scopefilter_excluded")
+            .into_iter()
+            .collect(),
+    });
+    StatusJobSettings {
+        roa_source: opt("rpki.roa_source"),
+        slurm_source: opt("rpki.slurm_source"),
+        roa_import_timer: int_setting_or(cfg, "rpki.roa_import_timer", 3600).unwrap_or(3600),
+        pseudo_irr_remarks: text("rpki.pseudo_irr_remarks"),
+        notify: rpki::notifications::NotifySettings {
+            enabled: truthy(cfg, "rpki.notify_invalid_enabled"),
+            authoritative_sources,
+            subject: text("rpki.notify_invalid_subject"),
+            header: text("rpki.notify_invalid_header"),
+        },
+        mail: mail_settings(cfg),
+        route_preference_enabled: !raw_source_flag("route_object_preference").is_empty(),
+        route_preference_update_timer: int_setting_or(
+            cfg,
+            "route_object_preference.update_timer",
+            3600,
+        )
+        .unwrap_or(3600),
+        scopefilter,
+    }
+}
+
 /// The mirroring client's settings.
 pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::MirrorSettings {
     use nrtm::mirror::settings::{self as ms, MirrorSettings, SourceMirrorSettings};
@@ -306,6 +390,7 @@ pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::Mi
             .max(0) as u64,
         fast_scheduler,
         sources: Vec::new(),
+        status_jobs: status_job_settings(cfg),
     };
     let nrtm4_timer = out.default_import_timer_nrtm4();
     for name in configured_sources(cfg) {

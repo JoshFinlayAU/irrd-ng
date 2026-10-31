@@ -224,3 +224,8 @@ pub(crate) fn ctl_known_keys_removed(source: &str) -> String {
 pub(crate) fn ctl_known_keys_removed_log(source: &str) -> String {
     format!("{source}: known NRTMv4 client keys removed")
 }
+
+/// irrd-ng: `run-job` with an unknown job name.
+pub(crate) fn unknown_job(job: &str) -> String {
+    format!("irrd-ng run-job: unknown job {job:?} (roa-import, scopefilter, route-preference)")
+}

@@ -363,6 +363,7 @@ dependencies = [
  "config",
  "http 0.0.0",
  "import-v4",
+ "mail",
  "mimalloc",
  "nrtm",
  "query",
@@ -2072,6 +2073,7 @@ dependencies = [
  "config",
  "flate2",
  "hickory-resolver",
+ "mail",
  "num-bigint",
  "p256 0.14.0",
  "postcard",
@@ -2811,7 +2813,12 @@ dependencies = [
 name = "rpki"
 version = "0.0.0"
 dependencies = [
+ "mail",
+ "rpsl",
+ "serde",
+ "serde_json",
  "store",
+ "tracing",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ use tokio::task::JoinHandle;
 use crate::messages;
 use crate::mirror::runner::{MirrorContext, run_mirror_update};
 use crate::mirror::settings::MirrorSettings;
+use crate::mirror::status_jobs::{self, ScopeFilterFingerprint};
 
 /// v4's logger name.
 pub const LOG_TARGET: &str = "irrd.mirroring.scheduler";
@@ -34,6 +35,8 @@ pub struct MirrorScheduler {
     store: Store,
     processes: HashMap<String, JoinHandle<()>>,
     last_started_time: HashMap<String, i64>,
+    /// `previous_scopefilter_*`: `None` until the first check.
+    previous_scopefilter: Option<ScopeFilterFingerprint>,
 }
 
 fn now() -> f64 {
@@ -50,6 +53,7 @@ impl MirrorScheduler {
             store,
             processes: HashMap::new(),
             last_started_time: HashMap::new(),
+            previous_scopefilter: None,
         }
     }
 
@@ -58,9 +62,37 @@ impl MirrorScheduler {
         if settings.readonly_standby {
             return;
         }
-        // ROAImportRunner, RoutePreferenceUpdateRunner and
-        // ScopeFilterUpdateRunner are scheduled here in v4; they arrive
-        // with Phase 5.
+        let jobs = &settings.status_jobs;
+        if jobs.roa_source.is_some() {
+            let (store, s) = (self.store.clone(), settings.clone());
+            self.run_if_relevant(
+                None,
+                status_jobs::ROA_IMPORT_RUNNER,
+                jobs.roa_import_timer,
+                false,
+                move || tokio::spawn(status_jobs::run_roa_import(store, s)),
+            );
+        }
+        if jobs.route_preference_enabled {
+            let store = self.store.clone();
+            self.run_if_relevant(
+                None,
+                status_jobs::ROUTEPREF_RUNNER,
+                jobs.route_preference_update_timer,
+                false,
+                move || {
+                    tokio::task::spawn_blocking(move || {
+                        status_jobs::run_route_preference_update(&store)
+                    })
+                },
+            );
+        }
+        if self.check_scopefilter_change(settings) {
+            let (store, s) = (self.store.clone(), settings.clone());
+            self.run_if_relevant(None, status_jobs::SCOPEFILTER_RUNNER, 0, false, move || {
+                tokio::task::spawn_blocking(move || status_jobs::run_scopefilter_update(&store, &s))
+            });
+        }
         let mut sources_started = 0;
         for src in &settings.sources {
             if sources_started >= MAX_SIMULTANEOUS_RUNS {
@@ -89,6 +121,21 @@ impl MirrorScheduler {
                 sources_started += 1;
             }
         }
+    }
+
+    /// `_check_scopefilter_change()`: whether the scope filter changed since
+    /// the last call; always true on the first call with a scope filter.
+    /// The new state is remembered even if the update then does not start
+    /// (it is still running), as in v4.
+    fn check_scopefilter_change(&mut self, settings: &MirrorSettings) -> bool {
+        let Some(current) = &settings.status_jobs.scopefilter else {
+            return false;
+        };
+        if self.previous_scopefilter.as_ref() != Some(current) {
+            self.previous_scopefilter = Some(current.clone());
+            return true;
+        }
+        false
     }
 
     /// `run_if_relevant()`: start the runner if its timer expired and it

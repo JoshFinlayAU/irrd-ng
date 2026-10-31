@@ -141,6 +141,7 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    store.set_route_preference_hook(Some(rpki::route_preference_hook));
     tracing::info!(
         target: LOG_TARGET,
         "{}",

@@ -155,6 +155,34 @@ impl<'a> ReadView<'a> {
         }))
     }
 
+    /// Every source that has objects, in byte order. Skips from one
+    /// source to the next instead of reading every key.
+    pub fn object_sources(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        let mut from: Vec<u8> = Vec::new();
+        loop {
+            let bounds = (
+                std::ops::Bound::Included(from.as_slice()),
+                std::ops::Bound::Unbounded,
+            );
+            let Some(item) = self.t.objects_key.range(self.txn, &bounds)?.next() else {
+                break;
+            };
+            let (k, _) = item?;
+            let (source, _) = crate::keys::take_str(k).ok_or(StoreError::Corrupt("object key"))?;
+            let name = String::from_utf8(source).map_err(|_| StoreError::Corrupt("object key"))?;
+            // The next key after every key of this source: its terminator
+            // 0x00 0x01 bumped to 0x00 0x02.
+            from.clear();
+            push_str(&mut from, name.as_bytes());
+            if let Some(last) = from.last_mut() {
+                *last = 2;
+            }
+            out.push(name);
+        }
+        Ok(out)
+    }
+
     /// Number of objects.
     pub fn object_count(&self) -> Result<u64> {
         Ok(self.t.objects.len(self.txn)?)

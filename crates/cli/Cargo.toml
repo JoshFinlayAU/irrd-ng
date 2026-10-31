@@ -20,6 +20,7 @@ query.workspace = true
 socket2.workspace = true
 tokio.workspace = true
 import-v4.workspace = true
+mail.workspace = true
 mimalloc.workspace = true
 nrtm.workspace = true
 rpki.workspace = true

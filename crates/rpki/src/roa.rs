@@ -3,7 +3,18 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
-use store::{ReadView, Result, RpkiStatus};
+use store::{ReadView, Result, RpkiStatus, StatusChange};
+
+use crate::importer::{RPKI_IRR_PSEUDO_SOURCE, Roa};
+
+/// The route objects whose RPKI status changes, as v4's
+/// `validate_all_routes()` returns them: (now valid, now invalid, now
+/// not_found), each with `old_status` and the columns the journal needs.
+pub type RpkiChanges = (
+    Vec<StatusChange<RpkiStatus>>,
+    Vec<StatusChange<RpkiStatus>>,
+    Vec<StatusChange<RpkiStatus>>,
+);
 
 /// Validates routes against every ROA in the store, as v4's bulk
 /// validator does with its trie.
@@ -44,6 +55,65 @@ impl BulkRouteRoaValidator {
             excluded_sources,
             roas,
         })
+    }
+
+    /// `BulkRouteROAValidator(dh, roas)`: from the ROAs just imported.
+    pub fn from_roas(roas: &[Roa], excluded_sources: HashSet<String>) -> Self {
+        let mut map: HashMap<(u8, u8, u128), Vec<(i64, i64)>> = HashMap::new();
+        for roa in roas {
+            if let Some(p) = roa.ip_prefix() {
+                map.entry((p.version(), p.len, p.first()))
+                    .or_default()
+                    .push((i64::from(roa.asn), roa.max_length));
+            }
+        }
+        BulkRouteRoaValidator {
+            excluded_sources,
+            roas: map,
+        }
+    }
+
+    /// `validate_all_routes(sources=None)`: every route and route6 object
+    /// outside the RPKI pseudo source whose status would change. The lists
+    /// are in store order; v4's come in PostgreSQL's unordered scan order.
+    pub fn validate_all_routes(&self, view: &ReadView<'_>) -> Result<RpkiChanges> {
+        let (mut valid, mut invalid, mut not_found) = (Vec::new(), Vec::new(), Vec::new());
+        for source in view.object_sources()? {
+            if source == RPKI_IRR_PSEUDO_SOURCE {
+                continue;
+            }
+            for class in ["route", "route6"] {
+                for item in view.objects(Some(&source), Some(class))? {
+                    let (_, o) = item?;
+                    let (Some(ip), Some(len)) = (o.ip_first, o.prefix_length) else {
+                        continue;
+                    };
+                    // A missing origin matches no ROA, as AS0 never does.
+                    let new = self.validate_route(ip, len, o.asn_first.unwrap_or(0), o.source);
+                    if new == o.rpki_status {
+                        continue;
+                    }
+                    let change = StatusChange {
+                        pk: o.pk,
+                        rpsl_pk: o.rpsl_pk.to_owned(),
+                        source: o.source.to_owned(),
+                        object_class: o.object_class.to_owned(),
+                        object_text: o.object_text.to_owned(),
+                        prefix: o.prefix,
+                        old_status: o.rpki_status,
+                        rpki_status: new,
+                        scopefilter_status: o.scopefilter_status,
+                        route_preference_status: o.route_preference_status,
+                    };
+                    match new {
+                        RpkiStatus::Valid => valid.push(change),
+                        RpkiStatus::Invalid => invalid.push(change),
+                        RpkiStatus::NotFound => not_found.push(change),
+                    }
+                }
+            }
+        }
+        Ok((valid, invalid, not_found))
     }
 
     /// `validate_route(prefix_ip, prefix_length, prefix_asn, source)`.
