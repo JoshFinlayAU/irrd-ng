@@ -58,7 +58,7 @@ Before saying "v4 does X", check the v4 source at the pinned tag (`vendor/irrd-v
 
 ## Output Testing
 
-To avoid the overhead of running our own fully loaded and synchronised IRRd server for the purpose of testing against, we can leverage on the production IRRd server: the reference server (login as root and the production SSH key).
+To avoid the overhead of running our own fully loaded and synchronised IRRd server for the purpose of testing against, we use a production reference IRRd 4.5.4 server. Its host and access details are in the spoke's private memory (`memory/reference-server.md`), not in the repo.
 
 ## Stack
 

@@ -17,7 +17,7 @@ v4 is a solid piece of software and we lean on it heavily as the reference. But 
 - Redis sits beside it for two jobs: a preload cache of route data so `!g`/`!6`/`!a` don't hit Postgres for every query, and the pub/sub glue between processes (event stream, reload signals).
 - PGP goes through a real `gpg` binary via python-gnupg, with a keyring on disk.
 
-On the reference server (the production v4, about 5.4M objects plus 1M ROAs) we measured the cost of that shape on 2026-10-31: the Postgres database was 14 GB before cleanup, and the processes add up to several GB of RSS, with the ROA importer alone at 2.1 GB, the mirror runner at 1.8 GB, whois workers at 1.1 GB and Postgres itself at 2.4 GB. Three services to run, back up, monitor and upgrade, for what is fundamentally a read-mostly database of a few GB of text.
+On a production v4 we use as a reference (about 5.4M objects plus 1M ROAs) we measured the cost of that shape on 2026-10-31: the Postgres database was 14 GB before cleanup, and the processes add up to several GB of RSS, with the ROA importer alone at 2.1 GB, the mirror runner at 1.8 GB, whois workers at 1.1 GB and Postgres itself at 2.4 GB. Three services to run, back up, monitor and upgrade, for what is fundamentally a read-mostly database of a few GB of text.
 
 So the question we asked was: what's the smallest thing that can behave exactly like that?
 
@@ -46,7 +46,7 @@ The costs are real and we've tried to be honest about them:
 - **One writer.** All writes go through a dedicated writer thread fed by a channel. Big jobs are batched into large transactions, and we never hold a write transaction across an await or network I/O. Get that wrong and every other writer queues behind it.
 - **Map size.** LMDB needs a maximum size up front. The store grows the map automatically with headroom and will surface it in `/v1/status/`.
 - **Long read transactions pin pages.** Anything long-lived (the event stream, NRTM serving) has to renew its read transaction or the file just keeps growing.
-- **Size on disk.** Currently about 1.7 KB per object, so the the reference server copy is about 9.2 GB as a store against 6.4 GB as a freshly restored Postgres. Most of that is the `objects` table (about 750 bytes per object, verbatim text plus parsed fields) and the lookup index (about 300). There's room to compress, but it needs a schema bump, so it waits until the Phase 3 query indexes settle and we can measure with the bench rather than guess.
+- **Size on disk.** Currently about 1.7 KB per object, so the reference server's copy is about 9.2 GB as a store against 6.4 GB as a freshly restored Postgres. Most of that is the `objects` table (about 750 bytes per object, verbatim text plus parsed fields) and the lookup index (about 300). There's room to compress, but it needs a schema bump, so it waits until the Phase 3 query indexes settle and we can measure with the bench rather than guess.
 
 ## The store
 
@@ -60,7 +60,7 @@ A few store behaviours worth knowing about:
 
 - **Bulk loads skip per-commit fsync.** A full reload or a v4 import opens LMDB without sync and syncs once at the end. On disk, NTTCOM went from 112 s to 33.5 s with that alone. To make it safe there's a durable marker: a per-source marker for `irrd_load_database`, and a whole-store marker for the import. If the process dies cleanly the marker is cleared. If the box actually crashes, a leftover per-source marker sets that source's `force_reload` (v4's own "this needs a full reload" flag) and everything else keeps serving, while a leftover whole-store marker refuses to open, because a half-imported store must never be served.
 - **Incremental writes stay durable.** `irrd_update_database`, NRTM and submissions commit with sync, exactly as you'd expect.
-- **Insertion order matters more than it should.** Objects are keyed by an internal id assigned on insert, and key-order scans look up each id. Load in random order and a scan of a store bigger than RAM turns into random reads. We found this the hard way on a slow VM disk (an export of the the reference server copy took 1,075 s). The importer now reads Postgres in the store's key order, which got full RADB from 357 s to 104 s and the export down to 17 s. `irrd_load_database` still inserts in file order, and fixing that properly is on the Phase 3 list.
+- **Insertion order matters more than it should.** Objects are keyed by an internal id assigned on insert, and key-order scans look up each id. Load in random order and a scan of a store bigger than RAM turns into random reads. We found this the hard way on a slow VM disk (an export of the reference copy took 1,075 s). The importer now reads Postgres in the store's key order, which got full RADB from 357 s to 104 s and the export down to 17 s. `irrd_load_database` still inserts in file order, and fixing that properly is on the Phase 3 list.
 - **We copy v4's quirks here too.** For example v4's upsert resets `created` on every update, because its `ON CONFLICT DO UPDATE` sets every column from the incoming row including the default. We do the same.
 
 ## Getting into irrd-ng from v4
@@ -106,7 +106,7 @@ We don't trust ourselves to read v4 correctly, so most of the testing asks v4 di
 - **Fixtures, not committed data.** CI cuts a deterministic sample (about 25k objects) out of cached public dumps every run. Real registry data never goes into git.
 - **Fuzzing against v4.** The config crate was fuzzed with about 21k YAML documents and 43k configurations, each run through v4 as well.
 - **The three-way load check.** Each dump is loaded into v4 with v4's loader, into irrd-ng with irrd-ng's loader, and into irrd-ng again by importing v4's Postgres. All three are exported in one canonical JSONL format and diffed. The loader and the importer test each other, and both are tested against v4.
-- **A real database.** A read-only copy of the reference server (taken with `pg_dump`, restored on a separate VM, never written back) is the full-scale test for the importer and, from Phase 3, the load bench. Production auth data in it never leaves that VM.
+- **A real database.** A read-only copy of the production reference server (taken with `pg_dump`, restored on a separate VM, never written back) is the full-scale test for the importer and, from Phase 3, the load bench. Production auth data in it never leaves that VM.
 - **The rule.** A failing diff gets fixed in the code or gets a reviewed entry in `docs/divergences.md`. We never edit the expected output to make a test go green.
 
 ## Things that are knowingly different
