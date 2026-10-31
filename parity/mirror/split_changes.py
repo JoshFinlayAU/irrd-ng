@@ -20,9 +20,13 @@ from data import read, write  # noqa: E402
 
 
 def key(paragraph):
-    first = paragraph.split("\n", 1)[0]
-    cls, pk = first.split(":", 1)
-    return cls.strip(), pk.strip().upper()
+    """(class, primary key): route and route6 keys include the origin."""
+    lines = paragraph.split("\n")
+    cls, pk = (x.strip() for x in lines[0].split(":", 1))
+    if cls in ("route", "route6"):
+        origin = next((ln.split(":", 1)[1].strip() for ln in lines if ln.startswith("origin:")), "")
+        pk += origin
+    return cls, pk.upper()
 
 
 def main():
