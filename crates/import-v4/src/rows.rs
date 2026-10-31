@@ -19,6 +19,11 @@ pub trait V4Table: Sized {
     const TABLE: &'static str;
     /// The select list, one expression per field, in field order.
     const COLUMNS: &'static [&'static str];
+    /// `ORDER BY` for tables read in the store's key order. Inserting in
+    /// key order gives objects ids in key order, so later key-ordered scans
+    /// (export, a re-run's unchanged checks) read the store sequentially,
+    /// which matters on disks with slow random reads.
+    const ORDER_BY: Option<&'static str> = None;
 
     fn from_row(row: &Row) -> Result<Self, postgres::Error>;
 
@@ -105,7 +110,7 @@ const fn column_name(sql: &'static str) -> &'static str {
 macro_rules! v4_table {
     (
         $(#[$doc:meta])*
-        $name:ident = $table:literal {
+        $name:ident = $table:literal $(order $order:literal)? {
             $($field:ident : $ty:ty = $sql:literal),+ $(,)?
         }
     ) => {
@@ -118,6 +123,7 @@ macro_rules! v4_table {
         impl V4Table for $name {
             const TABLE: &'static str = $table;
             const COLUMNS: &'static [&'static str] = &[$($sql),+];
+            $(const ORDER_BY: Option<&'static str> = Some($order);)?
 
             fn from_row(row: &Row) -> Result<Self, postgres::Error> {
                 let mut _idx = 0usize;
@@ -139,7 +145,7 @@ macro_rules! v4_table {
 
 v4_table!(
     /// `rpsl_objects`: every RPSL object, keyed by (rpsl_pk, source, object_class).
-    RpslObject = "rpsl_objects" {
+    RpslObject = "rpsl_objects" order r#"source COLLATE "C", object_class COLLATE "C", rpsl_pk COLLATE "C""# {
         pk: Uuid = "pk",
         rpsl_pk: String = "rpsl_pk",
         source: String = "source",
@@ -167,7 +173,7 @@ v4_table!(
     /// source and must survive unchanged; `serial_global` orders the journal
     /// across sources (nullable in the migrated schema, never null in
     /// practice).
-    JournalEntry = "rpsl_database_journal" {
+    JournalEntry = "rpsl_database_journal" order r#"source COLLATE "C", serial_nrtm"# {
         pk: Uuid = "pk",
         serial_global: Option<i64> = "serial_global",
         rpsl_pk: String = "rpsl_pk",
@@ -219,7 +225,7 @@ v4_table!(
 
 v4_table!(
     /// `roa_object`: ROAs from the configured RPKI source and SLURM.
-    Roa = "roa_object" {
+    Roa = "roa_object" order r#"ip_version, prefix, asn, max_length, trust_anchor COLLATE "C" NULLS FIRST"# {
         pk: Uuid = "pk",
         prefix: Inet = "prefix",
         asn: i64 = "asn",

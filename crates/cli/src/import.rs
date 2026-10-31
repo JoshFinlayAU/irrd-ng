@@ -124,7 +124,15 @@ fn import(args: &Args) -> anyhow::Result<()> {
             batch_rows: args.batch_rows,
         },
     )?;
+    // The only step after the load: flush everything to disk, then clear
+    // the load marker. Its time is reported on its own.
+    tracing::info!("{}", messages::import_syncing());
+    let sync_start = Instant::now();
     load.finish()?;
+    tracing::info!(
+        "{}",
+        messages::import_synced(sync_start.elapsed().as_secs_f64())
+    );
     for (table, n) in &stats.tables {
         println!("{table}\t{n}");
     }

@@ -33,6 +33,9 @@ use rows::{
 };
 pub use to_store::StoreSink;
 
+/// `work_mem` for the import's own transaction on the source.
+pub const SORT_WORK_MEM: &str = "256MB";
+
 /// Rows per fetch from the source.
 pub const DEFAULT_BATCH_ROWS: usize = 5000;
 
@@ -216,6 +219,14 @@ fn read_all(
         .start()
         .map_err(ImportError::Connect)?;
 
+    // Sorting rpsl_objects into the store's key order spills to temporary
+    // files on the source; a larger work_mem for this one transaction keeps
+    // the sort runs few. SET LOCAL changes nothing outside the transaction.
+    tx.batch_execute(&format!("SET LOCAL work_mem = '{SORT_WORK_MEM}'"))
+        .map_err(|source| ImportError::Query {
+            table: "work_mem",
+            source,
+        })?;
     let revision = schema_revision(&mut tx)?;
     if revision != messages::V4_SCHEMA_HEAD {
         return Err(ImportError::WrongSchema(revision));
@@ -320,7 +331,11 @@ fn stream<T: V4Table>(
         table: T::TABLE,
         source,
     };
-    let sql = format!("SELECT {} FROM {}", T::COLUMNS.join(", "), T::TABLE);
+    let mut sql = format!("SELECT {} FROM {}", T::COLUMNS.join(", "), T::TABLE);
+    if let Some(order) = T::ORDER_BY {
+        sql.push_str(" ORDER BY ");
+        sql.push_str(order);
+    }
     let stmt = tx.prepare(&sql).map_err(err)?;
     let portal = tx.bind(&stmt, &[]).map_err(err)?;
     let max = i32::try_from(batch_rows).unwrap_or(i32::MAX);

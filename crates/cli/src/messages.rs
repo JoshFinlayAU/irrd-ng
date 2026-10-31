@@ -119,3 +119,11 @@ pub(crate) fn unknown_export_table(table: &str) -> String {
 /// irrd-ng: `export-jsonl --table all` needs a directory.
 pub(crate) const EXPORT_ALL_NEEDS_DIR: &str =
     "irrd-ng export-jsonl: --table all needs --output-dir";
+
+pub(crate) fn import_syncing() -> String {
+    "Writing the imported store to disk".to_owned()
+}
+
+pub(crate) fn import_synced(secs: f64) -> String {
+    format!("Store written to disk in {secs:.1}s")
+}
