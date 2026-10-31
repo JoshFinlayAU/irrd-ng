@@ -12,7 +12,7 @@ pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
 const TOOLS: &[(&str, Tool)] = &[
     ("irrd", crate::daemon::run),
-    ("irrdctl", not_implemented),
+    ("irrdctl", crate::mirror_tools::irrdctl),
     ("irrd_submit_email", not_implemented),
     ("irrd_database_upgrade", db_tools::database_upgrade),
     ("irrd_database_downgrade", db_tools::database_downgrade),
@@ -20,7 +20,10 @@ const TOOLS: &[(&str, Tool)] = &[
     ("irrd_update_database", db_tools::update_database),
     ("irrd_set_last_modified_auth", not_implemented),
     ("irrd_expire_journal", not_implemented),
-    ("irrd_mirror_force_reload", not_implemented),
+    (
+        "irrd_mirror_force_reload",
+        crate::mirror_tools::force_reload,
+    ),
     ("irr_rpsl_submit", not_implemented),
     ("irrd_load_pgp_keys", not_implemented),
     ("import", crate::import::run),

@@ -174,3 +174,53 @@ pub(crate) fn panicked(thread: &str, info: &str, backtrace: &str) -> String {
 /// irrd-ng's own: the store writer died, so the daemon stops.
 pub(crate) const WRITER_PANICKED: &str =
     "The store writer thread panicked; irrd-ng cannot write to the store and is shutting down";
+
+// irrd/scripts/mirror_force_reload.py
+
+/// `set_force_reload()`: not a mirror.
+pub(crate) fn force_reload_not_mirror(source: &str) -> String {
+    format!(
+        "You can only set the force reload flag for sources that are a mirror. Source {source} has \
+         neither nrtm4_client_notification_file_url, nrtm_host, or import_source set."
+    )
+}
+
+/// `set_force_reload()`: an NRTMv4 client keeps its keys.
+pub(crate) fn force_reload_nrtm4_note(source: &str) -> String {
+    format!(
+        "Note: the reload flag will be set on the source, but existing NRTMv4 client key information \
+         is kept. To revert to the key currently set in the \
+         sources.{source}.nrtm4_client_initial_public_key setting, use 'irrdctl nrtm4 \
+         client-clear-known-keys'"
+    )
+}
+
+// irrd/scripts/irrd_control.py
+
+/// `check_readonly_standby`.
+pub(crate) const CTL_READONLY_STANDBY: &str =
+    "Unable to run this command, because readonly_standby is set.";
+
+/// `client_clear_known_keys`: not an NRTMv4 client.
+pub(crate) fn ctl_not_nrtm4_client(source: &str) -> String {
+    format!("Source {source} is not configured as an NRTMv4 client")
+}
+
+/// `client_clear_known_keys`: no status row.
+pub(crate) fn ctl_no_known_keys(source: &str) -> String {
+    format!("No current known keys for source {source}")
+}
+
+/// `client_clear_known_keys`: done.
+pub(crate) fn ctl_known_keys_removed(source: &str) -> String {
+    format!(
+        "Known keys removed, expected key is now taken from the \
+         sources.{source}.nrtm4_client_initial_public_key setting.\nNote that other data for this \
+         source is not reloaded - for that use irrd_mirror_force_reload."
+    )
+}
+
+/// `client_clear_known_keys`: the log line.
+pub(crate) fn ctl_known_keys_removed_log(source: &str) -> String {
+    format!("{source}: known NRTMv4 client keys removed")
+}

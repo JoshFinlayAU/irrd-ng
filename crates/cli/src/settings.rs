@@ -259,3 +259,118 @@ pub(crate) fn query_settings(cfg: &Configuration) -> query::QuerySettings {
         whois_access_list: str_setting(cfg, "server.whois.access_list"),
     }
 }
+
+/// `int(value)` for a setting, with Python's error text.
+fn py_int_of(v: &Value) -> Result<i64, String> {
+    match v {
+        Value::Int(i) => i
+            .to_string()
+            .parse()
+            .map_err(|_| format!("int too large: {i}")),
+        Value::Bool(b) => Ok(i64::from(*b)),
+        Value::Float(f) => Ok(f.trunc() as i64),
+        Value::Str(s) => crate::argparse::py_int(s).ok_or_else(|| {
+            format!(
+                "invalid literal for int() with base 10: {}",
+                config::str_repr(s)
+            )
+        }),
+        other => Err(format!(
+            "int() argument must be a string, a bytes-like object or a real number, not '{}'",
+            other.type_name()
+        )),
+    }
+}
+
+/// `int(get_setting(name, default))`.
+fn int_setting_or(cfg: &Configuration, name: &str, default: i64) -> Result<i64, String> {
+    match setting(cfg, name) {
+        None | Some(Value::None) => Ok(default),
+        Some(v) => py_int_of(&v),
+    }
+}
+
+/// The mirroring client's settings.
+pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::MirrorSettings {
+    use nrtm::mirror::settings::{self as ms, MirrorSettings, SourceMirrorSettings};
+    let fast_scheduler =
+        std::env::var_os("IRRD_TESTING_FAST_SCHEDULER_OVERRIDE").is_some_and(|v| !v.is_empty());
+    let mut out = MirrorSettings {
+        readonly_standby: truthy(cfg, "readonly_standby"),
+        rpki_enabled: truthy(cfg, "rpki.roa_source"),
+        rpki_excluded_sources: rpki_excluded_sources(cfg),
+        scopefilter: scopefilter_config(cfg),
+        rpsl: cfg.rpsl_settings().unwrap_or_default(),
+        download_timeout: int_setting_or(cfg, "download_timeout", 10)
+            .unwrap_or(10)
+            .max(0) as u64,
+        fast_scheduler,
+        sources: Vec::new(),
+    };
+    let nrtm4_timer = out.default_import_timer_nrtm4();
+    for name in configured_sources(cfg) {
+        let k = |key: &str| format!("sources.{name}.{key}");
+        let truthy_str = |key: &str| {
+            setting(cfg, &k(key))
+                .filter(Value::truthy)
+                .map(|v| v.py_str())
+        };
+        let import_value = setting(cfg, &k("import_source"));
+        let (import_source, import_source_repr) = match import_value {
+            Some(v) if v.truthy() => {
+                let list = match v {
+                    Value::Str(s) => Value::List(vec![Value::Str(s)]),
+                    other => other,
+                };
+                let items = match &list {
+                    Value::List(l) | Value::Tuple(l) | Value::Set(l) => {
+                        l.iter().map(Value::py_str).collect()
+                    }
+                    other => vec![other.py_str()],
+                };
+                (Some(items), list.py_str())
+            }
+            Some(v) => (None, v.py_str()),
+            None => (None, "None".to_owned()),
+        };
+        let serial_value = setting(cfg, &k("import_serial_source"));
+        let initial_key = truthy_str("nrtm4_client_initial_public_key");
+        let default_timer = if initial_key.is_some() {
+            nrtm4_timer
+        } else {
+            ms::DEFAULT_SOURCE_IMPORT_TIMER
+        };
+        out.sources.push(SourceMirrorSettings {
+            name: name.clone(),
+            import_source,
+            import_source_repr,
+            import_serial_source: serial_value
+                .as_ref()
+                .filter(|v| v.truthy())
+                .map(Value::py_str),
+            import_serial_source_str: serial_value
+                .as_ref()
+                .map_or_else(|| "None".to_owned(), Value::py_str),
+            nrtm_host: truthy_str("nrtm_host"),
+            nrtm_port: int_setting_or(cfg, &k("nrtm_port"), ms::DEFAULT_SOURCE_NRTM_PORT),
+            nrtm3_client_timeout: int_setting_or(
+                cfg,
+                &k("nrtm3_client_timeout"),
+                ms::DEFAULT_SOURCE_NRTM3_CLIENT_TIMEOUT,
+            ),
+            import_timer: int_setting_or(cfg, &k("import_timer"), default_timer)
+                .unwrap_or(default_timer),
+            nrtm4_client_notification_file_url: truthy_str("nrtm4_client_notification_file_url"),
+            nrtm4_client_initial_public_key: initial_key,
+            object_class_filter: object_class_filter(cfg, &name),
+            strict_import_keycert_objects: truthy(cfg, &k("strict_import_keycert_objects")),
+            rpki_excluded: truthy(cfg, &k("rpki_excluded")),
+            runs_rpsl_export: truthy(cfg, &k("export_destination"))
+                || truthy(cfg, &k("export_destination_unfiltered")),
+            export_timer: int_setting_or(cfg, &k("export_timer"), ms::DEFAULT_SOURCE_EXPORT_TIMER)
+                .unwrap_or(ms::DEFAULT_SOURCE_EXPORT_TIMER),
+            runs_nrtm4_server: truthy(cfg, &k("nrtm4_server_private_key")),
+        });
+    }
+    out
+}

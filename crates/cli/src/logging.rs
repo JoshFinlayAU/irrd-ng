@@ -63,6 +63,12 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> std::fmt::Result {
+        // Only irrd's own loggers: the libraries underneath (HTTP, DNS,
+        // FTP) log through tracing under their crate names, which v4 does
+        // not have.
+        if !event.metadata().target().starts_with("irrd") {
+            return Ok(());
+        }
         let mut f = Fields::default();
         event.record(&mut f);
         let level = match *event.metadata().level() {

@@ -1,6 +1,6 @@
-//! `irrd`: the daemon. Phase 3 runs it in the foreground with the whois
-//! server and `/v1/whois/`; daemonising, the PID file, user switching and
-//! the other background processes come in Phase 9.
+//! `irrd`: the daemon. It runs in the foreground with the whois server,
+//! `/v1/whois/` and the mirroring scheduler; daemonising, the PID file,
+//! user switching and the other background processes come in Phase 9.
 
 use std::ffi::OsString;
 use std::net::{IpAddr, SocketAddr};
@@ -158,7 +158,11 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    runtime.block_on(async move { serve(&mut cfg, store).await })
+    let code = runtime.block_on(async move { serve(&mut cfg, store).await });
+    // Running imports are abandoned, as v4 terminates its children: their
+    // write transactions never commit.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(3));
+    code
 }
 
 async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
@@ -215,6 +219,15 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
     ));
     tokio::spawn(http::serve(http_listener, http_state.clone()));
 
+    let (mirror_tx, mirror_rx) =
+        tokio::sync::watch::channel(Arc::new(settings::mirror_settings(cfg)));
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let scheduler = tokio::spawn(nrtm::mirror::scheduler::run_scheduler(
+        store.clone(),
+        mirror_rx,
+        shutdown_rx,
+    ));
+
     use tokio::signal::unix::{SignalKind, signal};
     let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
         signal(SignalKind::terminate()),
@@ -240,10 +253,13 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
                     if let Ok(mut s) = http_state.http.write() {
                         *s = Arc::new(http_settings(cfg));
                     }
+                    let _ = mirror_tx.send(Arc::new(settings::mirror_settings(cfg)));
                 }
             }
         }
     }
+    let _ = shutdown_tx.send(true);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), scheduler).await;
     tracing::info!(target: whois_server::LOG_TARGET, "{}", messages::WHOIS_SHUTTING_DOWN);
     ExitCode::SUCCESS
 }

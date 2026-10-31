@@ -20,6 +20,7 @@ mod db_tools;
 mod import;
 mod logging;
 mod messages;
+mod mirror_tools;
 mod settings;
 mod tools;
 mod whois_server;
