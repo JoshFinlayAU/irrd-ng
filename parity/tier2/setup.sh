@@ -12,7 +12,9 @@
 #                       on first start (default irrd_v4)
 #   TIER2_NG_STORE      irrd-ng store imported from the reference (required)
 #   TIER2_NG_BIN        irrd-ng binary (default $TIER2_DIR/bin/irrd-ng)
-#   TIER2_MAX_CONN      server.whois.max_connections for both (default 32)
+#   TIER2_MAX_CONN      server.whois.max_connections for both (default 10, v4's
+#                       default; every v4 worker is a process holding the whole
+#                       preload, so more workers do not fit in 16 GB)
 # Ports: v4 whois 9043 / http 9080, irrd-ng 8043 / 8080, v4's Redis 9379,
 # all on 127.0.0.1. Nothing here leaves the VM.
 #
@@ -25,7 +27,7 @@ pg=${TIER2_PG_CONTAINER:?set TIER2_PG_CONTAINER}
 refdb=${TIER2_REF_DB:-irrd} v4db=${TIER2_V4_DB:-irrd_v4}
 store=${TIER2_NG_STORE:?set TIER2_NG_STORE}
 ngbin=${TIER2_NG_BIN:-$dir/bin/irrd-ng}
-maxconn=${TIER2_MAX_CONN:-32}
+maxconn=${TIER2_MAX_CONN:-10}
 run=$dir/run
 image=irrd-ng-parity/irrd-v4:4.5.4
 redis_image=redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b

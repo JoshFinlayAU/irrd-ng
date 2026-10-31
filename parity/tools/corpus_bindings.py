@@ -30,6 +30,7 @@ Placeholders (see parity/corpus/whois/README.md for how they are used):
 
 import argparse
 import gzip
+import heapq
 import hashlib
 import ipaddress
 import json
@@ -80,6 +81,32 @@ def h(s):
     return hashlib.sha1(s.encode()).hexdigest()
 
 
+class Lowest:
+    """The n values whose key hashes lowest, kept in bounded memory."""
+
+    def __init__(self, n):
+        self.n, self.heap, self.seen = n, [], set()
+
+    def add(self, value, key=None):
+        k = h(key if key is not None else value)
+        if value in self.seen:
+            return
+        if len(self.heap) < self.n:
+            heapq.heappush(self.heap, (_neg(k), value))
+            self.seen.add(value)
+        elif _neg(k) > self.heap[0][0]:
+            _, old = heapq.heapreplace(self.heap, (_neg(k), value))
+            self.seen.discard(old)
+            self.seen.add(value)
+
+    def values(self):
+        return [v for _, v in sorted(self.heap, key=lambda x: x[0], reverse=True)]
+
+
+def _neg(hexdigest):
+    return -int(hexdigest[:15], 16)
+
+
 def sample(values, n):
     uniq = sorted(set(values), key=lambda v: (h(v if isinstance(v, str) else json.dumps(v, sort_keys=True)),))
     return uniq[:n]
@@ -106,14 +133,16 @@ def main():
     set_class = {}
     refd_sets = set()
     autnums = set()
-    routes = {4: [], 6: []}
+    routes = {4: Lowest(args.per), 6: Lowest(args.per)}
+    # Every route prefix as one int, (address << 8) | length: compact enough
+    # for the 4M+ routes of a full Tier 2 database.
     route_keys = {4: set(), 6: set()}
     origins = {4: defaultdict(int), 6: defaultdict(int)}
     mntners = set()
     mnt_count = defaultdict(int)
     member_of = defaultdict(int)
     mbrs_by_ref = defaultdict(int)
-    objs = defaultdict(list)
+    objs = defaultdict(lambda: Lowest(max(2, args.per // 5)))
     sources = set()
 
     for path in args.dumps:
@@ -153,7 +182,7 @@ def main():
                         for x in split_list(v):
                             if x.upper() != "ANY":
                                 mbrs_by_ref[x.upper()] += 1
-                objs[cls].append(key)
+                objs[cls].add(key)
             elif cls in ("route", "route6"):
                 origin = (get.get("origin") or [""])[0].upper()
                 ver = 4 if cls == "route" else 6
@@ -161,8 +190,8 @@ def main():
                     net = ipaddress.ip_network(key, strict=False)
                 except ValueError:
                     continue
-                routes[ver].append((str(net), origin))
-                route_keys[ver].add(net)
+                routes[ver].add(f"{net}|{origin}")
+                route_keys[ver].add((int(net.network_address) << 8) | net.prefixlen)
                 if origin:
                     origins[ver][origin] += 1
                 for v in get.get("member-of", []):
@@ -176,7 +205,7 @@ def main():
                             member_of[x.upper()] += 1
                 elif cls == "mntner":
                     mntners.add(key)
-                objs[cls].append(key)
+                objs[cls].add(key)
 
     b = {}
     per, rank = args.per, args.rank
@@ -246,27 +275,30 @@ def main():
 
     # Routes and the prefix tree around them.
     for ver in (4, 6):
-        rs = routes[ver]
-        picked = sample([f"{p}|{o}" for p, o in rs], per)
+        width = 32 if ver == 4 else 128
         vals = []
-        for x in picked:
+        for x in routes[ver].values():
             p, o = x.split("|")
             net = ipaddress.ip_network(p)
             vals.append({"prefix": p, "origin": o, "net": str(net.network_address), "len": str(net.prefixlen)})
         b[f"route{ver}"] = vals
         keys = route_keys[ver]
-        # Sub-sample for the tree walks so Tier 2 stays fast.
-        sub = sorted(keys, key=lambda n: h(str(n)))[:200000]
-        nested, covering = [], set()
-        for net in sub:
-            for plen in range(net.prefixlen - 1, max(net.prefixlen - 17, -1), -1):
-                sup = net.supernet(new_prefix=plen)
+        step = max(1, len(keys) // 200000)
+        nested, covering = Lowest(per), Lowest(per)
+        for k in keys:
+            if step > 1 and (k * 2654435761 >> 9) % step:
+                continue
+            addr, plen = k >> 8, k & 0xFF
+            for sp in range(plen - 1, max(plen - 17, -1), -1):
+                mask = ((1 << sp) - 1) << (width - sp) if sp else 0
+                sup = ((addr & mask) << 8) | sp
                 if sup in keys:
-                    nested.append(str(net))
-                    covering.add(str(sup))
+                    fam = ipaddress.IPv4Network if ver == 4 else ipaddress.IPv6Network
+                    nested.add(str(fam((addr, plen))))
+                    covering.add(str(fam((addr & mask, sp))))
                     break
-        b[f"route{ver}_nested"] = sample(nested, per)
-        b[f"route{ver}_covering"] = sample(list(covering), per)
+        b[f"route{ver}_nested"] = nested.values()
+        b[f"route{ver}_covering"] = covering.values()
         hosts = []
         for p in b[f"route{ver}"]:
             net = ipaddress.ip_network(p["prefix"])
@@ -279,7 +311,7 @@ def main():
     b["mbrs_by_ref_mnt"] = [m for m, _ in sorted(mbrs_by_ref.items(), key=lambda kv: (-kv[1], kv[0]))[:rank]]
     obj = []
     for cls in sorted(objs):
-        for pk in sample(objs[cls], max(2, per // 5)):
+        for pk in objs[cls].values():
             obj.append({"cls": cls, "pk": pk})
     for ver, cls in ((4, "route"), (6, "route6")):
         for r in b[f"route{ver}"][: max(2, per // 5)]:

@@ -3,7 +3,7 @@
 # irrd-ng on the same data and the same query mix (PLAN.md Phase 3, item 5).
 # Runs on the Tier 2 VM after parity/tier2/setup.sh; see bench/README.md.
 #
-#   bench/load.sh [--concurrency "8 32"] [--duration S] [--warmup S] [--servers "v4 ng"]
+#   bench/load.sh [--concurrency "4 10"] [--duration S] [--warmup S] [--servers "v4 ng"]
 #
 # Per server, one at a time (the other is stopped, so they never share the
 # page cache or CPU): start it, run the mix once unmeasured to warm caches,
@@ -17,7 +17,7 @@
 set -euo pipefail
 dir=${TIER2_DIR:-/srv/irrd-ng/tier2}
 pg=${TIER2_PG_CONTAINER:?set TIER2_PG_CONTAINER}
-conc="8 32" duration=60 warmup=20 servers="v4 ng"
+conc="4 10" duration=60 warmup=20 servers="v4 ng"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --concurrency) conc=$2; shift 2 ;;

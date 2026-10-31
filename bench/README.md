@@ -23,7 +23,7 @@ a time so they never share CPU or page cache.
 
 ```sh
 # on the VM, after parity/tier2/setup.sh and run-tier2.sh (for the bindings)
-TIER2_PG_CONTAINER=<pg container> TIER2_NG_STORE=<store> bench/load.sh --concurrency "8 32" --duration 60
+TIER2_PG_CONTAINER=<pg container> TIER2_NG_STORE=<store> bench/load.sh --concurrency "4 10" --duration 60
 ```
 
 `cargo bench -p query` (criterion micro-benchmarks) is separate and not yet
