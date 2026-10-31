@@ -5,7 +5,7 @@
 # Parity harness caches: real IRR dumps, never committed
 /parity/.cache/
 /parity/out/
-
+/parity/.work/
 # Local-only data and notes
 /backups/
 /memory/
@@ -13,7 +13,6 @@
 .env.*
 *.pem
 *.key
-
 # Tooling
 /.claude/
 /.agents/
