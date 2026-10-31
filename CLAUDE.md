@@ -168,7 +168,7 @@ Benchmarks: `cargo bench -p query` and `bench/load.sh`, which runs a whois/HTTP 
 - Logging uses `tracing`. Log levels and important messages should roughly match v4 so operators' log alerts keep working.
 - On-disk format changes need a store schema version bump, a migration and a test that opens the previous version's fixture.
 - Every bug fix or parity fix adds a regression case to the parity corpus or a unit test.
-- Commits use Conventional Commits (`feat(query): …`, `fix(nrtm): …`, `parity: …`, `perf: …`). Branches are `feat/…`, `fix/…`, `perf/…`. PRs that touch protocols include parity run output, and perf PRs include bench numbers.
+- Commits use Conventional Commits (`feat(query): …`, `fix(nrtm): …`, `parity: …`, `perf: …`). Until the first release, commit and push straight to `main`: no feature branches and no PRs (Josh, 2026-10-31). CI runs on every push to `main`. Commits that touch protocols say what parity run backs them, and perf commits include bench numbers.
 
 ## Gotchas
 
