@@ -3,7 +3,9 @@
 #
 #   parity/ng.sh start|stop|status|config
 #
-# Uses v4/irrd-whois.yaml with only what has to differ on the host changed:
+# Uses the configuration parity/load.sh loaded v4 with ($PARITY_WORK/tier1/
+# irrd-v4.yaml, else v4/irrd-whois.yaml) with only what has to differ on the
+# host changed:
 # listen on 127.0.0.1, ports NG_WHOIS_PORT (default 8043) and NG_HTTP_PORT
 # (default 8080), piddir and keyring under $PARITY_WORK/tier1. The store is
 # $PARITY_WORK/tier1/store (IRRD_NG_STORE_PATH). Logs go to irrd-ng.log there.
@@ -18,11 +20,14 @@ pidfile=$work/irrd-ng.harness.pid
 
 config() {
   mkdir -p "$work/gnupg" "$work/run"
-  python3 -I - "$parity/v4/irrd-whois.yaml" "$work/irrd-ng.yaml" "$work" "$wport" "$hport" <<'PY'
+  local src=$parity/v4/irrd-whois.yaml
+  [[ -f $work/irrd-v4.yaml ]] && src=$work/irrd-v4.yaml
+  python3 -I - "$src" "$work/irrd-ng.yaml" "$work" "$wport" "$hport" <<'PY'
 import sys
 src, out, work, wport, hport = sys.argv[1:]
 t = open(src).read()
 t = t.replace("piddir: /run/irrd", f"piddir: {work}/run")
+t = t.replace("file:///tier1/", f"file://{work}/")
 t = t.replace("gnupg_keyring: /var/lib/irrd/gnupg", f"gnupg_keyring: {work}/gnupg")
 t = t.replace("      interface: 0.0.0.0\n      port: 8080", f"      interface: 127.0.0.1\n      port: {hport}")
 t = t.replace("      interface: 0.0.0.0\n      port: 8043", f"      interface: 127.0.0.1\n      port: {wport}")

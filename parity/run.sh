@@ -59,14 +59,16 @@ case $test in
     fi
     ;;
   v4-twin)
-    PARITY_V4_CONFIG=./v4/irrd-whois.yaml PARITY_CACHE=${PARITY_CACHE:-$parity/.cache} \
-      docker compose --profile twin up -d irrd-v4-twin > /dev/null 2>&1
+    cfg=./v4/irrd-whois.yaml
+    [[ -f $work/irrd-v4.yaml ]] && cfg=$work/irrd-v4.yaml
+    export PARITY_V4_CONFIG=$cfg PARITY_TIER1_WORK=$work PARITY_CACHE=${PARITY_CACHE:-$parity/.cache}
+    docker compose --profile twin up -d irrd-v4-twin > /dev/null 2>&1
     twin=${PARITY_TWIN_WHOIS_PORT:-9243}
     for _ in $(seq 1 90); do
       [[ $(./whois.sh 127.0.0.1 "$twin" '!v' 2>/dev/null) == A* ]] && break
       sleep 2
     done
-    PARITY_V4_CONFIG=./v4/irrd-whois.yaml v4/preload-kick.sh irrd-v4-twin "${PARITY_TWIN_HTTP_PORT:-9280}"
+    v4/preload-kick.sh irrd-v4-twin "${PARITY_TWIN_HTTP_PORT:-9280}"
     whois_test=127.0.0.1:$twin
     http_test=${http_test:-127.0.0.1:${PARITY_TWIN_HTTP_PORT:-9280}}
     ;;

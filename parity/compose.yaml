@@ -40,6 +40,8 @@ services:
       - ${PARITY_CACHE:-./.cache}:/cache:ro
       # Synthetic sources committed with the corpus (corpus/whois/data/).
       - ./corpus/whois/data:/synthetic:ro
+      # parity/load.sh's working files (ROAs for the rpki profile).
+      - ${PARITY_TIER1_WORK:-./.work/tier1}:/tier1:ro
     ports:
       - "127.0.0.1:9043:8043"
       - "127.0.0.1:9080:8080"
