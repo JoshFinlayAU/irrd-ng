@@ -7,7 +7,8 @@ Every table but the journal is compared row by row, as compare_exports.py
 does, after dropping the excluded columns. The journal is compared per
 source: the serials, and the (origin, operation) at each serial, must be
 the same, and the entries (origin, operation, class, key, text) must be
-the same multiset. When v4 writes a batch of status changes (an RPKI,
+the same multiset. last-modified values in object text are masked: an
+authoritative source stamps them with the time of the write. When v4 writes a batch of status changes (an RPKI,
 scope filter or route preference update) it takes the objects in
 PostgreSQL's scan order, which is unspecified, so the object at a given
 serial within such a batch can differ; that case is reported as
@@ -18,6 +19,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import sys
 
 
@@ -31,6 +33,9 @@ def excludes(paths):
     return out
 
 
+LAST_MODIFIED = re.compile(r"^(last-modified:\s+)\S+$", re.M)
+
+
 def load(path, table, excl):
     drop = {c.split(".", 1)[1] for c in excl if c.split(".", 1)[0] in (table, "*")}
     rows = []
@@ -40,6 +45,10 @@ def load(path, table, excl):
         obj = json.loads(line)
         for c in drop:
             obj.pop(c, None)
+        # Authoritative sources stamp last-modified with the time of the
+        # write, which differs between the two runs by a second or so.
+        if isinstance(obj.get("object_text"), str):
+            obj["object_text"] = LAST_MODIFIED.sub(r"\1<time>", obj["object_text"])
         rows.append(obj)
     return rows
 

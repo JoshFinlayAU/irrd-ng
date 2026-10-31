@@ -8,11 +8,6 @@ descr:          Same prefix as a STATUSAUTH route, changed
 origin:         AS65007
 source:         STATUSLOW
 
-route6:         2001:db8:1::/48
-descr:          Inside a STATUSAUTH route6
-origin:         AS65009
-source:         STATUSLOW
-
 route:          100.64.1.0/24
 descr:          Inside an out of scope route
 origin:         AS65011

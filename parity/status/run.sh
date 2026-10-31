@@ -74,7 +74,7 @@ ng() { "$IRRD_NG" "$@"; }
 ngjob() { ng run-job --config "$work/irrd-ng.yaml" "$1"; }
 
 # ---- ROA files ----
-python3 -I tools/make_roas.py "${fixtures[@]}" corpus/whois/data/*.db status/data/STATUSAUTH.db status/data/STATUSLOW.db \
+python3 -I tools/make_roas.py "${fixtures[@]}" corpus/whois/data/*.db \
   > "$work/roas-gen.json" 2> /dev/null
 python3 -I -c '
 import json, sys
@@ -161,7 +161,7 @@ SF1='"scopefilter": {"prefixes": ["10.0.0.0/8", "100.64.0.0/10", "2001:db8:1::/4
 step_config "{\"roas\": \"roas2.json\", \"slurm\": \"slurm.json\", $SF1}"
 both 05-scopefilter 'v4job ScopeFilterUpdateRunner' 'ngjob scopefilter'
 
-SF2='"scopefilter": {"prefixes": ["100.64.0.0/10", "2001:db8::/32", "45.0.0.0/8"], "asns": ["65000-65535"]}, "scopefilter_excluded": ["RADB"]'
+SF2='"scopefilter": {"prefixes": ["100.64.0.0/10", "2a00::/12", "45.0.0.0/8"], "asns": [23456, "64496-64511", "65010"]}, "scopefilter_excluded": ["RADB"]'
 step_config "{\"roas\": \"roas2.json\", \"slurm\": \"slurm.json\", $SF2}"
 both 06-scopefilter-change 'v4job ScopeFilterUpdateRunner' 'ngjob scopefilter'
 
@@ -169,7 +169,7 @@ P1='"preferences": {"STATUSAUTH": 900, "RADB": 500, "ALTDB": 300, "STATUSLOW": 1
 step_config "{\"roas\": \"roas2.json\", \"slurm\": \"slurm.json\", $SF2, $P1}"
 both 07-routepref 'v4job RoutePreferenceUpdateRunner' 'ngjob route-preference'
 
-P2='"preferences": {"STATUSLOW": 950, "RADB": 200, "NTTCOM": 600, "APNIC": 0}'
+P2='"preferences": {"STATUSLOW": 950, "STATUSAUTH": 300, "RADB": 200, "NTTCOM": 600, "APNIC": 0}'
 step_config "{\"roas\": \"roas2.json\", \"slurm\": \"slurm.json\", $SF2, $P2}"
 both 08-routepref-change 'v4job RoutePreferenceUpdateRunner' 'ngjob route-preference'
 
