@@ -1,13 +1,19 @@
 #!/bin/sh
-# Full-scale import of a v4 database copy (Tier 2: the the reference server copy on the
-# parity VM, PLAN.md D3). Run on that host. Rows never leave it; only
-# timings, sizes, samples and the diff summaries are read back.
+# Full-scale import of a v4 database copy (Tier 2: the production reference
+# copy on the parity VM, PLAN.md D3). Run on that host. Rows never leave it;
+# only timings, sizes, samples and the diff summaries are read back.
+#
+#   PG_CONTAINER=<name> scale-import.sh
+#
+# PG_CONTAINER is the Docker container running the source PostgreSQL,
+# used for its database size.
 #
 # Expects in /srv/irrd-ng: bin/{irrd-ng,measure.py,export_v4.py,compare_exports.py}
 # (static musl irrd-ng, scripts from parity/tools), irrd.yaml (parity/v4/irrd.yaml
 # with host paths), the v4 image, and the source Postgres on 127.0.0.1:5432.
 # Writes run/: import{1,2} and export timings, store sizes, per-minute I/O and
 # thread samples, and the v4-vs-import and re-run diffs. Exports are deleted.
+: "${PG_CONTAINER:?set PG_CONTAINER to the source PostgreSQL container}"
 cd /srv/irrd-ng
 rm -rf run && mkdir -p run
 D="postgresql://irrd:irrd@127.0.0.1:5432/irrd?sslmode=disable"
@@ -30,7 +36,7 @@ for i in 1 2; do
 done
 python3 bin/measure.py run/export-v4.json -- docker run --rm --user 0 --network host --entrypoint python3 -v /srv/irrd-ng/bin:/tools:ro -v /srv/irrd-ng/run:/run-out irrd-ng-parity/irrd-v4:4.5.4 \
   /tools/export_v4.py "postgresql://irrd:irrd@127.0.0.1:5432/irrd" /run-out/v4 > run/export-v4.out 2> run/export-v4.log
-docker exec reference-pg psql -U irrd -d irrd -At -c "select pg_database_size(current_database())" > run/pg.bytes
+docker exec "$PG_CONTAINER" psql -U irrd -d irrd -At -c "select pg_database_size(current_database())" > run/pg.bytes
 python3 bin/compare_exports.py run/v4 run/ng1 --label-left v4 --label-right import > run/diff-v4-import.txt 2>&1; echo $? > run/diff-v4-import.exit
 python3 bin/compare_exports.py run/ng1 run/ng2 > run/diff-rerun.txt 2>&1; echo $? > run/diff-rerun.exit
 rm -rf run/v4 run/ng1 run/ng2
