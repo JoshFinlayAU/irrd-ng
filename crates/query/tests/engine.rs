@@ -594,3 +594,42 @@ fn ipv6_searches_inside_96() {
         assert_eq!(&got, expected, "{prefix}");
     }
 }
+
+/// v4 prints `rpki_status.name` (lower case), with the comment only for
+/// `not_found`, on route and route6 objects outside the RPKI source.
+#[test]
+fn rpki_ov_state_uses_v4_member_names() {
+    let (_tmp, st, settings) = setup("rpki-ov-state");
+    let mut s = (*settings).clone();
+    s.rpki_enabled = true;
+    let settings = Arc::new(s);
+    let cases = [
+        (
+            store::RpkiStatus::NotFound,
+            "rpki-ov-state:  not_found # No ROAs found, or RPKI validation not enabled for source\n",
+        ),
+        (store::RpkiStatus::Valid, "rpki-ov-state:  valid\n"),
+    ];
+    for (status, line) in cases {
+        let row = {
+            let rtx = st.read().expect("read");
+            let view = rtx.view();
+            let found = view
+                .objects(Some("TEST2"), Some("route"))
+                .expect("objects")
+                .next()
+                .expect("route")
+                .expect("row");
+            let mut row = found.1.to_row();
+            row.rpki_status = status;
+            row
+        };
+        st.write(move |tx| tx.put_rpsl_object(&row)).expect("write");
+        let out = one(&st, &settings, "!r192.0.2.0/24");
+        assert!(out.contains(line), "{status:?}: {out:?}");
+        assert!(
+            !out.contains("VALID") && !out.contains("NOT_FOUND"),
+            "{out:?}"
+        );
+    }
+}
