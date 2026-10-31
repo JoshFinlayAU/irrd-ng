@@ -18,6 +18,13 @@ uuid = { version = "1.29.0", features = ["v4", "serde"] }
 mimalloc = { version = "0.1.52", default-features = false }
 num-bigint = { version = "0.5.1", default-features = false, features = ["std"] }
 num-traits = { version = "0.2.19", default-features = false, features = ["std"] }
+# Pure-Rust PostgreSQL client for the v4 import, so it works in the static
+# musl build. TLS through rustls with the ring provider (no aws-lc, no cmake).
+postgres = { version = "0.19.14", default-features = false, features = ["with-uuid-1"] }
+tokio-postgres-rustls = { version = "0.14.0", default-features = false, features = ["ring"] }
+rustls = { version = "0.23.37", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { version = "1.15.1", default-features = false, features = ["std"] }
+webpki-roots = "1.0.11"
 p256 = { version = "0.14.0", default-features = false, features = ["arithmetic", "pkcs8", "std"] }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 # Pure-Rust crypto so the static musl builds carry no C dependencies.

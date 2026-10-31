@@ -16,6 +16,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod argparse;
 mod db_tools;
+mod import;
 mod logging;
 mod messages;
 mod settings;

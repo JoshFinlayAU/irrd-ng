@@ -1,0 +1,13 @@
+# Columns left out when comparing a fresh load (v4's irrd_load_database vs
+# irrd-ng's) with anything else. Each one is generated at load time, so two
+# loads of the same dump legitimately differ. The import path is compared
+# with v4 on every column, these included: it must preserve them exactly.
+#
+# table.column	reason
+rpsl_objects.pk	v4 assigns gen_random_uuid() per row at insert
+rpsl_objects.created	now() of the loading transaction
+rpsl_objects.updated	datetime.now() when the object was buffered for upsert
+database_status.pk	gen_random_uuid() when the status row is first written
+database_status.created	now() of the loading transaction
+database_status.updated	now() of the loading transaction
+database_status.rpsl_data_updated	datetime.now() in finalise_transaction

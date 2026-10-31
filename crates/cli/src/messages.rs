@@ -19,6 +19,35 @@ pub(crate) fn not_implemented(name: &str) -> String {
     format!("{name}: not implemented yet")
 }
 
+pub(crate) const IMPORT_USAGE: &str = "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>] \
+     [--write-batch-rows <n>]";
+
+pub(crate) fn import_missing_value(flag: &str) -> String {
+    format!("argument {flag}: expected one argument")
+}
+
+pub(crate) fn import_required(flag: &str) -> String {
+    format!("the following arguments are required: {flag}")
+}
+
+pub(crate) fn import_unknown_arg(arg: &str) -> String {
+    format!("unrecognized arguments: {arg}")
+}
+
+pub(crate) fn import_bad_int(flag: &str, v: &str) -> String {
+    format!("argument {flag}: invalid positive int value: {v:?}")
+}
+
+pub(crate) fn import_failed(err: &str) -> String {
+    format!("Import from IRRd v4 failed: {err}")
+}
+
+pub(crate) fn import_summary(read: u64, written: u64, serial_global: i64, secs: f64) -> String {
+    format!(
+        "Imported {read} rows ({written} written), serial_global continues after \
+         {serial_global}, in {secs:.1}s"
+    )
+}
 // Strings v4's database scripts print (irrd/scripts/load_database.py,
 // update_database.py, database_upgrade.py, database_downgrade.py).
 
@@ -90,3 +119,23 @@ pub(crate) fn unknown_export_table(table: &str) -> String {
 /// irrd-ng: `export-jsonl --table all` needs a directory.
 pub(crate) const EXPORT_ALL_NEEDS_DIR: &str =
     "irrd-ng export-jsonl: --table all needs --output-dir";
+
+pub(crate) fn import_syncing() -> String {
+    "Writing the imported store to disk".to_owned()
+}
+
+pub(crate) fn import_synced(secs: f64) -> String {
+    format!("Store written to disk in {secs:.1}s")
+}
+
+pub(crate) fn import_table_line(table: &str, read: u64, deleted: u64) -> String {
+    format!("{table}\t{read}\tdeleted {deleted}")
+}
+
+pub(crate) fn import_store_incomplete(store: &std::path::Path) -> String {
+    format!(
+        "The store at {} is incomplete and will refuse to open. Run the import again into a \
+         fresh store, or after removing this one.",
+        store.display()
+    )
+}

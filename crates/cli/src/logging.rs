@@ -140,6 +140,16 @@ pub(crate) fn init(cfg: &config::Configuration) {
     };
 }
 
+/// Install the logger at INFO on stderr, for tools that run without an
+/// irrd.yaml (`irrd-ng import`).
+pub(crate) fn init_stderr() {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .event_format(V4Format)
+        .with_writer(std::io::stderr)
+        .try_init();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

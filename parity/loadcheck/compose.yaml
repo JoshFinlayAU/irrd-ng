@@ -1,0 +1,47 @@
+# Three-way load check: v4's loader, irrd-ng's loader and irrd-ng's v4
+# import, over the same dumps. Its own compose project (irrd-loadcheck), so it
+# never shares a database, volume or port with the main parity stack.
+#
+# The v4 tools container idles, and every v4 command runs in it with
+# `docker exec`, because starting containers is slow on the dev box and the
+# check runs v4's tools dozens of times.
+name: irrd-loadcheck
+
+services:
+  postgres:
+    image: postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_USER: irrd
+      POSTGRES_PASSWORD: irrd
+      POSTGRES_DB: irrd
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    # irrd-ng import runs on the host and reads v4's database through this.
+    ports: ["127.0.0.1:${LOADCHECK_PG_PORT:-9432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "irrd"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+
+  v4:
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    entrypoint: ["sleep", "infinity"]
+    # Host uid, so the work directory stays writable from both sides.
+    user: "${LOADCHECK_UID:-1001}:${LOADCHECK_GID:-1001}"
+    environment:
+      HOME: /work
+    volumes:
+      - ${LOADCHECK_CACHE:?set LOADCHECK_CACHE to the parity dump cache}:/cache:ro
+      - ${LOADCHECK_WORK:?set LOADCHECK_WORK}:/work
+      - ../tools:/tools:ro
+      - ../v4:/v4:ro
+      - .:/loadcheck:ro
+
+volumes:
+  pgdata:
