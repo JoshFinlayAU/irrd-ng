@@ -536,6 +536,12 @@ def compare(item, ref, test, rules=()):
                     query = effective_query(item.lines[0])
                     if "request" in item.tags:
                         query = item.lines[0].rstrip(b"\n").decode()
+                        method, _, target = query.partition(" ")
+                        url = urllib.parse.urlsplit(target)
+                        qs = urllib.parse.parse_qs(url.query, keep_blank_values=True).get("q")
+                        if label == "body" and url.path == "/v1/whois/" and qs:
+                            # Starlette takes the last q= of a repeated parameter.
+                            query = qs[-1].strip()
             else:
                 query = effective_query(item.lines[idx])
             div = equivalent(rules, query, rd, td) if query is not None else None
