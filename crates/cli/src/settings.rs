@@ -147,3 +147,115 @@ pub(crate) fn scopefilter_config(cfg: &Configuration) -> rpki::ScopeFilterConfig
     }
     c
 }
+
+/// A `config::Value` as the query engine's [`query::ConfigValue`].
+pub(crate) fn config_value(v: &Value) -> query::ConfigValue {
+    use query::ConfigValue as C;
+    match v {
+        Value::None => C::Null,
+        Value::Bool(b) => C::Bool(*b),
+        Value::Int(i) => i
+            .to_string()
+            .parse::<i128>()
+            .map(C::Int)
+            .unwrap_or_else(|_| C::Str(i.to_string())),
+        Value::Float(f) => C::Float(*f),
+        Value::Str(s) => C::Str(s.clone()),
+        Value::List(l) | Value::Tuple(l) | Value::Set(l) => {
+            C::List(l.iter().map(config_value).collect())
+        }
+        Value::Dict(d) => C::Dict(
+            d.iter()
+                .map(|(k, v)| (k.py_str(), config_value(v)))
+                .collect(),
+        ),
+        other => C::Str(other.py_str()),
+    }
+}
+
+/// An integer setting (`int(get_setting(name))`), from an int or a string
+/// (environment overrides are strings).
+pub(crate) fn int_setting(cfg: &Configuration, name: &str) -> Option<i64> {
+    setting(cfg, name).as_ref().and_then(int_of)
+}
+
+/// A string setting.
+pub(crate) fn str_setting(cfg: &Configuration, name: &str) -> Option<String> {
+    match setting(cfg, name)? {
+        Value::None => None,
+        Value::Str(s) => Some(s),
+        other => Some(other.py_str()),
+    }
+}
+
+fn str_list(v: Option<Value>) -> Vec<String> {
+    match v {
+        Some(Value::List(l) | Value::Tuple(l) | Value::Set(l)) => {
+            l.iter().map(Value::py_str).collect()
+        }
+        Some(Value::Str(s)) => vec![s],
+        _ => Vec::new(),
+    }
+}
+
+/// The whois engine's settings.
+pub(crate) fn query_settings(cfg: &Configuration) -> query::QuerySettings {
+    let mut per_source = HashMap::new();
+    let sources = configured_sources(cfg);
+    for name in &sources {
+        let k = |key: &str| format!("sources.{name}.{key}");
+        per_source.insert(
+            name.clone(),
+            query::SourceQuerySettings {
+                authoritative: setting(cfg, &k("authoritative"))
+                    .as_ref()
+                    .map(config_value)
+                    .unwrap_or(query::ConfigValue::Bool(false)),
+                keep_journal: setting(cfg, &k("keep_journal"))
+                    .as_ref()
+                    .map(config_value)
+                    .unwrap_or(query::ConfigValue::Bool(false)),
+                object_class_filter: object_class_filter(cfg, name),
+                rpki_excluded: truthy(cfg, &k("rpki_excluded")),
+                scopefilter_excluded: truthy(cfg, &k("scopefilter_excluded")),
+                route_object_preference: setting(cfg, &k("route_object_preference"))
+                    .as_ref()
+                    .map(config_value)
+                    .unwrap_or_default(),
+                nrtm_host: truthy(cfg, &k("nrtm_host")),
+                nrtm_access_list: str_setting(cfg, &k("nrtm_access_list")),
+                nrtm_access_list_unfiltered: str_setting(cfg, &k("nrtm_access_list_unfiltered")),
+            },
+        );
+    }
+    let mut source_aliases = Vec::new();
+    if let Some(Value::Dict(d)) = setting(cfg, "source_aliases") {
+        for (k, v) in d.iter() {
+            source_aliases.push((k.py_str(), str_list(Some(v.clone()))));
+        }
+    }
+    let mut access_lists = HashMap::new();
+    if let Some(Value::Dict(d)) = setting(cfg, "access_lists") {
+        for (k, v) in d.iter() {
+            let entries: Vec<rpsl::Ip> = str_list(Some(v.clone()))
+                .iter()
+                .filter_map(|e| rpsl::Ip::parse(e, 0).ok())
+                .collect();
+            access_lists.insert(k.py_str(), entries);
+        }
+    }
+    query::QuerySettings {
+        version: crate::IRRD_VERSION.to_owned(),
+        sources,
+        rpki_enabled: truthy(cfg, "rpki.roa_source"),
+        source_aliases,
+        sources_default: str_list(setting(cfg, "sources_default")),
+        per_source,
+        scopefilter_enabled: truthy(cfg, "scopefilter"),
+        ipv4_only_route_set_members: truthy(cfg, "compatibility.ipv4_only_route_set_members"),
+        inetnum_search_disabled: truthy(cfg, "compatibility.inetnum_search_disabled"),
+        asdot_queries: truthy(cfg, "compatibility.asdot_queries"),
+        access_lists,
+        whois_access_list: str_setting(cfg, "server.whois.access_list"),
+    }
+}

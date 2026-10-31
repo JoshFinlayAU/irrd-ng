@@ -8,6 +8,19 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+rpsl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+store.workspace = true
+tracing.workspace = true
+
+[features]
+# Test-only: the query `!~panic` panics, to test panic isolation.
+fault-injection = []
+
+[dev-dependencies]
+nrtm.workspace = true
+rpki.workspace = true
 
 [lints]
 workspace = true

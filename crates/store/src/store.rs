@@ -20,6 +20,9 @@ struct Job {
     reserve: usize,
 }
 
+/// The name of the single writer thread.
+pub const WRITER_THREAD_NAME: &str = "store-writer";
+
 /// Most jobs grouped into one LMDB transaction.
 const MAX_GROUP: usize = 256;
 
@@ -97,7 +100,7 @@ impl Store {
             let inner2 = inner.clone();
             let shared2 = shared.clone();
             let handle = std::thread::Builder::new()
-                .name("store-writer".into())
+                .name(WRITER_THREAD_NAME.into())
                 .spawn(move || writer_loop(&inner2, &shared2, rx))
                 .map_err(|e| StoreError::Io(options.path.clone(), e))?;
             Some(Arc::new(Writer {
@@ -137,8 +140,19 @@ impl Store {
     }
 
     /// Begin a read transaction.
+    ///
+    /// If another process grew the map beyond this process's mapping,
+    /// LMDB refuses new transactions until the mapping is renewed; that is
+    /// done here (waiting for this process's other readers) and the
+    /// transaction retried.
     pub fn read(&self) -> Result<ReadTx> {
-        ReadTx::begin(self.inner.clone())
+        match ReadTx::begin(self.inner.clone()) {
+            Err(e) if is_map_resized(&e) => {
+                env::resize(&self.inner, 0)?;
+                ReadTx::begin(self.inner.clone())
+            }
+            r => r,
+        }
     }
 
     /// Run `f` as one v4 database transaction on the writer thread and

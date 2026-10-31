@@ -11,7 +11,7 @@ use crate::{db_tools, messages};
 pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
 const TOOLS: &[(&str, Tool)] = &[
-    ("irrd", not_implemented),
+    ("irrd", crate::daemon::run),
     ("irrdctl", not_implemented),
     ("irrd_submit_email", not_implemented),
     ("irrd_database_upgrade", db_tools::database_upgrade),

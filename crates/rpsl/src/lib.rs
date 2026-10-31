@@ -44,6 +44,7 @@ pub mod parser;
 pub mod parser_state;
 pub mod pgp;
 mod py;
+pub mod python;
 pub mod settings;
 mod template;
 pub mod text;

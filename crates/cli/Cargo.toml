@@ -14,6 +14,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 config.workspace = true
+http = { path = "../http" }
+query.workspace = true
+socket2.workspace = true
+tokio.workspace = true
 import-v4.workspace = true
 mimalloc.workspace = true
 nrtm.workspace = true
@@ -22,6 +26,9 @@ rpsl.workspace = true
 store.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+query = { workspace = true, features = ["fault-injection"] }
 
 [lints]
 workspace = true

@@ -105,6 +105,12 @@ impl<'a> ReadView<'a> {
         }
     }
 
+    /// The internal id of the object with this source, class and primary
+    /// key.
+    pub fn object_id(&self, source: &str, class: &str, rpsl_pk: &str) -> Result<Option<ObjectId>> {
+        query::id_by_key(&self.t, self.txn, source, class, rpsl_pk)
+    }
+
     /// The object with this row UUID.
     pub fn object_by_pk(&self, pk: &Uuid) -> Result<Option<RpslObjectRef<'a>>> {
         match query::id_by_uuid(&self.t, self.txn, pk)? {
@@ -200,6 +206,15 @@ impl<'a> ReadView<'a> {
         last: u128,
     ) -> Result<Vec<(ObjectId, u128, u128)>> {
         index::ids_range_more_specific(&self.t, self.txn, space, first, last)
+    }
+
+    /// Objects whose range starts at or below `first`, whatever its end.
+    pub fn range_first_at_most(
+        &self,
+        space: Space,
+        first: u128,
+    ) -> Result<Vec<(ObjectId, u128, u128)>> {
+        index::ids_range_first_at_most(&self.t, self.txn, space, first)
     }
 
     /// Objects with this `asn_first`.
