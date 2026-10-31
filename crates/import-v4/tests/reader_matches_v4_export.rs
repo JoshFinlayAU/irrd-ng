@@ -25,6 +25,7 @@ type SortedLine = (Vec<String>, Vec<u8>);
 struct Collect {
     revision: String,
     finished: bool,
+    serial_global: Option<i64>,
     tables: BTreeMap<&'static str, Vec<SortedLine>>,
 }
 
@@ -87,6 +88,7 @@ impl Sink for Collect {
             Batch::AuthApiTokens(v) => add(self, v),
             Batch::AuthWebauthn(v) => add(self, v),
             Batch::ChangeLog(v) => add(self, v),
+            Batch::SerialGlobalLastValue(v) => self.serial_global = Some(v),
         }
         Ok(())
     }
@@ -115,6 +117,7 @@ fn reader_matches_v4_export() {
     assert!(sink.finished);
     assert_eq!(sink.revision, "e1e649b5f8bb");
     assert_eq!(stats.tables.len(), 13);
+    assert_eq!(sink.serial_global, Some(stats.serial_global_last_value));
 
     for (table, n) in &stats.tables {
         let expected = std::fs::read(export.join(format!("{table}.jsonl"))).expect("export file");

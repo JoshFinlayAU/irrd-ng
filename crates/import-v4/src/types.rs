@@ -138,29 +138,26 @@ impl fmt::Display for Inet {
     }
 }
 
-/// A `numeric` holding a non-negative integer (`rpsl_objects.ip_size`,
-/// up to 2^128). Selected as `::text`, because the binary numeric format is
-/// base 10000 digits and the text form is exact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NumericU128(pub u128);
+/// A `numeric` holding a non-negative integer (`rpsl_objects.ip_size`).
+/// Selected as `::text` and kept as its decimal digits, because it reaches
+/// 2^128 (`::/0`), one past `u128::MAX`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Numeric(pub String);
 
-pub(crate) fn parse_numeric_u128(text: &str) -> Result<u128, BoxError> {
-    Ok(text.parse::<u128>()?)
+pub(crate) fn parse_numeric(text: &str) -> Result<Numeric, BoxError> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("not a non-negative integer: {text:?}").into());
+    }
+    Ok(Numeric(text.to_owned()))
 }
 
-impl<'a> FromSql<'a> for NumericU128 {
+impl<'a> FromSql<'a> for Numeric {
     fn from_sql(_: &Type, raw: &'a [u8]) -> Result<Self, BoxError> {
-        Ok(NumericU128(parse_numeric_u128(std::str::from_utf8(raw)?)?))
+        parse_numeric(std::str::from_utf8(raw)?)
     }
 
     fn accepts(ty: &Type) -> bool {
         *ty == Type::TEXT
-    }
-}
-
-impl fmt::Display for NumericU128 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -341,11 +338,10 @@ mod tests {
     }
 
     #[test]
-    fn ip_size_parses_beyond_u64() {
-        assert_eq!(
-            parse_numeric_u128("633825300114114700748351602688").unwrap(),
-            633_825_300_114_114_700_748_351_602_688
-        );
-        assert!(parse_numeric_u128("1.5").is_err());
+    fn ip_size_holds_two_to_the_128() {
+        let n = parse_numeric("340282366920938463463374607431768211456").unwrap();
+        assert_eq!(n.0, "340282366920938463463374607431768211456");
+        assert!(parse_numeric("1.5").is_err());
+        assert!(parse_numeric("").is_err());
     }
 }

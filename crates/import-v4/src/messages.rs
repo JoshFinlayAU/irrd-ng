@@ -57,3 +57,11 @@ pub fn sink_failed(table: &str) -> String {
 pub fn aborted() -> String {
     "Import aborted".to_owned()
 }
+
+pub fn bad_value(what: &str, value: &str) -> String {
+    format!("Unexpected value in {what}: {value}")
+}
+
+pub fn ip_size_mismatch(what: &str, v4: &str, derived: &str) -> String {
+    format!("{what} is {v4} in the source, but {derived} from ip_first and ip_last")
+}

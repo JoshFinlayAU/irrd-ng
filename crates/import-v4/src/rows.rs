@@ -9,7 +9,7 @@ use postgres::Row;
 use uuid::Uuid;
 
 use crate::types::{
-    DatabaseOperation, Inet, JournalEntryOrigin, JsonText, NumericU128, RoutePreferenceStatus,
+    DatabaseOperation, Inet, JournalEntryOrigin, JsonText, Numeric, RoutePreferenceStatus,
     RpkiStatus, ScopeFilterStatus, Timestamp, UpdateRequestType,
 };
 
@@ -36,7 +36,7 @@ pub enum Cell<'a> {
     Uuid(&'a Uuid),
     Timestamp(Timestamp),
     Inet(&'a Inet),
-    Numeric(u128),
+    Numeric(&'a str),
     Enum(&'static str),
     /// jsonb, as PostgreSQL's text rendering.
     Json(&'a str),
@@ -73,7 +73,7 @@ as_cell!(
     Uuid => |v| Cell::Uuid(v),
     Timestamp => |v| Cell::Timestamp(*v),
     Inet => |v| Cell::Inet(v),
-    NumericU128 => |v| Cell::Numeric(v.0),
+    Numeric => |v| Cell::Numeric(&v.0),
     JsonText => |v| Cell::Json(&v.0),
     Vec<u8> => |v| Cell::Bytes(v),
     Vec<String> => |v| Cell::TextArray(v),
@@ -149,7 +149,7 @@ v4_table!(
         ip_version: Option<i32> = "ip_version",
         ip_first: Option<Inet> = "ip_first",
         ip_last: Option<Inet> = "ip_last",
-        ip_size: Option<NumericU128> = "ip_size::text",
+        ip_size: Option<Numeric> = "ip_size::text",
         prefix_length: Option<i32> = "prefix_length",
         prefix: Option<Inet> = "prefix",
         asn_first: Option<i64> = "asn_first",
@@ -383,7 +383,14 @@ pub enum Batch {
     AuthApiTokens(Vec<AuthApiToken>),
     AuthWebauthn(Vec<AuthWebauthn>),
     ChangeLog(Vec<ChangeLog>),
+    /// The last value `rpsl_database_journal_serial_global_seq` handed out
+    /// (`last_value`, or one less while `is_called` is false), so new
+    /// journal entries continue after it exactly as they would in v4.
+    SerialGlobalLastValue(i64),
 }
+
+/// The sequence behind `rpsl_database_journal.serial_global`.
+pub const SERIAL_GLOBAL_SEQUENCE: &str = "rpsl_database_journal_serial_global_seq";
 
 impl Batch {
     pub fn table(&self) -> &'static str {
@@ -401,6 +408,7 @@ impl Batch {
             Batch::AuthApiTokens(_) => AuthApiToken::TABLE,
             Batch::AuthWebauthn(_) => AuthWebauthn::TABLE,
             Batch::ChangeLog(_) => ChangeLog::TABLE,
+            Batch::SerialGlobalLastValue(_) => SERIAL_GLOBAL_SEQUENCE,
         }
     }
 
@@ -419,6 +427,7 @@ impl Batch {
             Batch::AuthApiTokens(v) => v.len(),
             Batch::AuthWebauthn(v) => v.len(),
             Batch::ChangeLog(v) => v.len(),
+            Batch::SerialGlobalLastValue(_) => 1,
         }
     }
 

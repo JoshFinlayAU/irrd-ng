@@ -23,6 +23,7 @@ pub mod canonical;
 mod dsn;
 pub mod messages;
 pub mod rows;
+pub mod to_store;
 pub mod types;
 
 pub use rows::Batch;
@@ -30,6 +31,7 @@ use rows::{
     AuthApiToken, AuthMntner, AuthPermission, AuthUser, AuthWebauthn, ChangeLog, DatabaseStatus,
     JournalEntry, ProtectedName, Roa, RpslObject, Setting, SuspendedObject, V4Table,
 };
+pub use to_store::StoreSink;
 
 /// Rows per fetch from the source.
 pub const DEFAULT_BATCH_ROWS: usize = 5000;
@@ -97,6 +99,7 @@ impl Default for Options {
 pub struct Stats {
     pub schema_revision: String,
     pub tables: Vec<(&'static str, u64)>,
+    pub serial_global_last_value: i64,
 }
 
 impl Stats {
@@ -225,6 +228,7 @@ fn read_all(
     let mut stats = Stats {
         schema_revision: revision,
         tables: Vec::new(),
+        serial_global_last_value: 0,
     };
     // Referenced tables before the ones that refer to them.
     stream::<RpslObject>(&mut tx, batch_rows, out, Batch::RpslObjects, &mut stats)?;
@@ -240,6 +244,14 @@ fn read_all(
     stream::<AuthApiToken>(&mut tx, batch_rows, out, Batch::AuthApiTokens, &mut stats)?;
     stream::<AuthWebauthn>(&mut tx, batch_rows, out, Batch::AuthWebauthn, &mut stats)?;
     stream::<ChangeLog>(&mut tx, batch_rows, out, Batch::ChangeLog, &mut stats)?;
+    let last = serial_global_last_value(&mut tx)?;
+    if out
+        .send(Msg::Batch(Batch::SerialGlobalLastValue(last)))
+        .is_err()
+    {
+        return Err(ImportError::Aborted);
+    }
+    stats.serial_global_last_value = last;
     // Read-only: nothing to commit, and rolling back leaves no trace.
     tx.rollback().map_err(ImportError::Connect)?;
     Ok(stats)
@@ -271,6 +283,29 @@ fn schema_revision(tx: &mut Transaction<'_>) -> Result<String, ImportError> {
                 .join(","),
         )),
     }
+}
+
+fn serial_global_last_value(tx: &mut Transaction<'_>) -> Result<i64, ImportError> {
+    let err = |source| ImportError::Query {
+        table: rows::SERIAL_GLOBAL_SEQUENCE,
+        source,
+    };
+    let row = tx
+        .query_one(
+            &format!(
+                "SELECT last_value, is_called FROM {}",
+                rows::SERIAL_GLOBAL_SEQUENCE
+            ),
+            &[],
+        )
+        .map_err(err)?;
+    let last_value: i64 = row.try_get(0).map_err(err)?;
+    let is_called: bool = row.try_get(1).map_err(err)?;
+    Ok(if is_called {
+        last_value
+    } else {
+        last_value - 1
+    })
 }
 
 fn stream<T: V4Table>(

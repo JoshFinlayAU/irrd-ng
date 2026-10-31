@@ -23,7 +23,7 @@ const TOOLS: &[(&str, Tool)] = &[
     ("irrd_mirror_force_reload", not_implemented),
     ("irr_rpsl_submit", not_implemented),
     ("irrd_load_pgp_keys", not_implemented),
-    ("import", not_implemented),
+    ("import", crate::import::run),
 ];
 
 pub(crate) fn lookup(name: &str) -> Option<Tool> {
