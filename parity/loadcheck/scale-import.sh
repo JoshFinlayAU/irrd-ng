@@ -1,13 +1,13 @@
 #!/bin/sh
 # Full-scale import of a v4 database copy (Tier 2: the the reference server copy on the
+# parity VM, PLAN.md D3). Run on that host. Rows never leave it; only
+# timings, sizes, samples and the diff summaries are read back.
 #
 # Expects in /srv/irrd-ng: bin/{irrd-ng,measure.py,export_v4.py,compare_exports.py}
 # (static musl irrd-ng, scripts from parity/tools), irrd.yaml (parity/v4/irrd.yaml
 # with host paths), the v4 image, and the source Postgres on 127.0.0.1:5432.
 # Writes run/: import{1,2} and export timings, store sizes, per-minute I/O and
 # thread samples, and the v4-vs-import and re-run diffs. Exports are deleted.
-# parity VM, PLAN.md D3). Run on that host; rows never leave
-# this host; only timings, sizes, samples and the diff summary are read back.
 cd /srv/irrd-ng
 rm -rf run && mkdir -p run
 D="postgresql://irrd:irrd@127.0.0.1:5432/irrd?sslmode=disable"
