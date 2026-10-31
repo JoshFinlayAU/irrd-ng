@@ -7,4 +7,7 @@ pub mod nrtm4;
 pub mod operation;
 pub mod pyerr;
 pub mod retrieval;
+pub mod runner;
+pub mod scheduler;
+pub mod settings;
 pub mod spool;

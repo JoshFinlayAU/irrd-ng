@@ -537,3 +537,9 @@ pub fn started_scheduled_process(process_name: &str, source: Option<&str>) -> St
 
 /// `terminate_children`.
 pub const SCHEDULER_TERMINATING: &str = "MirrorScheduler terminating children";
+
+/// `NRTMOperation.__init__` with neither text nor key.
+pub const NRTM_OPERATION_TEXT_OR_PK: &str = "Operation must have object text or pk/class";
+
+/// `OverflowError` from the socket module for a port out of range.
+pub const PORT_RANGE: &str = "getsockaddrarg: port must be 0-65535.";
