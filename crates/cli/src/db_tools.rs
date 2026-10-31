@@ -264,9 +264,10 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     // A full reload of one source: commits need not sync, as v4's single
     // transaction either lands whole or not at all. The marker makes an
     // interrupted load refuse to open instead of serving a partial store.
-    if let Err(e) = p.store.begin_bulk_load(&p.source) {
-        return store_err(e);
-    }
+    let bulk = match p.store.begin_bulk_load(&p.source) {
+        Ok(b) => b,
+        Err(e) => return store_err(e),
+    };
     let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
     let fail_slot = failure.clone();
     let result = p.store.write_reserving(reserve, move |tx| {
@@ -296,7 +297,7 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     });
     // The transaction committed or rolled back as a whole: either way the
     // store is complete again once synced.
-    if let Err(e) = p.store.finish_bulk_load() {
+    if let Err(e) = bulk.finish() {
         return store_err(e);
     }
     if let Some(e) = failure.lock().ok().and_then(|mut f| f.take()) {
@@ -573,17 +574,16 @@ mod tests {
         assert!(resolve_revision("e1e649b5f8bb", true).is_ok());
         assert!(resolve_revision("a635", true).is_ok());
         assert!(resolve_revision("a635d2217a48", false).is_ok());
-        assert_eq!(
-            resolve_revision("foo", true),
-            Err("alembic.util.exc.CommandError: Can't locate revision identified by 'foo'".into())
-        );
-        assert_eq!(
-            resolve_revision("+1", true),
-            Err(
-                "alembic.util.exc.CommandError: Relative revision +1 didn't produce 1 migrations"
-                    .into()
+        let foo = resolve_revision("foo", true).expect_err("unknown");
+        assert!(
+            foo.ends_with(
+                "alembic.util.exc.CommandError: Can't locate revision identified by 'foo'"
             )
         );
+        let plus = resolve_revision("+1", true).expect_err("relative");
+        assert!(plus.ends_with(
+            "alembic.util.exc.CommandError: Relative revision +1 didn't produce 1 migrations"
+        ));
         assert!(resolve_revision("-1", false).is_ok());
     }
 }

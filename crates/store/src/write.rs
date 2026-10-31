@@ -36,6 +36,9 @@ use crate::read::ReadView;
 use crate::records::{JournalEntryRef, RoaValue, RpslObjectRef, decode, encode};
 use crate::settings::StoreSettings;
 
+/// v4's logger name for `DatabaseHandler` messages.
+const DH_LOG_TARGET: &str = "irrd.storage.database_handler";
+
 /// v4's `MAX_RECORDS_BUFFER_BEFORE_INSERT`.
 pub const MAX_RECORDS_BUFFER_BEFORE_INSERT: usize = 15000;
 
@@ -160,7 +163,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
 
     fn check_write_permitted(&self) -> Result<()> {
         if self.settings.readonly_standby {
-            tracing::error!("{}", messages::READONLY_WRITE);
+            tracing::error!(target: DH_LOG_TARGET, critical = true, "{}", messages::READONLY_WRITE);
             return Err(StoreError::ReadOnly);
         }
         Ok(())
@@ -300,8 +303,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.check_write_permitted()?;
         self.flush_rpsl_object_writing_buffer()?;
         let Some(id) = query::id_by_key(&self.t, self.txn, source, object_class, rpsl_pk)? else {
-            tracing::error!(
-                "{}",
+            tracing::error!(target: DH_LOG_TARGET, "{}",
                 messages::no_row_matched(&format!("{rpsl_pk}/{source}"))
             );
             return Ok(false);
@@ -338,7 +340,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.flush_rpsl_object_writing_buffer()?;
         let Some(id) = query::id_by_uuid(&self.t, self.txn, &pk)? else {
             let pk_str = pk.to_string();
-            tracing::error!("{}", messages::no_row_matched(&pk_str));
+            tracing::error!(target: DH_LOG_TARGET, "{}", messages::no_row_matched(&pk_str));
             return Err(StoreError::ValueError(messages::suspend_missing(&pk_str)));
         };
         let row = self.remove_row(id)?;
@@ -702,8 +704,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             st.updated = self.txn_now;
             self.put_database_status(&st)?;
         }
-        tracing::info!(
-            "{}",
+        tracing::info!(target: DH_LOG_TARGET, "{}",
             messages::force_reload_set(source, synchronised_serials)
         );
         Ok(())

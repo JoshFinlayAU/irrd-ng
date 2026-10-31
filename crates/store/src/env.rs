@@ -123,9 +123,14 @@ pub(crate) const META_SCHEMA_VERSION: &[u8] = b"schema_version";
 pub(crate) const META_MAP_SIZE_HISTORY: &[u8] = b"map_size_history";
 pub(crate) const META_NEXT_OBJECT_ID: &[u8] = b"next_object_id";
 pub(crate) const META_SERIAL_GLOBAL_LAST: &[u8] = b"serial_global_last_value";
-/// Set (and synced) while a bulk load without per-commit sync runs; the
-/// value is the source being loaded.
+/// Set (and synced) while a whole-store bulk load (the v4 import) runs
+/// without per-commit sync; the value is the load's label. A leftover
+/// marker makes the store refuse to open.
 pub(crate) const META_LOAD_INCOMPLETE: &[u8] = b"load_incomplete";
+/// Prefix of the per-source bulk load markers (`irrd_load_database`); the
+/// rest of the key is the source. A leftover marker sets that source's
+/// `force_reload` on the next read-write open.
+pub(crate) const META_LOAD_INCOMPLETE_SOURCE: &[u8] = b"load_incomplete_source:";
 
 const GIB: usize = 1 << 30;
 const MIB: usize = 1 << 20;
@@ -226,6 +231,9 @@ pub(crate) struct Inner {
     pub(crate) gate: ReaderGate,
     pub(crate) read_only: bool,
     pub(crate) path: PathBuf,
+    /// Sources whose interrupted bulk load was found (and flagged for a
+    /// reload) when this store was opened.
+    pub(crate) recovered_interrupted_loads: Vec<String>,
 }
 
 impl std::fmt::Debug for Inner {
@@ -295,11 +303,13 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
     // LMDB's own locking.
     let env = unsafe { opts.open(path) }.map_err(|e| StoreError::open(path, e))?;
 
+    let mut recovered = Vec::new();
     let tables = if options.read_only {
         let tables = open_tables(&env)?.ok_or_else(|| StoreError::NotInitialised(path.clone()))?;
         let rtxn = env.read_txn()?;
         let version = read_schema_version(&rtxn, &tables)?;
         let incomplete = load_incomplete(&rtxn, &tables)?;
+        let interrupted = interrupted_source_loads(&rtxn, &tables)?;
         drop(rtxn);
         check_version(version)?;
         if let Some(source) = incomplete {
@@ -307,6 +317,11 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
                 path: path.clone(),
                 load_source: source,
             });
+        }
+        // Read-only: report, and leave the recovery to the next
+        // read-write open.
+        for source in &interrupted {
+            tracing::error!(target: LOG_TARGET, "{}", messages::source_load_interrupted(source));
         }
         tables
     } else {
@@ -336,6 +351,12 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
             Some(v) => migrate(&env, &mut wtxn, &tables, v)?,
         }
         record_map_size(&mut wtxn, &tables, map_size)?;
+        for source in interrupted_source_loads(&wtxn, &tables)? {
+            tracing::error!(target: LOG_TARGET, "{}", messages::source_load_interrupted(&source));
+            mark_force_reload(&mut wtxn, &tables, &source)?;
+            tables.meta.delete(&mut wtxn, &source_marker_key(&source))?;
+            recovered.push(source);
+        }
         wtxn.commit()?;
         tables
     };
@@ -346,6 +367,7 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
         gate: ReaderGate::default(),
         read_only: options.read_only,
         path: path.clone(),
+        recovered_interrupted_loads: recovered,
     }))
 }
 
@@ -365,6 +387,38 @@ fn check_version(version: Option<u32>) -> Result<()> {
             supported: SCHEMA_VERSION,
         }),
     }
+}
+
+/// Log target for the store's own (irrd-ng) messages.
+pub(crate) const LOG_TARGET: &str = "irrd_ng.store";
+
+pub(crate) fn source_marker_key(source: &str) -> Vec<u8> {
+    let mut k = META_LOAD_INCOMPLETE_SOURCE.to_vec();
+    k.extend_from_slice(source.as_bytes());
+    k
+}
+
+/// Sources whose bulk load left its marker behind.
+pub(crate) fn interrupted_source_loads(rtxn: &RoTxn<'_>, tables: &Tables) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for item in tables.meta.prefix_iter(rtxn, META_LOAD_INCOMPLETE_SOURCE)? {
+        let (k, _) = item?;
+        out.push(String::from_utf8_lossy(&k[META_LOAD_INCOMPLETE_SOURCE.len()..]).into_owned());
+    }
+    Ok(out)
+}
+
+/// v4's "this source needs a full reload" signal: `force_reload` on its
+/// `database_status` row, if it has one.
+fn mark_force_reload(wtxn: &mut RwTxn<'_>, tables: &Tables, source: &str) -> Result<()> {
+    let Some(b) = tables.status.get(wtxn, source.as_bytes())? else {
+        return Ok(());
+    };
+    let mut st: crate::model::DatabaseStatus = crate::records::decode(b)?;
+    st.force_reload = true;
+    let bytes = crate::records::encode(&st)?;
+    tables.status.put(wtxn, source.as_bytes(), &bytes)?;
+    Ok(())
 }
 
 pub(crate) fn load_incomplete(rtxn: &RoTxn<'_>, tables: &Tables) -> Result<Option<String>> {
@@ -410,7 +464,7 @@ pub(crate) fn migrate_with(
                 from: *from,
                 to: target,
             })?;
-        tracing::info!("{}", messages::migrating(step.from, step.to));
+        tracing::info!(target: LOG_TARGET, "{}", messages::migrating(step.from, step.to));
         (step.run)(env, wtxn, tables)?;
         *from = step.to;
         tables
@@ -438,7 +492,7 @@ pub(crate) fn record_map_size(wtxn: &mut RwTxn<'_>, tables: &Tables, size: usize
 pub(crate) fn resize(inner: &Inner, new_size: usize) -> Result<()> {
     let new_size = page_round(new_size);
     inner.gate.exclusive(|| {
-        tracing::info!("{}", messages::map_resized(new_size));
+        tracing::info!(target: LOG_TARGET, "{}", messages::map_resized(new_size));
         // SAFETY: the reader gate guarantees no read transaction of this
         // process is open, and the writer thread (the only one that opens
         // write transactions) is the caller and holds none.

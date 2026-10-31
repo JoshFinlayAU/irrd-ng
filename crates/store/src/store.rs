@@ -247,21 +247,75 @@ impl Store {
         Ok(())
     }
 
-    /// Start a bulk load of `source`: durably record that a load is in
-    /// progress. Until [`Store::finish_bulk_load`] clears it, opening the
-    /// store fails with [`StoreError::LoadIncomplete`].
-    pub fn begin_bulk_load(&self, source: &str) -> Result<()> {
-        let s = source.as_bytes().to_vec();
-        self.write(move |tx| tx.set_meta(env::META_LOAD_INCOMPLETE, &s))?;
-        self.sync()
+    /// Start a bulk load of one source (`irrd_load_database`): durably
+    /// mark it. The returned guard syncs and clears the mark when finished
+    /// or dropped, so only a crash or kill leaves it behind; the next
+    /// read-write open then sets the source's `force_reload` and logs.
+    pub fn begin_bulk_load(&self, source: &str) -> Result<BulkLoad> {
+        self.begin_marker(crate::env::source_marker_key(source), source)
     }
 
-    /// Finish a bulk load: sync everything written, then clear the marker
-    /// and sync again.
-    pub fn finish_bulk_load(&self) -> Result<()> {
+    /// Start a bulk load of the whole store (the v4 import). A leftover
+    /// mark makes every later open fail with [`StoreError::LoadIncomplete`].
+    pub fn begin_whole_store_load(&self, label: &str) -> Result<BulkLoad> {
+        self.begin_marker(env::META_LOAD_INCOMPLETE.to_vec(), label)
+    }
+
+    fn begin_marker(&self, key: Vec<u8>, value: &str) -> Result<BulkLoad> {
+        let k = key.clone();
+        let v = value.as_bytes().to_vec();
+        self.write(move |tx| tx.set_meta(&k, &v))?;
         self.sync()?;
-        self.write(|tx| tx.delete_meta(env::META_LOAD_INCOMPLETE))?;
-        self.sync()
+        Ok(BulkLoad {
+            store: self.clone(),
+            key: Some(key),
+        })
+    }
+
+    /// Sources whose interrupted bulk load was found when this store was
+    /// opened; their `force_reload` is now set.
+    pub fn recovered_interrupted_loads(&self) -> &[String] {
+        &self.inner.recovered_interrupted_loads
+    }
+}
+
+/// An open bulk load: see [`Store::begin_bulk_load`].
+#[derive(Debug)]
+#[must_use = "dropping it ends the bulk load"]
+pub struct BulkLoad {
+    store: Store,
+    key: Option<Vec<u8>>,
+}
+
+impl BulkLoad {
+    /// Sync everything written, then clear the mark and sync again.
+    pub fn finish(mut self) -> Result<()> {
+        self.end()
+    }
+
+    /// End without clearing the mark, as a crash or kill would. Tests only.
+    #[doc(hidden)]
+    pub fn abandon_for_tests(mut self) {
+        self.key = None;
+    }
+
+    fn end(&mut self) -> Result<()> {
+        let Some(key) = self.key.take() else {
+            return Ok(());
+        };
+        self.store.sync()?;
+        self.store.write(move |tx| tx.delete_meta(&key))?;
+        self.store.sync()
+    }
+}
+
+impl Drop for BulkLoad {
+    /// Error paths end the load too: committed work is synced and the
+    /// mark cleared while the process is alive.
+    fn drop(&mut self) {
+        if let Err(e) = self.end() {
+            tracing::error!(target: crate::env::LOG_TARGET, "{e}");
+        }
     }
 }
 

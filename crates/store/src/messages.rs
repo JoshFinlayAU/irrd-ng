@@ -99,12 +99,21 @@ pub fn map_resized(size: usize) -> String {
     format!("Growing the irrd-ng store map size to {size} bytes")
 }
 
-/// irrd-ng: an interrupted bulk load.
-pub fn load_incomplete(path: &Path, source: &str) -> String {
+/// irrd-ng: an interrupted whole-store bulk load (the v4 import).
+pub fn load_incomplete(path: &Path, label: &str) -> String {
     format!(
-        "the irrd-ng store at {} holds an incomplete bulk load of source {source}: \
+        "the irrd-ng store at {} holds an incomplete bulk load ({label}): \
          the load was interrupted and the store may be partial or damaged. \
          Remove the store and load or import again",
         path.display()
+    )
+}
+
+/// irrd-ng: an interrupted bulk load of one source, found at open.
+pub fn source_load_interrupted(source: &str) -> String {
+    format!(
+        "A bulk load of source {source} was interrupted by a crash; the data of {source} may \
+         be missing its last changes. force_reload is set for {source}: reload it (mirrored \
+         sources reload on their next import run, others need irrd_load_database)"
     )
 }
