@@ -58,7 +58,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 
 ## Proposed, awaiting review
 
-These came out of the Phase 2 store and import work and were not in this file when the list above was accepted. Each needs a decision: accept it, or keep it open as a bug to fix.
+P-15 to P-20 came out of the Phase 2 store and import work and were not in this file when the list above was accepted. P-21 to P-29 came out of Phases 5 and 6. Each needs a decision: accept it, or keep it open as a bug to fix.
 
 ### Store and tools
 
@@ -66,5 +66,20 @@ These came out of the Phase 2 store and import work and were not in this file wh
 - **P-16 One-line errors instead of tracebacks in the tools.** Where a v4 tool dies with a Python traceback, irrd-ng prints only the exception line or lines, without the stack frames. The exit code is the same. P-02 covers the same idea for configuration errors.
 - **P-17 Schema tools on the embedded store.** `irrd_database_upgrade` and `irrd_database_downgrade` do not print alembic's own INFO lines (`Context impl PostgresqlImpl.` and similar). Downgrading to an older revision prints success and exits 0 but changes nothing, because the store has no alembic revisions.
 - **P-18 `IRRD_NG_STORE_PATH`.** A new environment variable, defaulting to `/var/lib/irrd-ng`, sets where the store lives. There is deliberately no `irrd.yaml` key for it, so a v4 configuration stays valid for both.
-- **P-19 Fixed order where v4 uses Python set order in loaders.** v4 lists unknown object classes, and applies the deletions in `irrd_update_database`, in Python set order, which changes between runs. irrd-ng lists unknown classes in first-seen order and deletes in key order.
+- **P-19 Fixed order where v4 uses Python set order in loaders.** v4 lists unknown object classes, and applies the deletions in `irrd_update_database`, in Python set order, which changes between runs. It applies that tool's modifications in whatever order Postgres stores the rows, which is stable in practice but not defined. irrd-ng lists unknown classes in first-seen order and applies both deletions and modifications in key order, so the journal for one `irrd_update_database` run can list the same changes in a different order.
 - **P-20 Small faithfulness gaps in stored metadata.** `rpsl_objects.ip_size` is derived from `ip_first` and `ip_last` instead of being stored. `database_status.updated` is the transaction time, not the moment of the statement. Store log lines come from an `irrd_ng.store` logger, which v4 does not have.
+
+### RPKI, scope filter and route preference
+
+- **P-21 Journal order inside one status batch.** When a ROA import, scope filter run or route preference run changes many objects at once, irrd-ng writes the journal entries in the store's key order. v4 writes them in the order its unordered table scan returns. The serials, operations and object texts are the same; only the order within the batch differs.
+- **P-22 Shorter log for the duplicate ROA failure.** v4's ROA import fails when the same prefix, origin and max length appear under two trust anchors, and still exits normally. irrd-ng reproduces that, but its log line leaves out SQLAlchemy's `[SQL: ...]` and `[parameters: ...]` blocks and the traceback.
+- **P-23 Approximated parser errors in ROA import logs.** Rarer ujson error texts, and the Python dict printout of a malformed ROA record, are approximated in the log.
+- **P-24 Order inside RPKI notification mails.** v4 lists objects, and the sources in the subject, in Python set order, which changes between runs. irrd-ng uses first-seen order.
+- **P-25 Long non-ASCII mail headers.** irrd-ng writes a non-ASCII header as one encoded word where Python's email package splits a long one into several. Mail clients decode both to the same text.
+
+### Serving data
+
+- **P-26 No repeated NRTMv4 delta entries.** v4 reads the newest serial, the journal and the snapshot in separate queries, so an update landing in between can put the same journal entry at the end of one delta and the start of the next (4 times in 543 records in the serving churn test). irrd-ng reads them from one consistent view and never repeats an entry.
+- **P-27 No NRTMv4 server lock files.** v4 creates `nrtm4-server-*.lock` files in `piddir`; irrd-ng runs everything in one process and uses in-process locks instead.
+- **P-28 Deterministic NRTMv4 signatures.** irrd-ng's ES256 signatures are deterministic (RFC 6979); v4's are randomised. Both verify with the same key, and no client can tell them apart except by comparing two signatures of the same file.
+- **P-29 Write-side checks and error text.** irrd-ng does not re-validate an Update Notification File's contents before writing it, which only matters in a race v4 cannot reach in practice. Python exception text in export and NRTMv4 server error logs is approximated.
