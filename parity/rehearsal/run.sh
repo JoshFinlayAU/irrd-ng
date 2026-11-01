@@ -7,12 +7,12 @@
 # 1. Load the Tier 1 stack (parity/load.sh --profile rpki --ng none), so
 #    v4 serves the fixtures on 127.0.0.1:9043 (whois) and :9080 (HTTP).
 # 2. Record what an NRTMv3 client of v4 has seen (rehearsal/nrtm_client.py)
-#    and v4's !j-*.
+#    and v4's !j-* and !J-*.
 # 3. Stop v4. Run `irrd-ng import --from-postgres` against v4's database,
 #    inside v4's container image as v4's user, with the DSN host v4 uses.
 # 4. Start irrd-ng in v4's place: v4's image, v4's user, the same
 #    /etc/irrd/irrd.yaml file unchanged, the same mounts and the same ports
-#    (compose service irrd-ng-rehearsal). Check !j-* is unchanged, the PID
+#    (compose service irrd-ng-rehearsal). Check !j-* and !J-* are unchanged, the PID
 #    file is where v4 keeps it, and a SIGHUP reloads.
 # 5. Start a second v4 on the untouched database (compose profile twin, on
 #    9243/9280) as the reference, and run every suite against the two
@@ -80,7 +80,7 @@ note "v4: $(./whois.sh 127.0.0.1 9043 '!v' | sed -n 2p)"
 note "irrd.yaml: $work/irrd-v4.yaml, sha256 $(sha256sum "$work/irrd-v4.yaml" | cut -c1-16)"
 
 step "2. what v4's clients have seen"
-./whois.sh 127.0.0.1 9043 '!j-*' > "$out/v4-serials.txt"
+{ ./whois.sh 127.0.0.1 9043 '!j-*'; ./whois.sh 127.0.0.1 9043 '!J-*'; } > "$out/v4-serials.txt"
 python3 -I rehearsal/nrtm_client.py record --addr 127.0.0.1:9043 --source EVSTREAM --state "$rwork/nrtm.json" | tee -a "$summary"
 
 step "3. stop v4, import its database"
@@ -110,8 +110,8 @@ t0=$SECONDS
 dc up -d irrd-ng-rehearsal > /dev/null 2>&1
 wait_for 9043 "irrd-ng" || { dc logs --tail 30 irrd-ng-rehearsal | tee -a "$summary"; exit 1; }
 note "irrd-ng answering on v4's port 9043 after $((SECONDS - t0))s: $(./whois.sh 127.0.0.1 9043 '!v' | sed -n 2p)"
-./whois.sh 127.0.0.1 9043 '!j-*' > "$out/ng-serials.txt"
-check "!j-* (every source's serials) identical to v4's before the cutover" cmp "$out/v4-serials.txt" "$out/ng-serials.txt"
+{ ./whois.sh 127.0.0.1 9043 '!j-*'; ./whois.sh 127.0.0.1 9043 '!J-*'; } > "$out/ng-serials.txt"
+check "!j-* and !J-* (every source's serials and status) identical to v4's before the cutover" cmp "$out/v4-serials.txt" "$out/ng-serials.txt"
 check "runs as v4's user" bash -c "[[ \$(docker compose --profile rehearsal exec -T irrd-ng-rehearsal id -un) == irrd ]]"
 ngpid=$(ng_exec cat /run/irrd/irrd.pid | tr -d '\r\n' || true)
 check "PID file /run/irrd/irrd.pid (piddir) names the daemon" bash -c "[[ -n '$ngpid' ]] && docker compose --profile rehearsal logs irrd-ng-rehearsal | grep -q 'IRRd 4.5.4 starting, PID $ngpid, PID file in /run/irrd'"

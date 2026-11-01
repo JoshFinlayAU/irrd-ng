@@ -22,6 +22,13 @@ import socket
 import sys
 
 
+def mask(text):
+    """Each server stamps `last-modified:` with the time it applied the
+    change, which differs by the seconds between the two runs (the events
+    live suite masks it the same way)."""
+    return re.sub(r"^(last-modified:\s+)\S+$", r"\1<masked>", text, flags=re.M)
+
+
 def query(addr, q, timeout=60):
     host, port = addr.rsplit(":", 1)
     with socket.create_connection((host, int(port)), timeout=timeout) as s:
@@ -36,11 +43,14 @@ def query(addr, q, timeout=60):
 
 
 def journal_range(addr, source):
-    a = query(addr, f"!j{source}")
-    m = re.search(rf"^{re.escape(source)}:[YN]:(\d+)-(\d+)", a, re.M)
-    if not m:
-        raise SystemExit(f"no journal range for {source} from {addr}: {a!r}")
-    return int(m.group(1)), int(m.group(2))
+    """The journal's serial range, from !J (!j reports mirror serials)."""
+    a = query(addr, f"!J{source}")
+    body = a.split("\n", 1)[1].rsplit("\nC", 1)[0] if a.startswith("A") else ""
+    try:
+        st = json.loads(body)[source]
+        return int(st["serial_oldest_journal"]), int(st["serial_newest_journal"])
+    except (ValueError, KeyError, TypeError):
+        raise SystemExit(f"no journal range for {source} from {addr}: {a[:200]!r}")
 
 
 def record(args):
@@ -68,8 +78,8 @@ def follow(args):
         ok = ok and cond
         print(f"{'ok  ' if cond else 'FAIL'} {name}{': ' + detail if detail and not cond else ''}")
 
-    # run.sh compares !j-* right after the start; after the changes the
-    # untouched sources must still match.
+    # run.sh compares !J-* right after the start; after the changes the
+    # untouched sources must still match (!j: mirror serials).
     before = {l.split(":")[0]: l for l in st["all_sources"].splitlines() if ":" in l}
     after = {l.split(":")[0]: l for l in query(args.addr, "!j-*").splitlines() if ":" in l}
     untouched = [s for s in before if s != src]
@@ -90,7 +100,11 @@ def follow(args):
         got.startswith(f"%START Version: 3 {src} {last + 1}-"),
         got[:80],
     )
-    check(f"'{q}' answered as v4 answers it", got == ref, f"irrd-ng {got[:200]!r} v4 {ref[:200]!r}")
+    check(
+        f"'{q}' answered as v4 answers it (last-modified masked)",
+        mask(got) == mask(ref),
+        f"irrd-ng {got[:200]!r} v4 {ref[:200]!r}",
+    )
     return 0 if ok else 1
 
 
