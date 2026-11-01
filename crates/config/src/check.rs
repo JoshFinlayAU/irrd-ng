@@ -427,6 +427,61 @@ impl<'a> Checker<'a> {
         if !unresolved.is_empty() {
             self.push(messages::unresolved_access_lists(&unresolved.join(", ")));
         }
+        // irrd-ng's own key comes after every check v4 makes, so a
+        // v4-valid file gets v4's result and nothing more.
+        self.check_ng_replication()
+    }
+
+    /// irrd-ng only: `ng_replication`. The secret may also come from the
+    /// environment (`IRRD_NG_REPLICATION_SECRET`), so it is only checked
+    /// here when the file sets it; the daemon refuses to replicate without
+    /// one.
+    fn check_ng_replication(&mut self) -> Result<()> {
+        let Some(section) = self.get(known_keys::NG_REPLICATION_KEY)? else {
+            return Ok(());
+        };
+        if matches!(section, Value::None) {
+            return Ok(());
+        }
+        if !matches!(section, Value::Dict(_)) {
+            self.push(messages::NG_REPLICATION_NOT_MAPPING);
+            return Ok(());
+        }
+        if let Some(secret) = self.get("ng_replication.secret")?
+            && !secret.as_str().is_some_and(|s| s.chars().count() >= 16)
+        {
+            self.push(messages::NG_REPLICATION_SECRET);
+        }
+        if let Some(interface) = self.get("ng_replication.interface")?
+            && !interface
+                .as_str()
+                .is_some_and(|s| s.parse::<std::net::IpAddr>().is_ok())
+        {
+            self.push(messages::NG_REPLICATION_INTERFACE);
+        }
+        for key in ["port", "active_port"] {
+            if let Some(port) = self.get(&format!("ng_replication.{key}"))? {
+                let ok = str_isnumeric(&port.py_str())
+                    && port
+                        .py_str()
+                        .parse::<u32>()
+                        .is_ok_and(|p| (1..=65535).contains(&p));
+                if !ok {
+                    self.push(messages::ng_replication_port(key));
+                }
+            }
+        }
+        if let Some(host) = self.get("ng_replication.active_host")? {
+            if !host.as_str().is_some_and(|s| !s.is_empty()) {
+                self.push(messages::NG_REPLICATION_ACTIVE_HOST);
+            }
+            if !self.truthy("readonly_standby")? {
+                self.push(messages::NG_REPLICATION_ACTIVE_NEEDS_STANDBY);
+            }
+            if self.get("ng_replication.active_port")?.is_none() {
+                self.push(messages::NG_REPLICATION_ACTIVE_PORT_REQUIRED);
+            }
+        }
         Ok(())
     }
 

@@ -235,3 +235,61 @@ fn every_known_key_has_a_reload_class() {
         assert_eq!(spec_for(&concrete).map(|s| s.key), Some(spec.key));
     }
 }
+
+fn staging_errors(text: &str) -> Vec<String> {
+    match check_source_with_fs("irrd.yaml", Ok(text.as_bytes().to_vec()), &|_| true) {
+        Ok(Staging::Valid(_)) => Vec::new(),
+        Ok(Staging::Invalid(errors)) => errors,
+        Err(e) => vec![format!("crash: {e}")],
+    }
+}
+
+#[test]
+fn ng_replication_is_accepted_and_checked_after_v4s_checks() {
+    // The v4-valid file is unaffected.
+    assert!(staging_errors(VALID).is_empty());
+    let active = VALID.replace(
+        "  sources_default:",
+        "  ng_replication:\n    secret: sixteen-chars-ok\n    interface: '::1'\n    port: 8044\n  sources_default:",
+    );
+    assert_eq!(staging_errors(&active), Vec::<String>::new());
+    let c_dir = TempConfig::new("ngrepl", &active);
+    let c = Configuration::load(Some(c_dir.path())).unwrap();
+    let port = c
+        .get_setting_live_with_env("ng_replication.port", no_env)
+        .unwrap();
+    assert!(matches!(port.as_deref(), Some(Value::Int(_))));
+    assert_eq!(
+        spec_for("ng_replication.secret").map(|s| s.reload),
+        Some(Reload::Restart)
+    );
+
+    let bad = VALID.replace(
+        "  sources_default:",
+        "  ng_replication:\n    secret: short\n    interface: nowhere\n    port: 70000\n    active_host: irrd1.example.net\n    other: 1\n  sources_default:",
+    );
+    assert_eq!(
+        staging_errors(&bad),
+        vec![
+            "Unknown setting key: ng_replication.other".to_owned(),
+            "Setting ng_replication.secret must be a string of at least 16 characters.".into(),
+            "Setting ng_replication.interface must be an IP address.".into(),
+            "Setting ng_replication.port must be a port number between 1 and 65535.".into(),
+            "Setting ng_replication.active_host can only be set when readonly_standby is enabled."
+                .into(),
+            "Setting ng_replication.active_port is required when ng_replication.active_host is set."
+                .into(),
+        ]
+    );
+    let scalar = VALID.replace(
+        "  sources_default:",
+        "  ng_replication: 1\n  sources_default:",
+    );
+    assert_eq!(
+        staging_errors(&scalar),
+        vec![
+            "Setting ng_replication must be a mapping of secret, interface, port, active_host and active_port."
+                .to_owned()
+        ]
+    );
+}
