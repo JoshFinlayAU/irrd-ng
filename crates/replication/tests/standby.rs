@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use replication::{FollowerSettings, ServerSettings, follower, server};
+use replication::{FollowerSettings, ServerSettings, SharedKey, follower, server};
 use store::{
     IpPrefix, JournalEntryOrigin, Json, NewRpslObject, RoutePreferenceStatus, RpkiStatus,
     ScopeFilterStatus, SettingRow, SourceSettings, Store, StoreOptions, StoreSettings, Timestamp,
@@ -65,6 +65,10 @@ impl Captured {
 }
 
 const SECRET: &[u8] = b"a shared secret of some length";
+
+fn key(secret: &[u8]) -> SharedKey {
+    SharedKey::derive(secret).expect("derive")
+}
 
 fn store_settings(standby: bool) -> StoreSettings {
     StoreSettings {
@@ -192,7 +196,7 @@ impl Running {
 }
 
 fn start_server(store: &Store, port: u16) -> (Running, u16) {
-    let mut s = ServerSettings::new("127.0.0.1", port, SECRET);
+    let mut s = ServerSettings::new("127.0.0.1", port, key(SECRET));
     s.heartbeat = Duration::from_millis(200);
     let listener = server::bind(&s).expect("bind");
     let port = listener.local_addr().expect("addr").port();
@@ -202,7 +206,7 @@ fn start_server(store: &Store, port: u16) -> (Running, u16) {
 }
 
 fn start_follower(store: &Store, port: u16, secret: &[u8], spool: &TempDir) -> Running {
-    let mut s = FollowerSettings::new("127.0.0.1", port, secret, &spool.0);
+    let mut s = FollowerSettings::new("127.0.0.1", port, key(secret), &spool.0);
     s.idle_timeout = Duration::from_secs(2);
     s.max_backoff = Duration::from_secs(1);
     let (tx, rx) = watch::channel(false);

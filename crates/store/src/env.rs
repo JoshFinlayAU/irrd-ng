@@ -404,10 +404,28 @@ pub(crate) fn needs_growth(used: usize, map: usize) -> bool {
     free < map / 4 || free < 256 * MIB
 }
 
+/// Create the store directory if it is missing, readable only by its
+/// owner: it holds every row, password hashes and API keys included, and
+/// a standby's snapshot spool. Missing parents get the usual mode, and an
+/// existing directory keeps the mode its operator gave it.
+fn create_store_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    if path.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        r => r,
+    }
+}
+
 pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
     let path = &options.path;
     if !options.read_only {
-        std::fs::create_dir_all(path).map_err(|e| StoreError::Io(path.clone(), e))?;
+        create_store_dir(path).map_err(|e| StoreError::Io(path.clone(), e))?;
     }
     let existing = std::fs::metadata(path.join("data.mdb"))
         .map(|m| m.len() as usize)
@@ -662,6 +680,28 @@ pub fn set_schema_version_for_tests(path: &Path, version: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn store_dir_is_created_private_and_existing_ones_are_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!("irrd-ng-store-mode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("parent").join("store");
+        let mut o = StoreOptions::new(&dir);
+        o.initial_map_size = 16 << 20;
+        drop(open(&o).expect("open"));
+        let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        // An operator's directory keeps its mode.
+        let existing = base.join("existing");
+        std::fs::create_dir_all(&existing).expect("mkdir");
+        std::fs::set_permissions(&existing, std::fs::Permissions::from_mode(0o750)).expect("chmod");
+        let mut o = StoreOptions::new(&existing);
+        o.initial_map_size = 16 << 20;
+        drop(open(&o).expect("open"));
+        assert_eq!(mode(&existing), 0o750);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     fn bump(_: &Env<WithoutTls>, wtxn: &mut RwTxn<'_>, t: &Tables) -> Result<()> {
         t.meta.put(wtxn, b"migrated", b"yes")?;

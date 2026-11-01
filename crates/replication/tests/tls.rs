@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use replication::tls::{self, Trust};
-use replication::{FollowerSettings, ServerSettings, follower, server};
+use replication::{FollowerSettings, ServerSettings, SharedKey, follower, server};
 use store::{
     JournalEntryOrigin, Json, NewRpslObject, RoutePreferenceStatus, RpkiStatus, ScopeFilterStatus,
     SourceSettings, Store, StoreOptions, StoreSettings,
@@ -78,6 +78,10 @@ impl Captured {
 }
 
 const SECRET: &[u8] = b"a shared secret of some length";
+
+fn key(secret: &[u8]) -> SharedKey {
+    SharedKey::derive(secret).expect("derive")
+}
 
 fn open(dir: &TempDir, standby: bool) -> Store {
     let settings = StoreSettings {
@@ -162,7 +166,7 @@ impl Running {
 }
 
 fn start_server(store: &Store, tls: Option<Arc<rustls::ServerConfig>>) -> (Running, u16) {
-    let mut s = ServerSettings::new("127.0.0.1", 0, SECRET);
+    let mut s = ServerSettings::new("127.0.0.1", 0, key(SECRET));
     s.heartbeat = Duration::from_millis(200);
     s.tls = tls;
     let listener = server::bind(&s).expect("bind");
@@ -178,7 +182,7 @@ fn start_follower(
     spool: &TempDir,
     tls: Option<tls::ClientTls>,
 ) -> Running {
-    let mut s = FollowerSettings::new("127.0.0.1", port, SECRET, &spool.0);
+    let mut s = FollowerSettings::new("127.0.0.1", port, key(SECRET), &spool.0);
     s.idle_timeout = Duration::from_secs(2);
     s.max_backoff = Duration::from_secs(1);
     s.tls = tls;

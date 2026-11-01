@@ -8,16 +8,16 @@ use store::replog::{Entry, write_spool_row};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
-use crate::protocol::{self, Conn, Kind, Stream, Writer};
+use crate::gate::{self, Gate, Refusal};
+use crate::protocol::{self, Conn, Kind, Stream, Transcript, Writer};
 use crate::{Error, LOG_TARGET, ServerSettings, messages, tls};
 
 /// How much log one `ENTRIES` frame carries at most (roughly).
 const BATCH_BYTES: usize = 4 << 20;
 /// How often an idle stream looks for new entries.
 const POLL: Duration = Duration::from_millis(200);
-/// How long the handshake may take (each of the TLS handshake and the
-/// two frames the standby sends).
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// At most one warning a minute about refused connections.
+const REFUSAL_WARNING_INTERVAL: Duration = Duration::from_secs(60);
 /// Snapshot rows per frame (roughly, in bytes).
 const SNAPSHOT_FRAME: usize = 1 << 20;
 
@@ -79,6 +79,11 @@ pub async fn serve(
             }
         }
     });
+    let gate = Gate::new(
+        settings.max_unauthenticated,
+        settings.max_unauthenticated_per_ip,
+    );
+    let mut last_refusal_warning: Option<Instant> = None;
     loop {
         let accepted = tokio::select! {
             a = listener.accept() => a,
@@ -87,11 +92,38 @@ pub async fn serve(
         let Ok((stream, peer)) = accepted else {
             continue;
         };
+        let pending = match gate.admit(peer.ip(), Instant::now()) {
+            Ok(p) => p,
+            Err(refusal) => {
+                // Closed at once, without a word: the peer has proved
+                // nothing. Warn now and then, so a flood does not flood
+                // the log too.
+                let why = match refusal {
+                    Refusal::Busy => messages::TOO_MANY_PENDING,
+                    Refusal::BusyPeer => messages::TOO_MANY_PENDING_PEER,
+                    Refusal::LockedOut => messages::LOCKED_OUT,
+                };
+                if last_refusal_warning.is_none_or(|t| t.elapsed() >= REFUSAL_WARNING_INTERVAL) {
+                    last_refusal_warning = Some(Instant::now());
+                    tracing::warn!(target: LOG_TARGET, "{}", messages::standby_refused(&peer.to_string(), why));
+                } else {
+                    tracing::debug!(target: LOG_TARGET, "{}", messages::standby_refused(&peer.to_string(), why));
+                }
+                drop(stream);
+                continue;
+            }
+        };
         let _ = stream.set_nodelay(true);
-        let (store, settings, shutdown) = (store.clone(), settings.clone(), shutdown.clone());
+        let (store, settings, shutdown, gate) = (
+            store.clone(),
+            settings.clone(),
+            shutdown.clone(),
+            gate.clone(),
+        );
         tokio::spawn(async move {
+            let ip = peer.ip();
             let peer = peer.to_string();
-            match handle(stream, &peer, store, settings, shutdown).await {
+            match handle(stream, &peer, ip, pending, &gate, store, settings, shutdown).await {
                 Ok(()) => {}
                 Err(Error::Remote(e)) | Err(Error::Protocol(e)) => {
                     tracing::warn!(target: LOG_TARGET, "{}", messages::standby_refused(&peer, &e));
@@ -110,16 +142,14 @@ pub async fn serve(
 /// the clear.
 async fn open_stream(stream: TcpStream, settings: &ServerSettings) -> Result<Stream, Error> {
     let mut first = [0u8; 1];
-    let n = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.peek(&mut first))
-        .await
-        .map_err(|_| Error::Timeout)??;
+    let n = stream.peek(&mut first).await?;
     let wants_tls = n == 1 && first[0] == tls::TLS_HANDSHAKE_BYTE;
     match (&settings.tls, wants_tls) {
         (Some(config), true) => {
             let acceptor = tokio_rustls::TlsAcceptor::from(config.clone());
-            let s = tokio::time::timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream))
+            let s = acceptor
+                .accept(stream)
                 .await
-                .map_err(|_| Error::Timeout)?
                 .map_err(|e| Error::Protocol(messages::tls_failed(&e.to_string())))?;
             Ok(Box::new(s))
         }
@@ -127,7 +157,7 @@ async fn open_stream(stream: TcpStream, settings: &ServerSettings) -> Result<Str
             // Read the standby's HELLO before answering, so the ERROR is
             // not lost to a reset from closing with unread data.
             let mut conn = Conn::new(Box::new(stream) as Stream);
-            if let Ok(Ok(_)) = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.recv()).await {
+            if conn.recv().await.is_ok() {
                 conn.send(Kind::Error, messages::REQUIRES_TLS.as_bytes())
                     .await?;
             }
@@ -138,17 +168,21 @@ async fn open_stream(stream: TcpStream, settings: &ServerSettings) -> Result<Str
     }
 }
 
+/// The active's side of the handshake (see [`protocol`]): the standby
+/// proves the secret first, and only then does the active prove it too.
+/// Returns the log id and sequence the standby has applied.
 async fn handshake(
     conn: &mut Conn<Stream>,
     settings: &ServerSettings,
+    ip: std::net::IpAddr,
+    gate: &Gate,
 ) -> Result<(String, u64), Error> {
-    let (kind, p) = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.recv())
-        .await
-        .map_err(|_| Error::Timeout)??;
+    let mut transcript = Transcript::new();
+    let (kind, p) = conn.recv().await?;
     if kind != Kind::Hello {
         return Err(Error::Protocol("expected HELLO".into()));
     }
-    let (proto, schema, cn) = protocol::parse_hello(&p)?;
+    let (proto, schema, _) = protocol::parse_hello(&p)?;
     let refuse = if proto != protocol::PROTOCOL_VERSION {
         Some(messages::protocol_mismatch(
             protocol::PROTOCOL_VERSION,
@@ -163,39 +197,61 @@ async fn handshake(
         conn.send(Kind::Error, msg.as_bytes()).await?;
         return Err(Error::Protocol(msg));
     }
+    transcript.add(Kind::Hello, &p);
     let sn = protocol::nonce()?;
     let challenge = Writer::default()
         .u32(protocol::PROTOCOL_VERSION)
         .u32(store::SCHEMA_VERSION)
         .bytes(&sn)
-        .bytes(&protocol::server_proof(&settings.secret, &cn, &sn))
         .0;
     conn.send(Kind::Challenge, &challenge).await?;
-    let (kind, p) = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.recv())
-        .await
-        .map_err(|_| Error::Timeout)??;
+    transcript.add(Kind::Challenge, &challenge);
+    let (kind, p) = conn.recv().await?;
     if kind != Kind::Auth {
         return Err(Error::Protocol("expected AUTH".into()));
     }
-    let (proof, mut r) = protocol::parse_auth(&p)?;
-    if !protocol::constant_time_eq(&proof, &protocol::client_proof(&settings.secret, &cn, &sn)) {
+    let (body, proof) = protocol::split_auth(&p)?;
+    transcript.add(Kind::Auth, body);
+    if !protocol::constant_time_eq(&proof, &transcript.standby_proof(&settings.key)) {
+        if gate.failed(ip, Instant::now()) {
+            tracing::warn!(target: LOG_TARGET, "{}", messages::locked_out(&ip.to_string()));
+        }
         conn.send(Kind::Error, messages::AUTH_FAILED.as_bytes())
             .await?;
         return Err(Error::Protocol(messages::AUTH_FAILED.into()));
     }
-    conn.set_key(protocol::session_key(&settings.secret, &cn, &sn));
-    Ok((r.str()?, r.u64()?))
+    gate.succeeded(ip);
+    let position = protocol::parse_auth_position(body)?;
+    // The active's proof covers the standby's.
+    transcript.add_proof(&proof);
+    let accept = transcript.active_proof(&settings.key);
+    conn.send(Kind::Accept, &accept).await?;
+    transcript.add(Kind::Accept, &accept);
+    conn.set_key(transcript.session_key(&settings.key));
+    Ok(position)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle(
     stream: TcpStream,
     peer: &str,
+    ip: std::net::IpAddr,
+    pending: gate::Pending,
+    gate: &Gate,
     store: Store,
     settings: Arc<ServerSettings>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), Error> {
-    let mut conn = Conn::new(open_stream(stream, &settings).await?);
-    let (follow_id, follow_seq) = handshake(&mut conn, &settings).await?;
+    // Everything up to a proved secret, TLS included, has one deadline.
+    let (mut conn, (follow_id, follow_seq)) =
+        tokio::time::timeout(settings.handshake_timeout, async {
+            let mut conn = Conn::new(open_stream(stream, &settings).await?);
+            let position = handshake(&mut conn, &settings, ip, gate).await?;
+            Ok::<_, Error>((conn, position))
+        })
+        .await
+        .map_err(|_| Error::Timeout)??;
+    drop(pending);
 
     let s = store.clone();
     let st = blocking(move || s.replication_state()).await?;
