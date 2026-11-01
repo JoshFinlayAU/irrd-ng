@@ -87,8 +87,8 @@ mod tests {
     #[test]
     fn imports_survive_the_run_that_made_them() {
         let dir = tempfile::tempdir().expect("dir");
-        let store = Store::open(&StoreOptions::new(dir.path()), StoreSettings::default())
-            .expect("store");
+        let store =
+            Store::open(&StoreOptions::new(dir.path()), StoreSettings::default()).expect("store");
         {
             let keyring = StoreKeyring::load(&store);
             assert!(keyring.fingerprints().is_empty());

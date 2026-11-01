@@ -226,7 +226,13 @@ fn verify_policy() -> openpgp::policy::StandardPolicy<'static> {
     let mut p = openpgp::policy::StandardPolicy::new();
     p.accept_hash(HashAlgorithm::SHA1);
     p.accept_hash(HashAlgorithm::RipeMD);
-    for a in [A::RSA1024, A::DSA1024, A::DSA2048, A::DSA3072, A::ElGamal1024] {
+    for a in [
+        A::RSA1024,
+        A::DSA1024,
+        A::DSA2048,
+        A::DSA3072,
+        A::ElGamal1024,
+    ] {
         p.accept_asymmetric_algo(a);
     }
     p
@@ -274,9 +280,12 @@ impl openpgp::parse::stream::VerificationHelper for VerifyHelper<'_> {
         Ok(out)
     }
 
-    fn check(&mut self, structure: openpgp::parse::stream::MessageStructure) -> openpgp::Result<()> {
-        use openpgp::parse::stream::MessageLayer;
+    fn check(
+        &mut self,
+        structure: openpgp::parse::stream::MessageStructure,
+    ) -> openpgp::Result<()> {
         use openpgp::cert::amalgamation::ValidAmalgamation;
+        use openpgp::parse::stream::MessageLayer;
         use openpgp::types::RevocationStatus;
         let policy = verify_policy();
         // python-gnupg keeps the state of the last signature it saw.
@@ -295,10 +304,7 @@ impl openpgp::parse::stream::VerificationHelper for VerifyHelper<'_> {
                             vc.alive().is_ok()
                                 && !matches!(vc.revocation_status(), RevocationStatus::Revoked(_))
                         }) && good.ka.alive().is_ok()
-                            && !matches!(
-                                good.ka.revocation_status(),
-                                RevocationStatus::Revoked(_)
-                            );
+                            && !matches!(good.ka.revocation_status(), RevocationStatus::Revoked(_));
                         now_ok.then(|| cert.fingerprint().to_hex())
                     }
                     Err(_) => None,
