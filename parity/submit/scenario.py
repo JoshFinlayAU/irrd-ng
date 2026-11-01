@@ -394,14 +394,31 @@ def mails(side):
 def _mails(side):
     port = SIDES[side]["mail"]
     base = f"http://127.0.0.1:{port}/api/v1"
-    with urllib.request.urlopen(f"{base}/messages?limit=1000") as r:
-        listing = json.load(r)
+
+    def listing():
+        with urllib.request.urlopen(f"{base}/messages?limit=1000") as r:
+            return json.load(r).get("messages", [])
+
+    # Mail can still be on its way when the response arrives: wait until
+    # the count holds still for a second.
+    msgs = listing()
+    for _ in range(10):
+        time.sleep(1)
+        again = listing()
+        if len(again) == len(msgs):
+            break
+        msgs = again
     out = []
-    for m in listing.get("messages", []):
+    for m in msgs:
         with urllib.request.urlopen(f"{base}/message/{m['ID']}/raw") as r:
             out.append(r.read().decode(errors="replace"))
-    req = urllib.request.Request(f"{base}/messages", method="DELETE")
-    urllib.request.urlopen(req).read()
+    # Delete only what was read, so a later arrival shows up in the next
+    # step instead of vanishing.
+    if msgs:
+        req = urllib.request.Request(f"{base}/messages", method="DELETE",
+                                     data=json.dumps({"IDs": [m["ID"] for m in msgs]}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req).read()
     return out
 
 
