@@ -337,7 +337,9 @@ pub async fn run_nrtm3(
     serial_newest_mirror: i64,
 ) -> Result<(), PyErr> {
     let source = src.name.clone();
-    let serial_start = serial_newest_mirror + 1;
+    let serial_start = serial_newest_mirror
+        .checked_add(1)
+        .ok_or_else(|| PyErr::Other(messages::BIGINT_OUT_OF_RANGE.into()))?;
     let Some(host) = src.nrtm_host.clone() else {
         tracing::debug!(target: LOG_TARGET, "{}", messages::skipping_nrtm(&source));
         return Ok(());

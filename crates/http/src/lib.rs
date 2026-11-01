@@ -11,6 +11,8 @@
 
 mod event_stream;
 pub use event_stream::Events;
+#[doc(hidden)]
+pub mod fuzzing;
 mod gql;
 pub mod messages;
 mod multipart;
@@ -576,12 +578,11 @@ async fn route(
         };
     }
     if path.starts_with("/graphql/") {
-        let body = match body {
-            Some(b) => http_body_util::BodyExt::collect(b)
-                .await
-                .map(|c| c.to_bytes())
-                .unwrap_or_default(),
-            None => Bytes::new(),
+        let body = match read_body(body).await {
+            Ok(b) => b,
+            Err(BodyTooLarge) => {
+                return Reply::text(StatusCode::PAYLOAD_TOO_LARGE, messages::BODY_TOO_LARGE);
+            }
         };
         return graphql_endpoint(state, r, &body);
     }
@@ -681,10 +682,18 @@ fn graphql_endpoint(state: &HttpState, r: &Req<'_>, body: &[u8]) -> Reply {
         .unwrap_or_default();
     let ct = content_type.split(';').next().unwrap_or_default();
     let data = match ct {
-        "application/json" => match ::graphql::value::json_loads(body) {
-            Some(d) => d,
-            None => {
+        "application/json" => match ::graphql::value::json_loads_checked(body) {
+            Ok(d) => d,
+            Err(::graphql::value::JsonError::Invalid) => {
                 return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_INVALID_JSON);
+            }
+            // Starlette's request.json() raises RecursionError, which
+            // ariadne does not catch.
+            Err(::graphql::value::JsonError::TooDeep) => {
+                return internal_server_error(&format!(
+                    "Exception in ASGI application: {}",
+                    ::graphql::value::JSON_RECURSION_ERROR
+                ));
             }
         },
         "multipart/form-data" => {
@@ -858,12 +867,20 @@ async fn submit_route(state: &HttpState, r: &Req<'_>, body: Option<Incoming>) ->
     if !(*method == Method::POST || (delete && mount == "/v1/submit")) {
         return Some(Reply::method_not_allowed(allow));
     }
-    use http_body_util::BodyExt;
     let bytes = match body {
-        Some(b) => match b.collect().await {
-            Ok(c) => c.to_bytes(),
-            Err(_) => return Some(Reply::internal_error()),
-        },
+        Some(b) => {
+            match http_body_util::BodyExt::collect(http_body_util::Limited::new(b, MAX_BODY)).await
+            {
+                Ok(c) => c.to_bytes(),
+                Err(e) if e.is::<http_body_util::LengthLimitError>() => {
+                    return Some(Reply::text(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        messages::BODY_TOO_LARGE,
+                    ));
+                }
+                Err(_) => return Some(Reply::internal_error()),
+            }
+        }
         None => Bytes::new(),
     };
     let settings = state.submit.read().map(|s| s.clone()).unwrap_or_default();
@@ -884,6 +901,31 @@ async fn submit_route(state: &HttpState, r: &Req<'_>, body: Option<Incoming>) ->
     })
 }
 
+/// The largest request body read. v4 (uvicorn and Starlette) has no limit
+/// and reads any body into memory; in irrd-ng that memory would come out of
+/// the one process every client shares.
+pub const MAX_BODY: usize = 32 * 1024 * 1024;
+
+/// How long a client may take to send a request's headers, including the
+/// wait for the next request on a kept-alive connection.
+pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A request body over [`MAX_BODY`].
+struct BodyTooLarge;
+
+/// Read a whole request body, up to [`MAX_BODY`]. A body that fails to
+/// arrive reads as what arrived, as before.
+async fn read_body(body: Option<Incoming>) -> Result<Bytes, BodyTooLarge> {
+    let Some(b) = body else {
+        return Ok(Bytes::new());
+    };
+    match http_body_util::BodyExt::collect(http_body_util::Limited::new(b, MAX_BODY)).await {
+        Ok(c) => Ok(c.to_bytes()),
+        Err(e) if e.is::<http_body_util::LengthLimitError>() => Err(BodyTooLarge),
+        Err(_) => Ok(Bytes::new()),
+    }
+}
+
 /// Serve HTTP on `listener` until the task is dropped.
 pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
     loop {
@@ -891,6 +933,8 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(target: ACCESS_LOG_TARGET, "{e}");
+                // Out of file descriptors, say: wait instead of spinning.
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 continue;
             }
         };
@@ -901,6 +945,7 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
             // and what was read so far, goes to hyper.
             let mut stream = stream;
             let mut head: Vec<u8> = Vec::new();
+            let sniff_deadline = tokio::time::Instant::now() + HEADER_READ_TIMEOUT;
             const PREFIX: &[u8] = b"GET /";
             loop {
                 let candidate = if head.len() < PREFIX.len() {
@@ -912,9 +957,15 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
                     break;
                 }
                 let mut chunk = [0u8; 4096];
-                match tokio::io::AsyncReadExt::read(&mut stream, &mut chunk).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => head.extend_from_slice(&chunk[..n]),
+                let read = tokio::time::timeout_at(
+                    sniff_deadline,
+                    tokio::io::AsyncReadExt::read(&mut stream, &mut chunk),
+                );
+                match read.await {
+                    Ok(Ok(0) | Err(_)) => break,
+                    Ok(Ok(n)) => head.extend_from_slice(&chunk[..n]),
+                    // Too slow: drop the connection, as hyper would.
+                    Err(_) => return,
                 }
             }
             if head.starts_with(PREFIX)
@@ -929,6 +980,8 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
             let io = hyper_util::rt::TokioIo::new(Rewind::new(head, stream));
             let service = hyper::service::service_fn(move |req| handle(state.clone(), peer, req));
             let _ = hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .header_read_timeout(HEADER_READ_TIMEOUT)
                 .serve_connection(io, service)
                 .with_upgrades()
                 .await;

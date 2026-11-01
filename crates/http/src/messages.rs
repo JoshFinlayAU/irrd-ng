@@ -56,3 +56,6 @@ pub fn max_known_serial(serial: &str) -> String {
 
 /// `EventStreamEndpoint.on_receive()`'s answer to a second subscription.
 pub const STREAM_ALREADY_RUNNING: &str = "The stream is already running, request ignored.";
+
+/// irrd-ng's own: a request body over `MAX_BODY` (413).
+pub const BODY_TOO_LARGE: &str = "Request Entity Too Large";

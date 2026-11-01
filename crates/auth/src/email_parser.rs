@@ -294,11 +294,43 @@ fn unquote(s: &str) -> String {
     s.to_owned()
 }
 
+/// How deeply MIME parts may nest, counting the message itself. Python
+/// 3.13's feed parser recurses once per level and raises `RecursionError`
+/// past 987 (measured: 986 nested `message/rfc822` or `multipart` parts
+/// parse, 987 do not); this parser recurses too, and stops at the same
+/// depth.
+pub const MAX_MIME_DEPTH: usize = 987;
+
+/// The exception for a message nested past [`MAX_MIME_DEPTH`].
+pub const MIME_RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";
+
 /// `email.message_from_string(text)`
 pub fn message_from_string(text: &str) -> Part {
+    message_from_string_checked(text).unwrap_or_default()
+}
+
+/// [`message_from_string`], or `None` where Python raises
+/// `RecursionError`.
+pub fn message_from_string_checked(text: &str) -> Option<Part> {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let mut pos = 0;
-    parse_part(&lines, &mut pos, lines.len(), true, "text/plain")
+    let mut depth = Depth::default();
+    let part = parse_part(
+        &lines,
+        &mut pos,
+        lines.len(),
+        true,
+        "text/plain",
+        &mut depth,
+    );
+    (!depth.exceeded).then_some(part)
+}
+
+/// How deep the parser is, and whether it went past [`MAX_MIME_DEPTH`].
+#[derive(Default)]
+struct Depth {
+    level: usize,
+    exceeded: bool,
 }
 
 fn is_header_line(line: &str) -> bool {
@@ -320,11 +352,31 @@ fn parse_part(
     end: usize,
     top: bool,
     default_type: &'static str,
+    depth: &mut Depth,
 ) -> Part {
-    let mut part = Part {
+    let part = Part {
         default_type,
         ..Default::default()
     };
+    if depth.level >= MAX_MIME_DEPTH {
+        depth.exceeded = true;
+        *pos = end;
+        return part;
+    }
+    depth.level += 1;
+    let part_out = parse_part_inner(lines, pos, end, top, part, depth);
+    depth.level -= 1;
+    part_out
+}
+
+fn parse_part_inner(
+    lines: &[&str],
+    pos: &mut usize,
+    end: usize,
+    top: bool,
+    mut part: Part,
+    depth: &mut Depth,
+) -> Part {
     let mut first = true;
     while *pos < end {
         let line = lines[*pos];
@@ -366,11 +418,11 @@ fn parse_part(
     let ctype = part.content_type();
     if ctype.starts_with("multipart/") {
         if let Some(boundary) = part.param("boundary") {
-            parse_multipart(&mut part, lines, pos, end, &boundary);
+            parse_multipart(&mut part, lines, pos, end, &boundary, depth);
             return part;
         }
     } else if ctype.starts_with("message/") && ctype != "message/delivery-status" {
-        let sub = parse_part(lines, pos, end, false, "text/plain");
+        let sub = parse_part(lines, pos, end, false, "text/plain", depth);
         part.parts.push(sub);
         part.multipart = true;
         return part;
@@ -380,7 +432,14 @@ fn parse_part(
     part
 }
 
-fn parse_multipart(part: &mut Part, lines: &[&str], pos: &mut usize, end: usize, boundary: &str) {
+fn parse_multipart(
+    part: &mut Part,
+    lines: &[&str],
+    pos: &mut usize,
+    end: usize,
+    boundary: &str,
+    depth: &mut Depth,
+) {
     let separator = format!("--{boundary}");
     let re = Regex::new(&format!(
         r"^(?P<sep>{})(?P<end>--)?(?P<ws>[ \t]*)(?P<linesep>\r\n|\r|\n)?$",
@@ -421,7 +480,10 @@ fn parse_multipart(part: &mut Part, lines: &[&str], pos: &mut usize, end: usize,
         }
         let part_end = marks.get(w + 1).map_or(end, |m| m.0);
         let mut p = start_line + 1;
-        let mut sub = parse_part(lines, &mut p, part_end, false, child_default);
+        let mut sub = parse_part(lines, &mut p, part_end, false, child_default, depth);
+        if depth.exceeded {
+            break;
+        }
         if marks.get(w + 1).is_some() && !sub.multipart {
             // The line break before a boundary belongs to the boundary.
             if sub.payload.ends_with('\n') {
@@ -563,7 +625,8 @@ fn decode_charset(bytes: &[u8], charset: &str, backslashreplace: bool) -> Result
 impl EmailParser {
     /// `EmailParser(email_txt)`. Errors are the exceptions v4 would raise.
     pub fn parse(email_txt: &str, keyring: &Keyring) -> Result<EmailParser, String> {
-        let message = message_from_string(email_txt);
+        let message = message_from_string_checked(email_txt)
+            .ok_or_else(|| MIME_RECURSION_ERROR.to_owned())?;
         let mut out = EmailParser::default();
         let mut raw_body: Option<String> = None;
         let mut signature: Option<String> = None;
@@ -740,6 +803,47 @@ pub fn reply_addresses(field: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MIME parts nested past the limit are Python's RecursionError, not a
+    /// stack overflow; up to it, the message parses.
+    #[test]
+    fn deep_mime_nesting_is_a_recursion_error() {
+        // The CLI parses on the main thread (8 MiB of stack); test threads
+        // get less, and debug builds use far more stack per level.
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(deep_mime_nesting)
+            .expect("thread")
+            .join()
+            .expect("no panic");
+    }
+
+    fn deep_mime_nesting() {
+        let keyring = rpsl::Keyring::new();
+        let nested = |n: usize| {
+            format!(
+                "{}Subject: x\n\nbody\n",
+                "Content-Type: message/rfc822\n\n".repeat(n)
+            )
+        };
+        let ok = message_from_string_checked(&nested(MAX_MIME_DEPTH - 1)).expect("parses");
+        assert_eq!(ok.walk().len(), MAX_MIME_DEPTH);
+        assert!(message_from_string_checked(&nested(MAX_MIME_DEPTH)).is_none());
+        assert_eq!(
+            EmailParser::parse(&nested(100_000), &keyring).map(|_| ()),
+            Err(MIME_RECURSION_ERROR.to_owned())
+        );
+        let mut multipart = String::new();
+        for i in 0..100_000 {
+            multipart.push_str(&format!(
+                "Content-Type: multipart/mixed; boundary=b{i}\n\n--b{i}\n"
+            ));
+        }
+        assert_eq!(
+            EmailParser::parse(&multipart, &keyring).map(|_| ()),
+            Err(MIME_RECURSION_ERROR.to_owned())
+        );
+    }
 
     // Expected values from Python 3.13's bytes.decode().
     #[test]

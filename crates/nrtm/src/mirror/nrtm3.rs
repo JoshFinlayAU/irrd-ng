@@ -177,7 +177,11 @@ pub fn parse_nrtm_stream(source: &str, data: &str) -> Result<NrtmStream, PyErr> 
             if current_op_serial == -1 {
                 current_op_serial = out.first_serial;
             } else {
-                current_op_serial += 1;
+                // Python's int does not overflow; the serial then fails to
+                // fit Postgres' bigint when v4 stores it.
+                current_op_serial = current_op_serial
+                    .checked_add(1)
+                    .ok_or_else(|| PyErr::Other(messages::BIGINT_OUT_OF_RANGE.into()))?;
             }
             let operation_str: String;
             if paragraph.contains(' ') {
@@ -298,6 +302,20 @@ mod tests {
             Err(PyErr::Value(m)) => m,
             other => panic!("expected a ValueError, got {other:?}"),
         }
+    }
+
+    /// Serials at the top of i64 from a hostile upstream fail the run
+    /// instead of panicking on overflow.
+    #[test]
+    fn serial_overflow_is_an_error() {
+        let max = i64::MAX;
+        let stream = format!(
+            "%START Version: 3 TEST {max}-{max}\n\nADD\n\nperson: A\nnic-hdl: A-TEST\nsource: TEST\n\nADD\n\nperson: B\nnic-hdl: B-TEST\nsource: TEST\n\n%END TEST\n"
+        );
+        assert!(matches!(
+            parse_nrtm_stream("TEST", &stream),
+            Err(PyErr::Other(m)) if m == crate::messages::BIGINT_OUT_OF_RANGE
+        ));
     }
 
     #[test]

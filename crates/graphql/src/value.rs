@@ -78,34 +78,112 @@ impl Value {
 
 // ---- json.loads ----
 
+/// A dict's keys in insertion order, the last value of a repeated key
+/// winning in the first key's place, as Python's `dict` does. Small
+/// objects are searched; larger ones get a hash index, so an object with
+/// many keys costs linear time, not quadratic.
+#[derive(Default)]
+pub(crate) struct KeyIndex(Option<std::collections::HashMap<String, usize>>);
+
+impl KeyIndex {
+    const LINEAR: usize = 16;
+
+    pub(crate) fn insert<V>(&mut self, out: &mut Vec<(String, V)>, k: String, v: V) {
+        let found = match &self.0 {
+            Some(map) => map.get(&k).copied(),
+            None => out.iter().position(|(key, _)| *key == k),
+        };
+        if let Some(i) = found {
+            out[i].1 = v;
+            return;
+        }
+        if let Some(map) = &mut self.0 {
+            map.insert(k.clone(), out.len());
+        } else if out.len() >= Self::LINEAR {
+            let mut map: std::collections::HashMap<String, usize> = out
+                .iter()
+                .enumerate()
+                .map(|(i, (key, _))| (key.clone(), i))
+                .collect();
+            map.insert(k.clone(), out.len());
+            self.0 = Some(map);
+        }
+        out.push((k, v));
+    }
+}
+
+/// How deeply arrays and objects may nest. Python's decoder recurses
+/// once per level and gives up with a `RecursionError` at its recursion
+/// limit; this parser recurses too, and stops well before its stack would
+/// run out.
+pub const MAX_JSON_DEPTH: usize = 512;
+
+/// Why [`json_loads_checked`] failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonError {
+    /// Not valid JSON: Python raises `JSONDecodeError` (a `ValueError`).
+    Invalid,
+    /// Nested deeper than [`MAX_JSON_DEPTH`]: Python's `RecursionError`,
+    /// which v4's callers do not catch.
+    TooDeep,
+}
+
+/// The `RecursionError` message for [`JsonError::TooDeep`].
+pub const JSON_RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string";
+
 /// `json.loads(body)` on request bytes; `None` where Python raises (the
 /// caller only needs to know that it failed).
 pub fn json_loads(body: &[u8]) -> Option<Value> {
+    json_loads_checked(body).ok()
+}
+
+/// [`json_loads`], telling a `RecursionError` from invalid JSON.
+pub fn json_loads_checked(body: &[u8]) -> Result<Value, JsonError> {
     // json.loads(bytes) detects the encoding; anything but UTF-8 is not
     // worth supporting here and ends in the same "not valid JSON" answer
     // for every realistic client. A UTF-8 BOM is accepted, as Python's
     // detect_encoding() picks utf-8-sig.
     let body = body.strip_prefix(b"\xef\xbb\xbf").unwrap_or(body);
     if body.len() >= 2 && (body[0] == 0 || body[1] == 0) {
-        return None;
+        return Err(JsonError::Invalid);
     }
-    let text = std::str::from_utf8(body).ok()?;
-    json_loads_str(text)
+    let text = std::str::from_utf8(body).map_err(|_| JsonError::Invalid)?;
+    json_loads_str_checked(text)
 }
 
 /// `json.loads(text)`.
 pub fn json_loads_str(text: &str) -> Option<Value> {
+    json_loads_str_checked(text).ok()
+}
+
+/// [`json_loads_str`], telling a `RecursionError` from invalid JSON.
+pub fn json_loads_str_checked(text: &str) -> Result<Value, JsonError> {
     let chars: Vec<char> = text.chars().collect();
-    let mut p = JsonParser { s: &chars, i: 0 };
+    let mut p = JsonParser {
+        s: &chars,
+        i: 0,
+        depth: 0,
+        too_deep: false,
+    };
     p.ws();
-    let v = p.value()?;
+    let v = p.value();
+    if p.too_deep {
+        return Err(JsonError::TooDeep);
+    }
+    let v = v.ok_or(JsonError::Invalid)?;
     p.ws();
-    (p.i == chars.len()).then_some(v)
+    if p.i == chars.len() {
+        Ok(v)
+    } else {
+        Err(JsonError::Invalid)
+    }
 }
 
 struct JsonParser<'a> {
     s: &'a [char],
     i: usize,
+    depth: usize,
+    too_deep: bool,
 }
 
 impl JsonParser<'_> {
@@ -131,8 +209,20 @@ impl JsonParser<'_> {
 
     fn value(&mut self) -> Option<Value> {
         match self.peek()? {
-            '{' => self.object(),
-            '[' => self.list(),
+            '{' | '[' => {
+                if self.depth >= MAX_JSON_DEPTH {
+                    self.too_deep = true;
+                    return None;
+                }
+                self.depth += 1;
+                let v = if self.peek() == Some('{') {
+                    self.object()
+                } else {
+                    self.list()
+                };
+                self.depth -= 1;
+                v
+            }
             '"' => self.string().map(Value::Str),
             'n' if self.lit("null") => Some(Value::Null),
             't' if self.lit("true") => Some(Value::Bool(true)),
@@ -148,6 +238,7 @@ impl JsonParser<'_> {
     fn object(&mut self) -> Option<Value> {
         self.i += 1;
         let mut out: Vec<(String, Value)> = Vec::new();
+        let mut index = KeyIndex::default();
         self.ws();
         if self.peek() == Some('}') {
             self.i += 1;
@@ -166,10 +257,7 @@ impl JsonParser<'_> {
             self.i += 1;
             self.ws();
             let v = self.value()?;
-            match out.iter_mut().find(|(key, _)| *key == k) {
-                Some(e) => e.1 = v,
-                None => out.push((k, v)),
-            }
+            index.insert(&mut out, k, v);
             self.ws();
             match self.peek()? {
                 ',' => self.i += 1,
@@ -625,6 +713,32 @@ mod tests {
             "{\"a\":2,\"b\":[1.0,\"x\u{e9}\"],\"c\":nan}"
         );
         assert!(json_loads_str("{\"a\":1,}").is_none());
+        // Nesting past the limit is Python's RecursionError, not a stack
+        // overflow; up to it, the value parses.
+        let deep = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+        assert!(json_loads_str_checked(&deep(MAX_JSON_DEPTH)).is_ok());
+        assert_eq!(
+            json_loads_str_checked(&deep(MAX_JSON_DEPTH + 1)),
+            Err(JsonError::TooDeep)
+        );
+        assert_eq!(
+            json_loads_str_checked(&"[".repeat(1_000_000)),
+            Err(JsonError::TooDeep)
+        );
+        assert_eq!(json_loads_str_checked("[1,"), Err(JsonError::Invalid));
+        // Many keys: insertion order kept, a repeated key updated in place.
+        let mut text = String::from("{");
+        for i in 0..1000 {
+            text.push_str(&format!("\"k{i}\": {i}, "));
+        }
+        text.push_str("\"k3\": -1, \"k999\": -2}");
+        let Some(Value::Object(o)) = json_loads_str(&text) else {
+            panic!("not an object");
+        };
+        assert_eq!(o.len(), 1000);
+        assert_eq!(o[3], ("k3".to_owned(), Value::Int(-1)));
+        assert_eq!(o[999], ("k999".to_owned(), Value::Int(-2)));
+        assert_eq!(o[500], ("k500".to_owned(), Value::Int(500)));
         assert!(json_loads_str("01").is_none());
         assert_eq!(
             json_loads_str("123456789012345678901234567890123456789012"),

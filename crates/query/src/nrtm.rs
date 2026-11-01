@@ -198,7 +198,7 @@ pub(crate) fn generate(
         return invalid(messages::nrtm_serials_missing(end_available, end));
     }
     if r.serial_end.is_none() {
-        if r.serial_start == end_available + 1 {
+        if Some(r.serial_start) == end_available.checked_add(1) {
             return Ok(messages::NRTM_NO_NEWER_UPDATES.to_owned());
         } else if r.serial_start > end_available {
             return invalid(messages::nrtm_serials_missing(

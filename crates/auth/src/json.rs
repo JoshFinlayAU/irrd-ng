@@ -8,6 +8,40 @@
 
 use std::fmt::Write as _;
 
+/// A dict's keys in insertion order, the last value of a repeated key
+/// winning in the first key's place, as Python's `dict` does. Small
+/// objects are searched; larger ones get a hash index, so an object with
+/// many keys costs linear time, not quadratic.
+#[derive(Debug, Default)]
+pub(crate) struct KeyIndex(Option<std::collections::HashMap<String, usize>>);
+
+impl KeyIndex {
+    const LINEAR: usize = 16;
+
+    pub(crate) fn insert<V>(&mut self, out: &mut Vec<(String, V)>, k: String, v: V) {
+        let found = match &self.0 {
+            Some(map) => map.get(&k).copied(),
+            None => out.iter().position(|(key, _)| *key == k),
+        };
+        if let Some(i) = found {
+            out[i].1 = v;
+            return;
+        }
+        if let Some(map) = &mut self.0 {
+            map.insert(k.clone(), out.len());
+        } else if out.len() >= Self::LINEAR {
+            let mut map: std::collections::HashMap<String, usize> = out
+                .iter()
+                .enumerate()
+                .map(|(i, (key, _))| (key.clone(), i))
+                .collect();
+            map.insert(k.clone(), out.len());
+            self.0 = Some(map);
+        }
+        out.push((k, v));
+    }
+}
+
 /// A JSON object being written, keys in insertion order.
 #[derive(Debug, Clone, Default)]
 pub struct Obj {
@@ -140,11 +174,9 @@ impl<'de> serde::Deserialize<'de> for PyJson {
             }
             fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<PyJson, A::Error> {
                 let mut out: Vec<(String, PyJson)> = Vec::new();
+                let mut index = KeyIndex::default();
                 while let Some((k, v)) = a.next_entry::<String, PyJson>()? {
-                    match out.iter_mut().find(|(ek, _)| *ek == k) {
-                        Some(e) => e.1 = v,
-                        None => out.push((k, v)),
-                    }
+                    index.insert(&mut out, k, v);
                 }
                 Ok(PyJson::Dict(out))
             }

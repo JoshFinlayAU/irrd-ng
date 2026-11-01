@@ -46,6 +46,18 @@ pub trait Extensions {
     fn sql_queries(&self) -> Option<Vec<String>>;
 }
 
+/// Parse and validate a document as [`graphql()`] does, without running
+/// it: the number of validation errors, or `None` for a syntax error or
+/// a crash. For the fuzz targets.
+#[doc(hidden)]
+pub fn validate_only(schema: &Schema, scalars: &dyn ScalarParsers, query: &str) -> Option<usize> {
+    let body_chars: Vec<char> = query.chars().collect();
+    let doc = parser::parse_checked(&body_chars).ok()?;
+    validation::validate(schema, scalars, &doc, &body_chars, Some(MAX_QUERY_COST))
+        .ok()
+        .map(|e| e.len())
+}
+
 /// `ariadne.graphql()` with IRRd's `QueryMetadataExtension` and
 /// `error_formatter`. `elapsed` gives the `execution` time when called.
 pub fn graphql(
@@ -81,11 +93,14 @@ pub fn graphql(
     };
 
     let body_chars: Vec<char> = query.chars().collect();
-    let doc = match parser::parse(&body_chars) {
+    let doc = match parser::parse_checked(&body_chars) {
         Ok(d) => d,
-        Err(e) => {
+        Err(parser::ParseFailure::Syntax(e)) => {
             let err = GraphQLError::new(format!("Syntax Error: {}", e.description), vec![e.pos]);
             return errors_only(vec![err.formatted(&body_chars)]);
+        }
+        Err(parser::ParseFailure::TooDeep) => {
+            return Outcome::Crash(parser::RECURSION_ERROR.into());
         }
     };
 
@@ -223,11 +238,14 @@ pub fn ws_start(schema: &Schema, scalars: &dyn ScalarParsers, data: &Value) -> W
         }
     };
     let body_chars: Vec<char> = query.chars().collect();
-    let doc = match parser::parse(&body_chars) {
+    let doc = match parser::parse_checked(&body_chars) {
         Ok(d) => d,
-        Err(e) => {
+        Err(parser::ParseFailure::Syntax(e)) => {
             let err = GraphQLError::new(format!("Syntax Error: {}", e.description), vec![e.pos]);
             return WsStart::Error(err.formatted(&body_chars));
+        }
+        Err(parser::ParseFailure::TooDeep) => {
+            return WsStart::Crash(parser::RECURSION_ERROR.into());
         }
     };
     // ariadne.utils.get_operation_type(): with a name, the first

@@ -30,7 +30,7 @@ pub mod status;
 
 pub use nrtm::{NrtmRequest, NrtmServer, NrtmV3};
 pub use parser::{SOCKET_DEFAULT_TIMEOUT, WhoisSession};
-pub use resolver::{QueryError, QueryResolver, RouteLookupType};
+pub use resolver::{MAX_SET_LEVELS, QueryError, QueryResolver, RouteLookupType};
 pub use response::{Response, ResponseMode, ResponseType};
 pub use settings::{ConfigValue, QuerySettings, SourceQuerySettings};
 

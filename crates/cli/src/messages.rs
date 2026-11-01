@@ -210,6 +210,15 @@ pub(crate) fn store_in(path: &std::path::Path) -> String {
 pub(crate) const REPLICATION_NEEDS_SECRET: &str = "Unable to start: ng_replication.secret (or IRRD_NG_REPLICATION_SECRET) must be set when ng_replication.port or ng_replication.active_host is set";
 
 /// irrd-ng's own: a standby with nothing to follow.
+/// irrd-ng's own: a whois query line over `MAX_LINE`.
+pub(crate) fn whois_line_too_long(client: &str) -> String {
+    format!("{client}: closed connection, query line longer than 1 MiB")
+}
+
+pub(crate) fn replication_tls(e: &str) -> String {
+    format!("Unable to start: ng_replication TLS settings: {e}")
+}
+
 pub(crate) const STANDBY_WITHOUT_ACTIVE: &str = "readonly_standby is set but ng_replication.active_host is not: this standby will not receive changes";
 
 /// irrd-ng's own: SIGHUP turned readonly_standby off.
