@@ -16,7 +16,7 @@ pub(crate) fn unknown_tool(name: &str) -> String {
 }
 
 pub(crate) const IMPORT_USAGE: &str = "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>] \
-     [--write-batch-rows <n>] [--load-pgp-keys]";
+     [--write-batch-rows <n>] [--no-load-pgp-keys]";
 
 pub(crate) fn import_missing_value(flag: &str) -> String {
     format!("argument {flag}: expected one argument")

@@ -1,7 +1,7 @@
 //! `irrd-ng import`: the one-shot migration from an IRRd 4.5 database.
 //!
 //!   irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>]
-//!                 [--write-batch-rows <n>] [--load-pgp-keys]
+//!                 [--write-batch-rows <n>] [--no-load-pgp-keys]
 //!
 //! Reads the v4 database in one read-only snapshot and upserts every row
 //! into the store, creating it if needed. The store is `--store`, else
@@ -25,7 +25,8 @@ struct Args {
     store: std::path::PathBuf,
     batch_rows: usize,
     write_rows: usize,
-    /// `--load-pgp-keys`: fill the PGP keyring from every key-cert.
+    /// Fill the PGP keyring from every key-cert; off with
+    /// `--no-load-pgp-keys`.
     load_pgp_keys: bool,
 }
 
@@ -34,7 +35,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
     let mut store = None;
     let mut batch_rows = import_v4::DEFAULT_BATCH_ROWS;
     let mut write_rows = import_v4::to_store::WRITE_BATCH_ROWS;
-    let mut load_pgp_keys = false;
+    let mut load_pgp_keys = true;
     let mut it = args
         .iter()
         .skip(1)
@@ -70,6 +71,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
                     .ok_or_else(|| messages::import_bad_int("--write-batch-rows", &v))?;
             }
             "--load-pgp-keys" => load_pgp_keys = true,
+            "--no-load-pgp-keys" => load_pgp_keys = false,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(messages::import_unknown_arg(other)),
         }
@@ -173,12 +175,12 @@ fn import(args: &Args, load_started: &mut bool) -> anyhow::Result<()> {
 }
 
 /// v4 keeps its PGP keyring in a GnuPG home directory, outside the
-/// database, so the import cannot copy it, and starts irrd-ng with an
-/// empty keyring as a v4 on a new host would start. With
-/// `--load-pgp-keys` every stored key-cert is parsed strictly instead,
-/// which imports its key, as `irrd_load_pgp_keys` does per source, so PGP
-/// signed submissions work straight after the migration. Returns the
-/// number of keys in the keyring.
+/// database, so the import cannot copy it. Instead every stored key-cert
+/// is parsed strictly, which imports its key as `irrd_load_pgp_keys` does
+/// per source, so PGP signed submissions keep working straight after the
+/// migration, as they did on v4. `--no-load-pgp-keys` leaves the keyring
+/// empty, as on a v4 moved to a new host. Returns the number of keys in
+/// the keyring.
 fn load_keyring_from_keycerts(store: &Store) -> anyhow::Result<usize> {
     let texts: Vec<String> = {
         let r = store.read()?;

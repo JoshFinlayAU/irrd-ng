@@ -157,7 +157,7 @@ Two costs to be aware of: sequoia is LGPL-2.0-or-later, and it ends up inside a 
 
 v4's keyring is a GnuPG home directory: every key-cert parsed in strict mode imports its key, whether the change that carried it is saved or not, and nothing ever removes one. irrd-ng keeps the keyring in the store's `pgp_keyring` table (schema version 4). Each entry holds what gpg's import kept (user IDs with their self-signature times, subkeys, signatures), which `owner` is derived from, plus the public key packets. A mirror run, `irrd_load_database`, `irrd_update_database` and `irrd_load_pgp_keys` load it, and write the keys they imported back in a transaction of their own, so like v4's they stay even when the run rolls back. A submission writes them in its own transaction. Signed e-mail (inline and PGP/MIME) is checked against it with sequoia, the way `gpg --verify` would: a good signature by a key that is not expired or revoked now.
 
-The v4 import cannot copy a GnuPG keyring, so an imported store starts with an empty one, as a v4 moved to a new host does; `irrd_load_pgp_keys` fills it per source. `irrd-ng import --load-pgp-keys` fills it from every key-cert in the store instead.
+The v4 import cannot copy a GnuPG keyring, so it rebuilds one from every key-cert in the store, and PGP signed submissions keep working after the migration as they did on v4. `--no-load-pgp-keys` leaves the keyring empty, as on a v4 moved to a new host, and `irrd_load_pgp_keys` then fills it per source.
 
 ## Submissions
 

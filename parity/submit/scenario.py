@@ -470,8 +470,10 @@ INSERT INTO auth_api_token (pk, token, name, creator_id, mntner_id, ip_restricti
     while time.time() < end and psql("SELECT count(*) FROM roa_object").strip() in ("", "0"):
         time.sleep(1)
     time.sleep(5)
+    # v4's keyring starts empty here, so irrd-ng's must too for the steps
+    # before irrd_load_pgp_keys.
     p = dc("run", "--rm", "--no-deps", "ng", "import", "--from-postgres",
-           "postgresql://irrd:irrd@postgres/irrd?sslmode=disable", check=False)
+           "postgresql://irrd:irrd@postgres/irrd?sslmode=disable", "--no-load-pgp-keys", check=False)
     if p.returncode:
         raise RuntimeError("import failed: " + p.stdout.decode() + p.stderr.decode())
     dc("up", "-d", "ng")
