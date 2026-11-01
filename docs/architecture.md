@@ -240,4 +240,4 @@ irrd-ng is LGPL-2.1-or-later (`LICENSE`). It's a reimplementation of v4, and a l
 
 - The proposals still waiting for review in `docs/divergences.md`, and the Phase 9 ones (the `ng_replication` key, partial `logging_config_path` support, the primary group after dropping privileges, SIGHUP not restarting HTTP workers).
 
-The performance story isn't written yet on purpose. We expect queries to be a lot faster than v4, for the structural reasons above, but the rule for this project is that performance claims come with numbers from the load bench against v4 on the same data, and that bench lands in Phase 3.
+The performance numbers are in `bench/RESULTS.md`, measured against v4 on the same data with the scripts in `bench/`. They come from the Tier 1 data on a development box; the production-size bench on the Tier 2 VM (`bench/load.sh`) still has to be run again with the Phase 10 changes.
