@@ -26,7 +26,7 @@
 //! are discarded. With `--count N` each worker runs exactly N mix entries
 //! instead of running until the deadline (for timing single commands). The report is one JSON object on stdout: per class and in
 //! total, completed queries, errors, bytes, QPS and p50/p90/p99/max in
-//! microseconds.
+//! microseconds, and how many answers took 500 ms or more.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -359,7 +359,7 @@ fn report(name: &str, st: &mut Stats, secs: f64, out: &mut String) {
     let n = st.lat_us.len();
     let _ = write!(
         out,
-        "\"{name}\": {{\"queries\": {n}, \"errors\": {}, \"bytes\": {}, \"qps\": {:.1}, \"p50_us\": {}, \"p90_us\": {}, \"p99_us\": {}, \"max_us\": {}}}",
+        "\"{name}\": {{\"queries\": {n}, \"errors\": {}, \"bytes\": {}, \"qps\": {:.1}, \"p50_us\": {}, \"p90_us\": {}, \"p99_us\": {}, \"max_us\": {}, \"over_500ms\": {}}}",
         st.errors,
         st.bytes,
         n as f64 / secs,
@@ -367,6 +367,7 @@ fn report(name: &str, st: &mut Stats, secs: f64, out: &mut String) {
         pct(&st.lat_us, 0.90),
         pct(&st.lat_us, 0.99),
         st.lat_us.last().copied().unwrap_or(0),
+        n - st.lat_us.partition_point(|&l| l < 500_000),
     );
 }
 

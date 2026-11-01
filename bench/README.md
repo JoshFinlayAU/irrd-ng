@@ -37,3 +37,20 @@ written.
 parity/load.sh && parity/ng.sh start
 bench/http_load.sh --concurrency "4 16" --duration 30
 ```
+
+## Tier 1
+
+`bench/tier1_load.sh` runs the whois mix (`mix.py`), the REST part and the GraphQL part of the HTTP mix (`http_mix.py`) against both servers on the Tier 1 stack, one server and one mix at a time, at several concurrency levels. It reports QPS, p50, p99, the slowest answer and how many answers took 500 ms or more, and samples memory every second (irrd-ng's RSS and anonymous RSS; for v4 its three containers). This is the bench that runs on a development box; the numbers and how they were taken are in `bench/RESULTS.md`.
+
+```sh
+parity/up.sh && parity/load.sh && parity/ng.sh start
+bench/tier1_load.sh --concurrency "4 16 64" --duration 20
+```
+
+## Large write transactions
+
+`bench/large_txn.sh DUMP` loads one dump into a store of its own with `irrd_load_database` and then rewrites every object twice with `irrd_update_database` (each one transaction, journalled), reporting wall time, CPU time, peak RSS, peak anonymous RSS and the map and data file size after each step.
+
+```sh
+bench/large_txn.sh parity/.cache/RADB.db.gz
+```
