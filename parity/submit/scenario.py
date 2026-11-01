@@ -353,9 +353,23 @@ def http(side, method, path, body, headers=None):
     return f"status {status}\ncontent-type {ctype}\n{out.decode(errors='replace')}"
 
 
-def tool(side, args, stdin=None):
+# v4's irr_rpsl_submit with the bug DIV-005 fixes corrected: it filters
+# passwords out of a debug line with bytes.replace(str, bytes).
+V4_FIXED_RPSL_SUBMIT = (
+    "import re, sys, irrd.scripts.irr_rpsl_submit as m; "
+    "src = open(m.__file__).read().replace('filtered_http_data.replace(password, b\"REMOVED\")', "
+    "'filtered_http_data.replace(password.encode(), b\"REMOVED\")'); "
+    "assert 'password.encode()' in src; "
+    "sys.argv[0] = 'irr_rpsl_submit'; "
+    "exec(compile(src, m.__file__, 'exec'), {'__name__': '__main__'})"
+)
+
+
+def tool(side, args, stdin=None, v4_fixed=False):
     svc = SIDES[side]["service"]
-    if side == "v4":
+    if side == "v4" and v4_fixed:
+        cmd = ["exec", "-T", svc, "/opt/irrd/bin/python", "-c", V4_FIXED_RPSL_SUBMIT, *args[1:]]
+    elif side == "v4":
         cmd = ["exec", "-T", svc, *args]
     else:
         cmd = ["exec", "-T", svc, "/ng/irrd-ng", *args]
@@ -654,10 +668,12 @@ def steps(fpr, keycert):
         f"{S.SAMPLE_PERSON}delete: delete\n\n{mntner_clean}delete: delete\npassword: crypt-password\n")
     # irr_rpsl_submit, each against its own server
     url = ["-u", "http://localhost:8080/v1/submit/"]
-    # v4's irr_rpsl_submit raises before sending whenever the input has a
-    # password: line; overrides go through.
-    yield "rpsl-submit-password", "tool-stdin", (["irr_rpsl_submit", *url], seed_person_modified.replace(
-        "New street", "Submitted by CLI") + f"\npassword: {SEED_PW}\n")
+    # DIV-005: v4's irr_rpsl_submit raises before sending whenever the
+    # input has a password: line. v4 must still do that, and irrd-ng must
+    # do what v4's tool does with that one line fixed.
+    with_password = seed_person_modified.replace("New street", "Submitted by CLI") + f"\npassword: {SEED_PW}\n"
+    yield "rpsl-submit-password-v4-bug", "v4-tool-bug", (["irr_rpsl_submit", *url], with_password)
+    yield "rpsl-submit-password", "tool-stdin-v4-fixed", (["irr_rpsl_submit", *url], with_password)
     yield "rpsl-submit-text", "tool-stdin", (["irr_rpsl_submit", *url], seed_person_modified.replace(
         "New street", "Submitted by CLI") + f"\noverride: {OVERRIDE}\n")
     yield "rpsl-submit-json-failure", "tool-stdin", (["irr_rpsl_submit", "-j", *url, "-m", "a=b,c=d=e"],
@@ -702,6 +718,16 @@ def run_steps(fpr, keycert):
                 results[side] = tool(side, arg)
             elif kind == "tool-stdin":
                 results[side] = tool(side, arg[0], arg[1])
+            elif kind == "tool-stdin-v4-fixed":
+                results[side] = tool(side, arg[0], arg[1], v4_fixed=True)
+            elif kind == "v4-tool-bug":
+                if side == "v4":
+                    out = tool(side, arg[0], arg[1])
+                    if "a bytes-like object is required" not in out:
+                        raise RuntimeError(f"v4's irr_rpsl_submit no longer fails on passwords:\n{out}")
+                    log(f"step {n} {name}: v4 still fails as expected")
+        if kind == "v4-tool-bug":
+            continue
         record(n, name, results)
         log(f"step {n} {name}")
 
