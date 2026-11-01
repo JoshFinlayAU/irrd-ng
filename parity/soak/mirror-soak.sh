@@ -151,6 +151,10 @@ cycle() {
     "${DC[@]}" exec -T irrd-ng /irrd-ng export-jsonl --config /etc/irrd/irrd.yaml \
       --table all --output-dir "/out/$ts-$attempt" &
     wait
+    # export-jsonl writes its files 0600 (they hold password hashes and API
+    # tokens), as root here; let the host read them. The image has no shell.
+    docker run --rm --user root --entrypoint chmod -v "$SOAK/ng-out:/out" "$V4_IMAGE" \
+      -R a+rX "/out/$ts-$attempt"
     mv "$SOAK/ng-out/$ts-$attempt" "$out/irrd-ng"
     res=$(python3 "$HERE/soak_compare.py" "$out/v4" "$out/irrd-ng" || true)
     rm -rf "$out/v4" "$out/irrd-ng"

@@ -209,6 +209,9 @@ compare() {
     -v "$ROOT/parity/tools:/tools:ro" -v "$out/v4:/out" "$V4_IMAGE" \
     /tools/export_v4.py postgresql://irrd:irrd@postgres/mirror /out >/dev/null
   "${DC[@]}" exec -T irrd-ng /irrd-ng export-jsonl --config /etc/irrd/irrd.yaml --table all --output-dir "/out/$step"
+  # export-jsonl writes its files 0600 (they hold password hashes and API
+  # tokens), as root here; let the host read them. The image has no shell.
+  docker run --rm --user root --entrypoint chmod -v "$WORK/ng-out:/out" "$V4_IMAGE" -R a+rX "/out/$step"
   cp -r "$WORK/ng-out/$step" "$out/irrd-ng"
   # v4's HTTP server writes a web UI secret_key into `setting` at start;
   # it has nothing to do with mirroring.
