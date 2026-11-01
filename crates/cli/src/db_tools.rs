@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 use config::Configuration;
 use nrtm::file_import::{self, ImportError, ImportSettings, ParseEnv};
+use nrtm::mirror::spool::{ParagraphReader, Spool, SpoolItem};
 use store::{Store, StoreOptions};
 
 use crate::argparse::{Opt, Parsed, Parser};
@@ -239,8 +240,20 @@ fn store_err(e: store::StoreError) -> ExitCode {
     ExitCode::from(1)
 }
 
-/// `irrd_load_database`: parse and write in one transaction, a chunk of
-/// the file at a time, as v4 streams through the file.
+/// Paragraphs parsed per batch by `irrd_load_database`.
+const LOAD_PARSE_BATCH: usize = 1 << 16;
+
+/// `irrd_load_database`: parse the file, then write it in one transaction.
+///
+/// v4 parses and writes as it streams through the file, in one
+/// transaction. irrd-ng parses first, a batch of paragraphs at a time, into
+/// a spool file, and then replays the spool in the store's key order in
+/// one write transaction, as the mirror runner does for a full import.
+/// Memory stays bounded by a batch and the spool's key index, not by the
+/// size of the source (a full RADB held every parsed object, 2.3 GiB).
+/// What v4 shows is unchanged: the same log lines in the same order (the
+/// report still comes before the commit), the same rows, the same errors
+/// and exit codes; a parse error still leaves the store untouched.
 pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     let (p, a) = match prepare(&LOAD, args, true) {
         Ok(v) => v,
@@ -259,19 +272,50 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let paragraphs = match read_paragraphs(&p.file) {
-        Ok(v) => v,
-        Err(c) => return c,
+    let file = match std::fs::File::open(&p.file) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("{}", messages::os_error(&e, &p.file));
+            return ExitCode::from(1);
+        }
     };
-    let reserve = paragraphs.iter().map(String::len).sum::<usize>() * 5;
-    let job = std::sync::Arc::new(LoadJob {
-        paragraphs,
-        import: import_settings(&p, false),
-        rpsl_settings,
-        keyring: nrtm::keyring::load_keyring(&p.store),
-        scopefilter: rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg)),
-        rpki_excluded: settings::rpki_excluded_sources(&p.cfg),
-    });
+    let import = import_settings(&p, false);
+    let keyring = nrtm::keyring::load_keyring(&p.store);
+    let scopefilter = rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg));
+    let roa = {
+        let r = match p.store.read() {
+            Ok(r) => r,
+            Err(e) => return store_err(e),
+        };
+        match rpki::BulkRouteRoaValidator::from_store(
+            &r.view(),
+            settings::rpki_excluded_sources(&p.cfg),
+        ) {
+            Ok(v) => v,
+            Err(e) => return store_err(e),
+        }
+    };
+    let parsed = spool_file(
+        file,
+        &p.file,
+        &import,
+        &rpsl_settings,
+        &keyring,
+        &roa,
+        &scopefilter,
+    );
+    // Like v4's GnuPG keyring, imported keys stay whatever the outcome.
+    nrtm::keyring::save_keyring(&p.store, &keyring);
+    // The store is open in bulk-load mode, so that write is synced here.
+    if let Err(e) = p.store.sync() {
+        return store_err(e);
+    }
+    let (spool, counters) = match parsed {
+        Ok(v) => v,
+        Err(code) => return code,
+    };
+    let reserve = spool.text_bytes.saturating_mul(5) + (1 << 20);
+    let spool = std::sync::Arc::new(spool);
     // A full reload of one source: commits need not sync, as v4's single
     // transaction either lands whole or not at all. The marker makes an
     // interrupted load refuse to open instead of serving a partial store.
@@ -279,51 +323,33 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
         Ok(b) => b,
         Err(e) => return store_err(e),
     };
-    let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
-    let fail_slot = failure.clone();
-    let keyring_job = job.clone();
+    let source = p.source.clone();
     // v4 logs the report before it commits (and so before route
     // preference runs at commit): log from inside the transaction, once.
     let logged = std::sync::atomic::AtomicBool::new(false);
     let result = p.store.write_reserving(reserve, move |tx| {
-        let source = &job.import.source;
-        let roa = rpki::BulkRouteRoaValidator::from_store(
-            &tx.read_unflushed(),
-            job.rpki_excluded.clone(),
-        )?;
-        tx.delete_all_rpsl_objects_with_journal(source, false)?;
-        tx.disable_journaling();
-        let env = ParseEnv {
-            rpsl: &job.rpsl_settings,
-            keyring: &job.keyring,
-            roa_validator: Some(&roa),
-            scopefilter: &job.scopefilter,
-        };
-        match file_import::run_file_import(tx, &job.paragraphs, &job.import, &env, serial) {
-            Ok(c) => {
-                if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    file_import::log_file_import_report(source, &c);
-                }
-                Ok(c)
-            }
-            Err(file_import::StreamError::Store(e)) => Err(e),
-            Err(file_import::StreamError::Import(e)) => {
-                if let Ok(mut f) = fail_slot.lock() {
-                    *f = Some(e);
-                }
-                Err(store::StoreError::Aborted(String::new()))
-            }
+        if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            file_import::log_file_import_report(&source, &counters);
         }
+        tx.delete_all_rpsl_objects_with_journal(&source, false)?;
+        tx.disable_journaling();
+        spool.for_each_sorted(&mut |item| match item {
+            SpoolItem::Upsert(o) => {
+                tx.upsert_rpsl_object(&o, store::JournalEntryOrigin::Mirror, None, None)
+            }
+            SpoolItem::MirrorError(e) => tx.record_mirror_error(&source, &e),
+        })?;
+        if let Some(s) = serial
+            && s != 0
+        {
+            tx.record_serial_seen(&source, s)?;
+        }
+        Ok(())
     });
     // The transaction committed or rolled back as a whole: either way the
     // store is complete again once synced.
     if let Err(e) = bulk.finish() {
         return store_err(e);
-    }
-    // Like v4's GnuPG keyring, imported keys stay whatever the outcome.
-    nrtm::keyring::save_keyring(&p.store, &keyring_job.keyring);
-    if let Some(e) = failure.lock().ok().and_then(|mut f| f.take()) {
-        return import_failed(e);
     }
     match result {
         Ok(_) => ExitCode::SUCCESS,
@@ -331,13 +357,60 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     }
 }
 
-struct LoadJob {
-    paragraphs: Vec<String>,
-    import: ImportSettings,
-    rpsl_settings: rpsl::RpslSettings,
-    keyring: rpsl::Keyring,
-    scopefilter: rpki::ScopeFilterValidator,
-    rpki_excluded: std::collections::HashSet<String>,
+/// Parse `file` a batch of paragraphs at a time into a spool sorted for
+/// key-order replay. An import error is reported as v4 reports it.
+fn spool_file(
+    file: std::fs::File,
+    name: &str,
+    import: &ImportSettings,
+    rpsl: &rpsl::RpslSettings,
+    keyring: &rpsl::Keyring,
+    roa: &rpki::BulkRouteRoaValidator,
+    scopefilter: &rpki::ScopeFilterValidator,
+) -> Result<(Spool, file_import::Counters), ExitCode> {
+    let env = ParseEnv {
+        rpsl,
+        keyring,
+        roa_validator: Some(roa),
+        scopefilter,
+    };
+    let spool_failed = |e: nrtm::mirror::pyerr::PyErr| {
+        eprintln!("{}", e.message());
+        ExitCode::from(1)
+    };
+    let mut spool = Spool::new().map_err(spool_failed)?;
+    let mut reader = ParagraphReader::new(file);
+    let mut counters = file_import::Counters::default();
+    let failed: std::cell::RefCell<Option<nrtm::mirror::pyerr::PyErr>> = Default::default();
+    loop {
+        let batch = reader.next_chunk(LOAD_PARSE_BATCH).map_err(|e| {
+            eprintln!("{}", messages::os_error(&e, name));
+            ExitCode::from(1)
+        })?;
+        if batch.is_empty() {
+            break;
+        }
+        let c = file_import::parse_streaming(&batch, import, &env, &mut |a| {
+            spool.push_action(a).map_err(|e| {
+                let msg = e.message().to_owned();
+                *failed.borrow_mut() = Some(e);
+                store::StoreError::Aborted(msg)
+            })
+        });
+        match c {
+            Ok(c) => counters.merge(c),
+            Err(file_import::StreamError::Import(e)) => return Err(import_failed(e)),
+            Err(file_import::StreamError::Store(e)) => {
+                return Err(match failed.borrow_mut().take() {
+                    Some(pe) => spool_failed(pe),
+                    None => store_err(e),
+                });
+            }
+        }
+    }
+    spool.close().map_err(spool_failed)?;
+    spool.sort_by_key();
+    Ok((spool, counters))
 }
 
 fn import_settings(p: &Prepared, keep_plain_text: bool) -> ImportSettings {

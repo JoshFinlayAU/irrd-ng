@@ -65,15 +65,7 @@ where
 /// Add one batch's counters to the total, keeping first-seen order of
 /// unknown classes.
 pub(crate) fn merge_counters(total: &mut Counters, c: Counters) {
-    total.obj_parsed += c.obj_parsed;
-    total.obj_errors += c.obj_errors;
-    total.obj_ignored_class += c.obj_ignored_class;
-    total.obj_unknown += c.obj_unknown;
-    for class in c.unknown_object_classes {
-        if !total.unknown_object_classes.contains(&class) {
-            total.unknown_object_classes.push(class);
-        }
-    }
+    total.merge(c);
 }
 
 /// The parser state for one import: settings, keyring and validators.

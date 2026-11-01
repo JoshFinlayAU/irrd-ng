@@ -85,6 +85,19 @@ pub struct Counters {
 }
 
 impl Counters {
+    /// Add the counts of a later part of the same input.
+    pub fn merge(&mut self, c: Counters) {
+        self.obj_parsed += c.obj_parsed;
+        self.obj_errors += c.obj_errors;
+        self.obj_ignored_class += c.obj_ignored_class;
+        self.obj_unknown += c.obj_unknown;
+        for class in c.unknown_object_classes {
+            if !self.unknown_object_classes.contains(&class) {
+                self.unknown_object_classes.push(class);
+            }
+        }
+    }
+
     /// `obj_parsed - obj_unknown - obj_errors - obj_ignored_class`
     pub fn successful(&self) -> i64 {
         self.obj_parsed - self.obj_unknown - self.obj_errors - self.obj_ignored_class
@@ -552,32 +565,36 @@ pub fn apply_update_import(
     }
 
     // Every row of the source is compared, including the ones just
-    // inserted, as v4's query runs after the inserts.
-    let rows: Vec<((String, String), String)> = {
+    // inserted, as v4's query runs after the inserts. Every row is compared
+    // before any is written, as v4 reads them all first; only the keys of
+    // the rows that differ are kept, not a copy of every row's text.
+    let changed: Vec<(String, String)> = {
         let view = tx.read()?;
         let mut v = Vec::new();
+        let mut k = (String::new(), String::new());
         for item in view.objects(Some(source), None)? {
             let (_, o) = item?;
-            v.push((
-                (o.rpsl_pk.to_owned(), o.object_class.to_owned()),
-                o.object_text.to_owned(),
-            ));
+            k.0.clear();
+            k.0.push_str(o.rpsl_pk);
+            k.1.clear();
+            k.1.push_str(o.object_class);
+            let Some(file_obj) = by_pk.get(&k) else {
+                continue;
+            };
+            if file_obj.plain_text != remove_last_modified(o.object_text) {
+                v.push(k.clone());
+            }
         }
         v
     };
-    for (k, text) in rows {
-        let Some(file_obj) = by_pk.get(&k) else {
-            continue;
-        };
-        if file_obj.plain_text != remove_last_modified(&text) {
-            tx.upsert_rpsl_object(
-                &file_obj.object,
-                JournalEntryOrigin::SyntheticNrtm,
-                None,
-                None,
-            )?;
-            counts.obj_modified += 1;
-        }
+    for k in changed {
+        tx.upsert_rpsl_object(
+            &by_pk[&k].object,
+            JournalEntryOrigin::SyntheticNrtm,
+            None,
+            None,
+        )?;
+        counts.obj_modified += 1;
     }
     Ok(counts)
 }
