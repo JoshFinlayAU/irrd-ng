@@ -111,6 +111,11 @@ ROAImportRunner().run()
   # ROAImportRunner logs its failures instead of raising.
   grep -q 'RPKI status updated for all routes' "$work/v4-roa.log" || { tail -20 "$work/v4-roa.log" >&2; exit 1; }
 fi
+# Journal entries for the event stream suite: one irrd_update_database
+# run on the journaled synthetic source.
+cp "$parity/events/EVSTREAM.update" "$work/EVSTREAM.update"
+v4 irrd_update_database --config /etc/irrd/irrd.yaml --source EVSTREAM /tier1/EVSTREAM.update \
+  > "$work/v4-evstream.log" 2>&1 || { tail -20 "$work/v4-evstream.log" >&2; exit 1; }
 since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker compose restart irrd-v4 > /dev/null
 ./up.sh > /dev/null

@@ -20,12 +20,13 @@
 mod json;
 pub mod messages;
 pub mod nrtm;
+pub mod objects;
 pub mod order;
 pub mod parser;
 pub mod resolver;
 pub mod response;
 pub mod settings;
-mod status;
+pub mod status;
 
 pub use nrtm::{NrtmRequest, NrtmServer, NrtmV3};
 pub use parser::{SOCKET_DEFAULT_TIMEOUT, WhoisSession};

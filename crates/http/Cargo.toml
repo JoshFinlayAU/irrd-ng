@@ -9,7 +9,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytes = "1.11.1"
+flate2.workspace = true
+graphql.workspace = true
 http-body-util.workspace = true
+md5 = { package = "md-5", version = "0.11.0" }
+rpsl.workspace = true
+sha1 = "0.10.6"
 httpdate.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true

@@ -162,9 +162,10 @@ impl ImportParser {
 pub async fn run_mirror_update(ctx: MirrorContext, source: String) {
     let result = run(&ctx, &source).await;
     match result {
-        Ok(_full_reload) => {
-            // v4 publishes a full reload on the event stream here; the
-            // event stream arrives in Phase 8.
+        Ok(full_reload) => {
+            if full_reload {
+                ctx.store.publish_event(&source, "full_reload");
+            }
         }
         Err(PyErr::Nrtm4(m)) => {
             tracing::error!(target: LOG_TARGET, "{}", messages::nrtm4_validation_errors(&source, &m));

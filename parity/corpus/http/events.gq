@@ -1,0 +1,70 @@
+# Event stream suite (parity/run.sh --suite events): the WebSocket at
+# /v1/event-stream/ and /v1/event-stream/initial/. parity/run.sh first
+# applies the same journaled changes to both servers (tools/events_seed.py),
+# so there are journal entries to stream.
+
+@tags initial
+@request GET /v1/event-stream/initial/?sources=EVSTREAM
+@end
+
+@request GET /v1/event-stream/initial/?sources=EVSTREAM&object_classes=route,mntner
+@end
+
+@request GET /v1/event-stream/initial/?object_classes=key-cert&sources=EVSTREAM,NOPE
+@end
+
+@request GET /v1/event-stream/initial/?sources=evstream
+@end
+
+@tags websocket
+@ws
+wait
+@end
+
+@ws permessage-deflate; client_max_window_bits
+wait
+@end
+
+@ws
+send {"message_type": "subscribe", "after_global_serial": 0}
+wait
+@end
+
+@ws permessage-deflate
+send {"message_type": "subscribe", "after_global_serial": 3}
+wait
+@end
+
+@ws
+send {"message_type": "subscribe", "after_global_serial": 99999999}
+wait
+send {"message_type": "subscribe", "after_global_serial": 0}
+wait
+@end
+
+@ws
+send {"message_type": "subscribe"}
+wait
+send {"message_type": "subscribe"}
+wait
+@end
+
+@ws
+send {}
+wait
+@end
+
+@ws
+send {"message_type": "unsubscribe"}
+wait
+@end
+
+@ws
+send {"message_type": "subscribe", "after_global_serial": "abc"}
+wait
+@end
+
+@ws
+send []
+wait
+@end

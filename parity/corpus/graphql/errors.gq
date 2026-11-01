@@ -1,0 +1,433 @@
+# GraphQL suite: parse, validation and execution errors. Every message
+# comes from graphql-core or ariadne, and v4 shows them verbatim.
+
+@tags syntax
+@gql
+{
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: 'x') { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(recordLimit: 01) { rpslPk } }
+@end
+
+@gql
+query { a: }
+@end
+
+@gql
+{ a(b: $c) }
+@end
+
+@gql
+"description" { __typename }
+@end
+
+@gql
+fragment on on X { a }
+@end
+
+@gql
+{ __typename } ?
+@end
+
+@gql
+{ a(b: "\u{110000}") }
+@end
+
+@gql
+{ a(b: "\q") }
+@end
+
+@gql
+{ a(b: 1.) }
+@end
+
+@gql
+{ a(b: .5) }
+@end
+
+@gql
+{ a ..b }
+@end
+
+@gql
+query Q($a: Int = $b) { __typename }
+@end
+
+@gql
+
+{
+  rpslObjects(
+    rpslPk: "x"
+  {
+@end
+
+@tags validation
+@gql
+{ foo }
+@end
+
+@gql
+{ rpslObject(rpslPk: "x") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { rpslPk prefix } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { rpslPk { a } } }
+@end
+
+@gql
+{ rpslObjects(rpslPK: "x", bogus: 1) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x", rpslPk: "y") { rpslPk } }
+@end
+
+@gql
+{ asnPrefixes { asn } }
+@end
+
+@gql
+{ asnPrefixes(asns: [1]) { asn } recursiveSetMembers { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(recordLimit: "x") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(recordLimit: 99999999999) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpkiStatus: [valud]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpkiStatus: "valid") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(asn: "AS65000") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(asn: [1.5, true]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(asn: {a: 1}) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipExact: "foo") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipExact: "192.0.2.1/24") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipExact: 3) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(sqlTrace: "yes", rpslPk: null) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: [1, 2]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: {a: 1, a: 2}) { rpslPk } }
+@end
+
+@gql
+{ ... on RPSLRoute { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { ... on DatabaseStatus { source } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { ...F } }
+fragment F on String { x }
+@end
+
+@gql
+{ __typename }
+fragment F on Query { __typename }
+@end
+
+@gql
+{ ...F }
+fragment F on Query { ...G }
+fragment G on Query { ...F }
+@end
+
+@gql
+{ ...F }
+fragment F on Query { __typename }
+fragment F on Query { __typename }
+@end
+
+@gql
+{ ...Missing }
+@end
+
+@gql
+query Q { __typename }
+query Q { __typename }
+@end
+
+@gql
+{ __typename }
+query { __typename }
+@end
+
+@gql
+query($a: Int, $a: Int) { __typename }
+@end
+
+@gql
+query($a: RPSLRoute) { __typename }
+@end
+
+@gql
+query($a: Nope) { __typename }
+@end
+
+@gql
+query { rpslObjects(recordLimit: $n) { rpslPk } }
+@end
+
+@gql
+query Q { rpslObjects(recordLimit: $n) { rpslPk } }
+@end
+
+@gql
+query($n: String) { rpslObjects(recordLimit: $n) { rpslPk } }
+@end
+
+@gql
+query($n: Int) { rpslObjects(rpslPk: "x", recordLimit: $n) { rpslPk } }
+@end
+
+@gql
+{ __typename @skip }
+@end
+
+@gql
+{ __typename @skip(if: true) @skip(if: false) }
+@end
+
+@gql
+{ __typename @nope }
+@end
+
+@gql
+query @skip(if: true) { __typename }
+@end
+
+@gql
+{ __typename @deprecated }
+@end
+
+@gql
+{ __typename @skip(if: true, unless: false) }
+@end
+
+@gql
+{ a: rpslObjects(rpslPk: "x") { rpslPk } a: databaseStatus { source } }
+@end
+
+@gql
+{ a: rpslObjects(rpslPk: "x") { rpslPk } a: rpslObjects(rpslPk: "y") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { ... on RPSLRoute { prefix } ... on RPSLRoute6 { prefix: route6 } } }
+@end
+
+@gql
+mutation { __typename }
+@end
+
+@gql
+subscription { __typename }
+@end
+
+@gql
+type Foo { a: Bar }
+@end
+
+@gql
+schema { query: Query }
+extend type Query @x
+@end
+
+@gql
+{ __type { name } }
+@end
+
+@gql
+{ __type(name: "RPSLRoute") { fields { type { fields { type { fields { type { name } } } } } } } }
+@end
+
+@gql
+{ rpslObjects(textSearch: "x") @stream(label: 1) { rpslPk } }
+@end
+
+@tags cost
+@gql
+{ rpslObjects(rpslPk: "x") { rpslPk ...A ...A2 } }
+fragment A on RPSLObject { objectText source mntBy mntByObjs { rpslPk objectText mntByObjs { rpslPk objectText mntByObjs { rpslPk objectText mntByObjs { rpslPk } } } } }
+fragment A2 on RPSLRoute { route origin descr adminC techC memberOf mntBy changed source remarks notify }
+@end
+
+@gql
+query($a: [String!]!) { recursiveSetMembers(setNames: $a) { rpslPk } asSetPrefixes(setNames: $a) { rpslPk } }
+@variables {"a": ["AS-X"]}
+@end
+
+@tags execution
+@gql
+{ rpslObjects(objectClass: ["route"]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(sources: ["RADB"]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: null) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipLessSpecificOneLevel: "192.0.2.0/24", ipAny: "192.0.2.0/24") { rpslPk } }
+@end
+
+@gql
+{ databaseStatus(sources: ["NOPE"]) { source source_type } }
+@end
+
+@gql
+{ asnPrefixes(asns: [1], sources: ["NOPE"]) { asn } }
+@end
+
+@tags requestshape
+@request POST /graphql/
+Content-Type: application/json
+
+[]
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": 1}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": ""}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": "{ __typename }", "variables": []}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": "{ __typename }", "operationName": 5}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": "{ __typename }", "operationName": ["a", 1]}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+{"query": "{ __typename }", "operationName": null, "variables": null}
+@end
+
+@request POST /graphql/
+Content-Type: application/json
+
+not json
+@end
+
+@request POST /graphql/
+Content-Type: application/json; charset=utf-8
+
+{"query": "{ __typename }"}
+@end
+
+@request POST /graphql/
+Content-Type: text/plain
+
+{"query": "{ __typename }"}
+@end
+
+@request POST /graphql/
+
+{"query": "{ __typename }"}
+@end
+
+@request GET /graphql/
+@end
+
+@request GET /graphql/?query={__typename}
+@end
+
+@request HEAD /graphql/
+@end
+
+@request OPTIONS /graphql/
+@end
+
+@request PUT /graphql/
+@end
+
+@request DELETE /graphql/
+@end
+
+@request GET /graphql
+@end
+
+@request POST /graphql
+Content-Type: application/json
+
+{"query": "{ __typename }"}
+@end
+
+@request POST /graphql/anything
+Content-Type: application/json
+
+{"query": "{ __typename }"}
+@end

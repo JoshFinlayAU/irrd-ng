@@ -82,3 +82,8 @@ irrd:
     # Synthetic: route6 objects in and around ::/96 (corpus/whois/data/).
     EDGE96:
       keep_journal: false
+    # Synthetic, journaled: the event stream suite (corpus/http/events.gq).
+    # load.sh applies events/EVSTREAM.update with irrd_update_database, so
+    # its journal has additions, changes and a deletion.
+    EVSTREAM:
+      keep_journal: true

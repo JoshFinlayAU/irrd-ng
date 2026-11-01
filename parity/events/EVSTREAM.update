@@ -1,0 +1,44 @@
+mntner:         EVSTREAM-MNT
+descr:          Synthetic maintainer for the event stream suite
+admin-c:        EVS1-TEST
+upd-to:         noc@example.net
+auth:           CRYPT-PW LEuuhsBJNFV0Q
+auth:           MD5-PW $1$fgW84Y9r$kKEFnd8kE2/2hmV7JcmnI/
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261102
+source:         EVSTREAM
+
+aut-num:        AS64496
+as-name:        EVSTREAM-EXAMPLE
+descr:          Documentation ASN, updated
+member-of:      AS-EVSTREAM
+admin-c:        EVS1-TEST
+tech-c:         EVS1-TEST
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261102
+source:         EVSTREAM
+
+as-set:         AS-EVSTREAM
+descr:          Synthetic set: é and / in text
+members:        AS64496, AS64497
+mbrs-by-ref:    EVSTREAM-MNT
+tech-c:         EVS1-TEST
+admin-c:        EVS1-TEST
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
+
+route:          192.0.2.0/24
+descr:          Documentation prefix, now with
++               a continuation line
+origin:         AS64496
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261102
+source:         EVSTREAM
+
+route6:         2001:db8::/32
+descr:          Documentation prefix
+origin:         AS64497
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261102
+source:         EVSTREAM

@@ -30,7 +30,13 @@ const MAX_GROUP: usize = 256;
 struct Shared {
     settings: RwLock<Arc<StoreSettings>>,
     routepref_hook: RwLock<Option<RoutePreferenceHook>>,
+    event_listener: RwLock<Option<EventListener>>,
 }
+
+/// Called after each commit with `(source, operation)` for every source
+/// whose journal grew (`journal_extended`), and by
+/// [`Store::publish_event`]: the event stream's publisher.
+pub type EventListener = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// The store: open once per process and share (it is cheap to clone).
 ///
@@ -92,6 +98,7 @@ impl Store {
         let shared = Arc::new(Shared {
             settings: RwLock::new(Arc::new(settings)),
             routepref_hook: RwLock::new(None),
+            event_listener: RwLock::new(None),
         });
         let writer = if options.read_only {
             None
@@ -136,6 +143,27 @@ impl Store {
     pub fn set_route_preference_hook(&self, hook: Option<RoutePreferenceHook>) {
         if let Ok(mut h) = self.shared.routepref_hook.write() {
             *h = hook;
+        }
+    }
+
+    /// Install the event stream publisher.
+    pub fn set_event_listener(&self, listener: Option<EventListener>) {
+        if let Ok(mut l) = self.shared.event_listener.write() {
+            *l = listener;
+        }
+    }
+
+    /// Publish an event other than `journal_extended` (a mirror's
+    /// `full_reload`).
+    pub fn publish_event(&self, source: &str, operation: &str) {
+        let listener = self
+            .shared
+            .event_listener
+            .read()
+            .ok()
+            .and_then(|l| l.clone());
+        if let Some(l) = listener {
+            l(source, operation);
         }
     }
 
@@ -364,6 +392,16 @@ fn writer_loop(inner: &Inner, shared: &Shared, rx: Receiver<Job>) {
             .unwrap_or_default();
         let hook = shared.routepref_hook.read().ok().and_then(|h| *h);
         let results = run_batch(inner, &settings, hook, &mut batch);
+        // v4's publish_event_stream(): right after commit, before the
+        // caller goes on.
+        let listener = shared.event_listener.read().ok().and_then(|l| l.clone());
+        if let Some(l) = listener {
+            for changed in results.iter().flatten() {
+                for source in &changed.sources_with_new_serials {
+                    l(source, "journal_extended");
+                }
+            }
+        }
         for (job, res) in batch.into_iter().zip(results) {
             (job.done)(res);
         }

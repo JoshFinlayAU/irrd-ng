@@ -1,0 +1,75 @@
+# HTTP API suite (parity/run.sh --suite api): /v1/status/, /metrics/,
+# the GraphiQL explorer and its static files, and routing edge cases.
+# Syntax: tools/http_diff.py.
+
+@tags status
+@request GET /v1/status/
+@end
+
+@request HEAD /v1/status/
+@end
+
+@request GET /v1/status
+@end
+
+@request GET /v1/status/anything?x=1
+@end
+
+@request POST /v1/status/
+@end
+
+@request GET /v1/status/
+Cookie: session=abc
+@end
+
+@tags metrics
+@request GET /metrics/
+@end
+
+@request GET /metrics
+@end
+
+@request DELETE /metrics/
+@end
+
+@tags explorer
+@request GET /graphql/
+@end
+
+@request GET /static/js/graphiql/mount.js
+@end
+
+@request GET /static/js/graphiql/page.css
+@end
+
+@request HEAD /static/js/graphiql/react.production.min.js
+@end
+
+@request GET /static/js/graphiql/nope.js
+@end
+
+@request POST /static/js/graphiql/mount.js
+@end
+
+@tags routing
+@request GET /v1/event-stream/
+@end
+
+@request GET /v1/event-stream
+@end
+
+@request GET /v1/event-stream/initial
+@end
+
+@request POST /v1/event-stream/initial/
+@end
+
+@request GET /v1/event-stream/initial/?bogus=1
+@end
+
+@request GET /nonexistent/
+@end
+
+@request GET /v1/whois/?q=!v
+Host: wrong.example
+@end

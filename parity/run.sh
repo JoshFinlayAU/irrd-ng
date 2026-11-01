@@ -2,14 +2,19 @@
 # Differential parity run: replay the query corpus against v4 and irrd-ng
 # and byte-diff every response (CLAUDE.md, "Differential parity testing").
 #
-#   parity/run.sh [--suite whois|http|all] [--test ng|v4-twin|HOST:PORT]
+#   parity/run.sh [--suite whois|http|graphql|api|events|all] [--test ng|v4-twin|HOST:PORT]
 #                 [--http-test HOST:PORT] [--ref HOST:PORT] [--http-ref HOST:PORT]
 #                 [--bindings FILE] [--scale K] [--only TAG,...] [--jobs N]
 #                 [--timeout S] [--redact] [--save-responses] [--strict] [--out DIR]
 #
-# Suites: whois (TCP, single queries and keepalive sessions) and http
-# (/v1/whois/, single queries). graphql, nrtm, submit and cli come with
-# their phases.
+# Suites: whois (TCP, single queries and keepalive sessions), http
+# (/v1/whois/, single queries), graphql (/graphql/, corpus/graphql/*.gq),
+# api (/v1/status/, /metrics/, the explorer and routing,
+# corpus/http/api.gq) and events (the event stream WebSocket and its
+# initial download, corpus/http/events.gq). graphql, api and events run
+# through tools/http_diff.py, which masks what differs between two
+# servers by nature (times, host names) and accepts a permutation where
+# v4's own order is not fixed. nrtm, submit and cli come with their phases.
 #
 # Default targets are the Tier 1 setup from parity/load.sh: v4 on
 # 127.0.0.1:9043/9080 and irrd-ng on 127.0.0.1:$NG_WHOIS_PORT/$NG_HTTP_PORT
@@ -45,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     --out) out=$2; shift 2 ;;
     --only|--skip|--rerun|--jobs|--timeout|--max-report) extra+=("$1" "$2"); shift 2 ;;
     --redact|--save-responses|--strict) extra+=("$1"); shift ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -91,11 +96,27 @@ run_suite() {
     --unordered corpus/whois/unordered.tsv --requests corpus/http/requests.tsv "${extra[@]}" \
     || status=1
 }
+run_api_suite() {
+  local s=$1; shift
+  local o=${out:-$parity/out/$s-$stamp}
+  [[ -n $out && $suite == all ]] && o=$out/$s
+  echo "== suite $s: v4 $http_ref vs $http_test"
+  python3 -I tools/http_diff.py --suite "$s" --bindings "$bindings" --ref "$http_ref" --test "$http_test" \
+    --out "$o" "$@" || status=1
+}
+graphql_suite() { v4/preload-kick.sh irrd-v4 9080; run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq; }
+api_suite() { run_api_suite api --corpus corpus/http/api.gq; }
+events_suite() { run_api_suite events --corpus corpus/http/events.gq; }
 case $suite in
   whois) run_suite whois "$ref" "$whois_test" ;;
   http) v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;
-  all) run_suite whois "$ref" "$whois_test"; v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;
-  graphql|nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
+  graphql) graphql_suite ;;
+  api) api_suite ;;
+  events) events_suite ;;
+  all)
+    run_suite whois "$ref" "$whois_test"; v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test"
+    graphql_suite; api_suite; events_suite ;;
+  nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
   *) echo "unknown suite $suite" >&2; exit 2 ;;
 esac
 exit $status
