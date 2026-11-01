@@ -114,10 +114,12 @@ async fn fetch(
     };
     let file = retriever.file(roa_source, None).await?;
     let path = file.path().to_path_buf();
+    let name = path.to_string_lossy().into_owned();
+    // `open(roa_filename)`: the OSError names the file.
     let bytes = tokio::task::spawn_blocking(move || std::fs::read(path))
         .await
         .map_err(|e| PyErr::Other(e.to_string()))?
-        .map_err(|e| PyErr::Os(crate::mirror::pyerr::os_error_text(&e, None)))?;
+        .map_err(|e| PyErr::Os(crate::mirror::pyerr::os_error_text(&e, Some(&name))))?;
     drop(file);
     let text = String::from_utf8(bytes).map_err(|e| PyErr::Value(e.to_string()))?;
     Ok((text, slurm))
@@ -585,6 +587,17 @@ mod tests {
         );
         let r = store.read().expect("read");
         assert_eq!(r.view().roas().expect("roas").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn missing_roa_file_is_an_os_error_naming_it() {
+        let mut ms = mirror_settings();
+        ms.status_jobs.roa_source = Some("file:///nonexistent/roas.json".into());
+        let e = fetch_roa_files(&ms).await.expect_err("missing");
+        assert_eq!(
+            e,
+            PyErr::Os("[Errno 2] No such file or directory: '/nonexistent/roas.json'".into())
+        );
     }
 
     // The v4 quirk: a ROA repeated under another trust anchor fails the
