@@ -1,0 +1,127 @@
+# Fuzz targets for every parser that reads outside input. Nightly only:
+#   python3 fuzz/make_seeds.py
+#   cargo +nightly fuzz run -s none -a <target> -- -max_total_time=600 -rss_limit_mb=2048
+# (`cargo +nightly fuzz list` names the targets.) Inputs that ever crashed
+# a target live on as unit tests next to the code they broke.
+[package]
+name = "irrd-ng-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "LGPL-2.1-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: fuzzing needs nightly, the main build does not.
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+auth = { path = "../crates/auth" }
+config = { path = "../crates/config" }
+graphql = { path = "../crates/graphql" }
+http = { path = "../crates/http" }
+nrtm = { path = "../crates/nrtm" }
+query = { path = "../crates/query" }
+replication = { path = "../crates/replication" }
+rpki = { path = "../crates/rpki" }
+rpsl = { path = "../crates/rpsl" }
+store = { path = "../crates/store" }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[profile.release]
+debug = 1
+overflow-checks = true
+
+[[bin]]
+name = "rpsl_parse"
+path = "fuzz_targets/rpsl_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "whois_query"
+path = "fuzz_targets/whois_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "email_parse"
+path = "fuzz_targets/email_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "multipart"
+path = "fuzz_targets/multipart.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "graphql_request"
+path = "fuzz_targets/graphql_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "graphql_document"
+path = "fuzz_targets/graphql_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "websocket_frames"
+path = "fuzz_targets/websocket_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "submit_json"
+path = "fuzz_targets/submit_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nrtm3_stream"
+path = "fuzz_targets/nrtm3_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nrtm4_files"
+path = "fuzz_targets/nrtm4_files.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roa_slurm"
+path = "fuzz_targets/roa_slurm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_load"
+path = "fuzz_targets/config_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "replication_frames"
+path = "fuzz_targets/replication_frames.rs"
+test = false
+doc = false
+bench = false
