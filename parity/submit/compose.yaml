@@ -1,0 +1,67 @@
+# Submission differential (Phase 7): a pinned IRRd v4 and irrd-ng side by
+# side, each with its own mail sink, fed identical submissions by
+# parity/submit/run.sh. irrd-ng runs in the v4 image (for its shell) with
+# the binary mounted. Both containers have the same host name, which v4
+# and irrd-ng both put in every mail they send. Host ports are 97xx, clear
+# of the other harnesses. Nothing here talks to the internet.
+name: irrd-submit-diff
+
+services:
+  postgres:
+    image: postgres:18.6-trixie@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    environment:
+      POSTGRES_USER: irrd
+      POSTGRES_PASSWORD: irrd
+      POSTGRES_DB: irrd
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    tmpfs: [/var/lib/postgresql]
+    ports: ["127.0.0.1:9732:5432"]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "irrd"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+    mem_limit: 256m
+
+  mailpit-v4:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:9725:8025"]
+    mem_limit: 256m
+
+  mailpit-ng:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:9726:8025"]
+    mem_limit: 256m
+
+  v4:
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    hostname: irrd-submit
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ${WORK}/v4:/etc/irrd
+      - ${WORK}/data:/data
+      - ${WORK}/out:/out
+      - ../tools:/tools:ro
+    ports: ["127.0.0.1:9743:8043", "127.0.0.1:9780:8080"]
+    mem_limit: 2g
+
+  ng:
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    hostname: irrd-submit
+    user: root
+    entrypoint: ["/ng/irrd-ng"]
+    command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
+    environment:
+      IRRD_NG_STORE_PATH: /store
+    volumes:
+      - ${WORK}/ng:/etc/irrd
+      - ${WORK}/data:/data
+      - ${WORK}/out:/out
+      - ${WORK}/ng-store:/store
+      - ${WORK}/bin:/ng:ro
+    ports: ["127.0.0.1:9744:8043", "127.0.0.1:9781:8080"]
+    mem_limit: 1g

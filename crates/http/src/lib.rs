@@ -10,6 +10,7 @@
 #![deny(unsafe_code)]
 
 pub mod messages;
+mod submit;
 
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
@@ -49,6 +50,8 @@ pub struct HttpState {
     pub http: RwLock<Arc<HttpSettings>>,
     /// NRTMv3 serving for `-g`.
     pub nrtm: Arc<dyn NrtmV3>,
+    /// Settings for `/v1/submit/` and `/v1/suspension/`.
+    pub submit: RwLock<Arc<auth::SubmitSettings>>,
 }
 
 impl std::fmt::Debug for HttpState {
@@ -151,6 +154,27 @@ impl Reply {
             body: Bytes::new(),
             secured: true,
         }
+    }
+
+    fn json(body: String) -> Self {
+        let body = Bytes::from(body);
+        Reply {
+            status: StatusCode::OK,
+            headers: vec![
+                ("content-length", body.len().to_string()),
+                ("content-type", "application/json".to_owned()),
+            ],
+            body,
+            secured: true,
+        }
+    }
+
+    /// Starlette's `ServerErrorMiddleware` answer to an exception: outside
+    /// every other middleware, so without the security headers.
+    fn internal_error() -> Self {
+        let mut r = Reply::text(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error");
+        r.secured = false;
+        r
     }
 
     fn method_not_allowed(allow: &str) -> Self {
@@ -377,6 +401,8 @@ async fn handle(
 ) -> Result<Response<ReplyBody>, Infallible> {
     let start = Instant::now();
     let settings = state.http.read().map(|s| s.clone()).unwrap_or_default();
+    let (parts, body) = req.into_parts();
+    let req = Request::from_parts(parts, ());
     let headers = req.headers();
     let (host, port) = client_of(peer, headers, &settings);
     let method = req.method().clone();
@@ -412,6 +438,8 @@ async fn handle(
         } else {
             Reply::method_not_allowed("GET")
         }
+    } else if let Some(r) = submit_route(&state, &path, &method, headers, &host, body).await {
+        r
     } else {
         Reply::text(StatusCode::NOT_FOUND, "Not Found")
     };
@@ -440,6 +468,60 @@ async fn handle(
         )
     );
     Ok(resp)
+}
+
+/// `/v1/submit/` and `/v1/suspension/`, or `None` for other paths.
+async fn submit_route(
+    state: &HttpState,
+    path: &str,
+    method: &Method,
+    headers: &HeaderMap,
+    host: &str,
+    body: Incoming,
+) -> Option<Reply> {
+    let (mount, allow) = if path == "/v1/submit" || path.starts_with("/v1/submit/") {
+        ("/v1/submit", "POST, DELETE")
+    } else if path == "/v1/suspension" || path.starts_with("/v1/suspension/") {
+        ("/v1/suspension", "POST")
+    } else {
+        return None;
+    };
+    if path == mount {
+        // Router.redirect_slashes, as for /v1/whois.
+        let host_header = headers
+            .get("host")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default();
+        return Some(Reply::redirect(
+            StatusCode::TEMPORARY_REDIRECT,
+            format!("http://{host_header}{mount}/"),
+        ));
+    }
+    let delete = *method == Method::DELETE;
+    if !(*method == Method::POST || (delete && mount == "/v1/submit")) {
+        return Some(Reply::method_not_allowed(allow));
+    }
+    use http_body_util::BodyExt;
+    let Ok(collected) = body.collect().await else {
+        return Some(Reply::internal_error());
+    };
+    let bytes = collected.to_bytes();
+    let settings = state.submit.read().map(|s| s.clone()).unwrap_or_default();
+    let reply = tokio::task::block_in_place(|| {
+        if mount == "/v1/submit" {
+            submit::submit(&state.store, settings, host, headers, &bytes, delete)
+        } else {
+            submit::suspension(&state.store, settings, host, headers, &bytes)
+        }
+    });
+    Some(match reply {
+        submit::SubmitReply::Json(j) => Reply::json(j),
+        submit::SubmitReply::BadRequest(m) => Reply::text(StatusCode::BAD_REQUEST, m),
+        submit::SubmitReply::Internal(e) => {
+            tracing::error!(target: ACCESS_LOG_TARGET, "Exception in ASGI application: {e}");
+            Reply::internal_error()
+        }
+    })
 }
 
 /// Serve HTTP on `listener` until the task is dropped.

@@ -393,12 +393,13 @@ async fn load_deltas(
         let src = src.clone();
         let session_id = unf.session_id;
         let version = delta.version;
+        let store = ctx.store.clone();
         let mut prepared = blocking(move || {
             let mut reader = JsonSeqReader::new(open(&file)?);
             let first = next_item(&mut reader)?.ok_or_else(|| PyErr::Other(String::new()))?;
             let header =
                 types::validate_header(&first, HeaderKind::Delta, &src.name, &session_id, version)?;
-            let keyring = rpsl::Keyring::new();
+            let keyring = crate::keyring::StoreKeyring::load(&store);
             let scopefilter = rpki::ScopeFilterValidator::new(settings.scopefilter.clone());
             let env = OperationEnv {
                 rpsl: &settings.rpsl,

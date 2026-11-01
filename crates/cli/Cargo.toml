@@ -14,9 +14,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+auth.workspace = true
 config.workspace = true
 http = { path = "../http" }
 query.workspace = true
+reqwest.workspace = true
 socket2.workspace = true
 tokio.workspace = true
 import-v4.workspace = true

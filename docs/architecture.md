@@ -153,6 +153,18 @@ The catch is that `fingerprint`, `owner` and `method` on key-cert objects come o
 
 Two costs to be aware of: sequoia is LGPL-2.0-or-later, and it ends up inside a static binary. That's fine because irrd-ng itself is LGPL-2.1-or-later and ships its source, so anyone can rebuild it against a modified sequoia, which is what the LGPL asks for. And we accept two upstream timing advisories (in `rsa` and `crypto-bigint`) because they affect private-key operations and we only ever verify public signatures.
 
+## The keyring
+
+v4's keyring is a GnuPG home directory: every key-cert parsed in strict mode imports its key, whether the change that carried it is saved or not, and nothing ever removes one. irrd-ng keeps the keyring in the store's `pgp_keyring` table (schema version 4). Each entry holds what gpg's import kept (user IDs with their self-signature times, subkeys, signatures), which `owner` is derived from, plus the public key packets. A mirror run, `irrd_load_database`, `irrd_update_database` and `irrd_load_pgp_keys` load it, and write the keys they imported back in a transaction of their own, so like v4's they stay even when the run rolls back. A submission writes them in its own transaction. Signed e-mail (inline and PGP/MIME) is checked against it with sequoia, the way `gpg --verify` would: a good signature by a key that is not expired or revoked now.
+
+The v4 import cannot copy a GnuPG keyring, so an imported store starts with an empty one, as a v4 moved to a new host does; `irrd_load_pgp_keys` fills it per source. `irrd-ng import --load-pgp-keys` fills it from every key-cert in the store instead.
+
+## Submissions
+
+`irrd/updates` is ported in the `auth` crate. A submission (an e-mail from `irrd_submit_email`, `/v1/submit/`, `/v1/suspension/`) runs in one store write transaction, as v4 runs it in one database transaction: parsing, the rounds of validation that resolve references between objects of the same submission, the saves and the change log. Reports and notification mails are built afterwards from the result. Python's own behaviour shows up in the replies, so the e-mail parser is a port of the parts of Python's `email` package v4 relies on (compat32 headers, `get_payload(decode=True)` including its raw-unicode-escape fallback for 8 bit bodies), the request bodies go through a port of `json.loads` and pydantic's error texts, and the change diff in notifications is `difflib.unified_diff`.
+
+`parity/submit/run.sh` is the mutation suite: v4 and irrd-ng from the same data, the same e-mails, HTTP requests and CLI runs, and a comparison of responses, mails, the NRTMv3 journal and the canonical exports.
+
 ## Config
 
 Same `irrd.yaml`, same keys, same defaults, same validation errors in the same order, same unknown-key handling, same environment overrides (`IRRD_<KEY>`), same SIGHUP behaviour. Every setting carries whether it takes effect on restart, on SIGHUP, or on next use, copied from v4.
@@ -184,7 +196,6 @@ irrd-ng is LGPL-2.1-or-later (`LICENSE`). It's a reimplementation of v4, and a l
 
 ## What's still open
 
-- Where the PGP keyring lives (the plan is a store table filled from key-cert imports, Phase 7).
 - The Phase 2 proposals P-15 to P-20 in `docs/divergences.md`, waiting for review.
 
 The performance story isn't written yet on purpose. We expect queries to be a lot faster than v4, for the structural reasons above, but the rule for this project is that performance claims come with numbers from the load bench against v4 on the same data, and that bench lands in Phase 3.

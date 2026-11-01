@@ -15,12 +15,8 @@ pub(crate) fn unknown_tool(name: &str) -> String {
     format!("irrd-ng: unknown tool name {name:?}")
 }
 
-pub(crate) fn not_implemented(name: &str) -> String {
-    format!("{name}: not implemented yet")
-}
-
 pub(crate) const IMPORT_USAGE: &str = "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>] \
-     [--write-batch-rows <n>]";
+     [--write-batch-rows <n>] [--load-pgp-keys]";
 
 pub(crate) fn import_missing_value(flag: &str) -> String {
     format!("argument {flag}: expected one argument")
@@ -281,4 +277,9 @@ pub(crate) const EOF_ERROR: &str = "EOFError: EOF when reading a line";
 /// irrd-ng: `run-job` with an unknown job name.
 pub(crate) fn unknown_job(job: &str) -> String {
     format!("irrd-ng run-job: unknown job {job:?} (roa-import, scopefilter, route-preference)")
+}
+
+/// `irrd-ng import`: the keyring filled from the imported key-certs.
+pub(crate) fn import_keyring(keys: usize) -> String {
+    format!("pgp_keyring: {keys} keys loaded from key-cert objects")
 }

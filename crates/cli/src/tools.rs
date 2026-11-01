@@ -6,26 +6,29 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use crate::{db_tools, messages};
+use crate::db_tools;
 
 pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
 const TOOLS: &[(&str, Tool)] = &[
     ("irrd", crate::daemon::run),
     ("irrdctl", crate::mirror_tools::irrdctl),
-    ("irrd_submit_email", not_implemented),
+    ("irrd_submit_email", crate::submit_tools::submit_email),
     ("irrd_database_upgrade", db_tools::database_upgrade),
     ("irrd_database_downgrade", db_tools::database_downgrade),
     ("irrd_load_database", db_tools::load_database),
     ("irrd_update_database", db_tools::update_database),
-    ("irrd_set_last_modified_auth", not_implemented),
+    (
+        "irrd_set_last_modified_auth",
+        crate::submit_tools::set_last_modified_auth,
+    ),
     ("irrd_expire_journal", crate::serving_tools::expire_journal),
     (
         "irrd_mirror_force_reload",
         crate::mirror_tools::force_reload,
     ),
-    ("irr_rpsl_submit", not_implemented),
-    ("irrd_load_pgp_keys", not_implemented),
+    ("irr_rpsl_submit", crate::rpsl_submit::run),
+    ("irrd_load_pgp_keys", crate::submit_tools::load_pgp_keys),
     ("import", crate::import::run),
 ];
 
@@ -47,15 +50,6 @@ pub(crate) fn lookup(name: &str) -> Option<Tool> {
 
 pub(crate) fn names() -> Vec<&'static str> {
     TOOLS.iter().map(|(n, _)| *n).collect()
-}
-
-fn not_implemented(args: &[OsString]) -> ExitCode {
-    let name = args
-        .first()
-        .map(|a| a.to_string_lossy())
-        .unwrap_or_default();
-    eprintln!("{}", messages::not_implemented(&name));
-    ExitCode::from(1)
 }
 
 #[cfg(test)]

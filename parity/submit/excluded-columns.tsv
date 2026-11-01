@@ -1,0 +1,26 @@
+# Columns left out when comparing v4 and irrd-ng after the submission
+# differential. Each is assigned independently by each server when it
+# writes; everything else, object text included (with last-modified values
+# and new bcrypt hashes masked), must match.
+#
+# table.column	reason
+rpsl_objects.pk	gen_random_uuid() for objects created by a submission
+rpsl_objects.created	now() of the writing transaction
+rpsl_objects.updated	datetime.now() when the object was buffered for upsert
+rpsl_database_journal.pk	gen_random_uuid()
+rpsl_database_journal.timestamp	now() when the entry is written
+rpsl_database_journal.serial_global	a database-wide sequence; v4's also advances on rolled-back transactions
+database_status.pk	gen_random_uuid() when the status row is first written
+database_status.created	now() of the transaction that created the row
+database_status.updated	now() of the last writing transaction
+database_status.rpsl_data_updated	datetime.now() in finalise_transaction
+database_status.last_error_timestamp	datetime.now() when the error was recorded
+rpsl_objects_suspended.pk	gen_random_uuid()
+rpsl_objects_suspended.timestamp	now() of the suspending transaction
+rpsl_objects_suspended.original_updated	the updated time of the suspended object
+protected_rpsl_name.pk	gen_random_uuid()
+protected_rpsl_name.created	now() of the deleting transaction
+change_log.pk	gen_random_uuid()
+change_log.timestamp	now() of the writing transaction
+roa_object.pk	gen_random_uuid() at ROA import
+roa_object.created	now() of the ROA import

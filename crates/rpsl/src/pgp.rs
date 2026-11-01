@@ -17,8 +17,18 @@
 //!
 //! Packet parsing and signature verification use sequoia-openpgp with its
 //! pure Rust crypto backend.
+//!
+//! v4's keyring is a GnuPG home directory that outlives every transaction.
+//! irrd-ng keeps it in the store's `pgp_keyring` table: a [`Keyring`] is
+//! loaded from there ([`Keyring::from_entries`]), imports mark the keys
+//! they touched, and the caller writes those back
+//! ([`Keyring::dirty_entries`]). Each entry keeps what gpg's import kept
+//! (user IDs with their self-signature times, subkeys, signatures) plus
+//! the public key packets, which [`Keyring::verify_detached`] and
+//! [`Keyring::verify_cleartext`] use the way `gpg --verify` uses the
+//! keyring.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,7 +36,7 @@ use sequoia_openpgp as openpgp;
 
 use openpgp::packet::{Key, Signature, UserID, key};
 use openpgp::parse::{PacketParser, PacketParserResult, Parse};
-use openpgp::serialize::MarshalInto;
+use openpgp::serialize::{Marshal, MarshalInto};
 use openpgp::types::{HashAlgorithm, SignatureType};
 use openpgp::{KeyHandle, Packet};
 
@@ -41,17 +51,22 @@ use crate::py;
 #[derive(Debug, Default)]
 pub struct Keyring {
     keys: Mutex<Vec<StoredKey>>,
+    dirty: Mutex<BTreeSet<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StoredKey {
     fingerprint: String,
     uids: Vec<StoredUid>,
     subkeys: HashSet<String>,
     sigs: HashSet<Vec<u8>>,
+    /// The public key packets of every distinct keyblock imported for this
+    /// key, as serialized OpenPGP packets.
+    #[serde(default)]
+    material: Vec<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StoredUid {
     value: Vec<u8>,
     /// Creation time of the latest valid self-signature.
@@ -82,7 +97,95 @@ impl Keyring {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let mut keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
-        Ok(import(&bytes, &mut keys, now))
+        let result = import(&bytes, &mut keys, now);
+        let mut dirty = self.dirty.lock().unwrap_or_else(|e| e.into_inner());
+        dirty.extend(result.fingerprints.iter().cloned());
+        Ok(result)
+    }
+
+    /// A keyring holding the stored entries, as read from the store's
+    /// `pgp_keyring` table. Entries that cannot be decoded are skipped.
+    pub fn from_entries(entries: impl IntoIterator<Item = (String, Vec<u8>)>) -> Self {
+        let keys = entries
+            .into_iter()
+            .filter_map(|(_, bytes)| postcard::from_bytes::<StoredKey>(&bytes).ok())
+            .collect();
+        Keyring {
+            keys: Mutex::new(keys),
+            dirty: Mutex::new(BTreeSet::new()),
+        }
+    }
+
+    /// The keys imports have added or changed since this keyring was
+    /// created or last asked, as `(fingerprint, encoded entry)` for the
+    /// store's `pgp_keyring` table.
+    pub fn dirty_entries(&self) -> Vec<(String, Vec<u8>)> {
+        let fprs = std::mem::take(&mut *self.dirty.lock().unwrap_or_else(|e| e.into_inner()));
+        let keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
+        fprs.into_iter()
+            .filter_map(|f| {
+                let k = keys.iter().find(|k| k.fingerprint == f)?;
+                Some((f, postcard::to_allocvec(k).ok()?))
+            })
+            .collect()
+    }
+
+    /// `gpg --verify` of a detached signature (PGP/MIME): the primary key
+    /// fingerprint of a good signature by a key in this keyring that is
+    /// neither expired nor revoked, as python-gnupg reports
+    /// `pubkey_fingerprint` when `valid` and no `key_status`.
+    pub fn verify_detached(&self, data: &[u8], signature: &[u8]) -> Option<String> {
+        use openpgp::parse::stream::DetachedVerifierBuilder;
+        let policy = verify_policy();
+        let helper = VerifyHelper::new(self);
+        // v4 strips the signature part; sequoia's armor reader wants the
+        // END line terminated, gpg does not care.
+        let mut signature = signature.to_vec();
+        signature.push(b'\n');
+        let mut v = DetachedVerifierBuilder::from_bytes(&signature)
+            .ok()?
+            .with_policy(&policy, None, helper)
+            .ok()?;
+        v.verify_bytes(data).ok()?;
+        v.into_helper().good
+    }
+
+    /// `gpg --verify` of a cleartext signed message, as
+    /// [`Keyring::verify_detached`]. Text before the
+    /// `-----BEGIN PGP SIGNED MESSAGE-----` line is ignored, as gpg does.
+    pub fn verify_cleartext(&self, message: &[u8]) -> Option<String> {
+        use openpgp::parse::stream::VerifierBuilder;
+        let start = find(message, b"-----BEGIN PGP SIGNED MESSAGE-----")?;
+        let policy = verify_policy();
+        let helper = VerifyHelper::new(self);
+        let mut v = VerifierBuilder::from_bytes(&message[start..])
+            .ok()?
+            .with_policy(&policy, None, helper)
+            .ok()?;
+        std::io::copy(&mut v, &mut std::io::sink()).ok()?;
+        if !v.message_processed() {
+            return None;
+        }
+        v.into_helper().good
+    }
+
+    /// The certificates in this keyring with a key matching `handle`.
+    fn certs_for(&self, handle: &KeyHandle) -> Vec<openpgp::Cert> {
+        let keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out = Vec::new();
+        for k in keys.iter() {
+            let matches = std::iter::once(&k.fingerprint)
+                .chain(k.subkeys.iter())
+                .filter_map(|f| openpgp::Fingerprint::from_hex(f).ok())
+                .any(|f| KeyHandle::from(f).aliases(handle));
+            if !matches {
+                continue;
+            }
+            if let Some(cert) = cert_from_material(&k.material) {
+                out.push(cert);
+            }
+        }
+        out
     }
 
     /// The `uids` python-gnupg reports for a key from
@@ -109,6 +212,108 @@ impl Keyring {
     pub fn fingerprints(&self) -> Vec<String> {
         let keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
         keys.iter().map(|k| k.fingerprint.clone()).collect()
+    }
+}
+
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// gpg 2.4's defaults: MD5 is refused, SHA-1 and the older public key
+/// algorithms are still accepted for data signatures.
+fn verify_policy() -> openpgp::policy::StandardPolicy<'static> {
+    use openpgp::policy::AsymmetricAlgorithm as A;
+    let mut p = openpgp::policy::StandardPolicy::new();
+    p.accept_hash(HashAlgorithm::SHA1);
+    p.accept_hash(HashAlgorithm::RipeMD);
+    for a in [
+        A::RSA1024,
+        A::DSA1024,
+        A::DSA2048,
+        A::DSA3072,
+        A::ElGamal1024,
+    ] {
+        p.accept_asymmetric_algo(a);
+    }
+    p
+}
+
+/// Every keyblock stored for a key, merged into one certificate.
+fn cert_from_material(material: &[Vec<u8>]) -> Option<openpgp::Cert> {
+    let mut cert: Option<openpgp::Cert> = None;
+    for block in material {
+        let Ok(c) = openpgp::Cert::from_bytes(block) else {
+            continue;
+        };
+        cert = Some(match cert {
+            None => c,
+            Some(prev) => prev.merge_public(c).ok()?,
+        });
+    }
+    cert
+}
+
+struct VerifyHelper<'k> {
+    keyring: &'k Keyring,
+    good: Option<String>,
+}
+
+impl<'k> VerifyHelper<'k> {
+    fn new(keyring: &'k Keyring) -> Self {
+        VerifyHelper {
+            keyring,
+            good: None,
+        }
+    }
+}
+
+impl openpgp::parse::stream::VerificationHelper for VerifyHelper<'_> {
+    fn get_certs(&mut self, ids: &[KeyHandle]) -> openpgp::Result<Vec<openpgp::Cert>> {
+        let mut out: Vec<openpgp::Cert> = Vec::new();
+        for id in ids {
+            for c in self.keyring.certs_for(id) {
+                if !out.iter().any(|o| o.fingerprint() == c.fingerprint()) {
+                    out.push(c);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn check(
+        &mut self,
+        structure: openpgp::parse::stream::MessageStructure,
+    ) -> openpgp::Result<()> {
+        use openpgp::cert::amalgamation::ValidAmalgamation;
+        use openpgp::parse::stream::MessageLayer;
+        use openpgp::types::RevocationStatus;
+        let policy = verify_policy();
+        // python-gnupg keeps the state of the last signature it saw.
+        let mut last: Option<Option<String>> = None;
+        for layer in structure.into_iter() {
+            let MessageLayer::SignatureGroup { results } = layer else {
+                continue;
+            };
+            for r in results {
+                let verdict = match r {
+                    Ok(good) => {
+                        let cert = good.ka.cert();
+                        // gpg reports EXPKEYSIG or REVKEYSIG (and python-gnupg
+                        // a key_status) when the key is no longer usable now.
+                        let now_ok = cert.with_policy(&policy, None).is_ok_and(|vc| {
+                            vc.alive().is_ok()
+                                && !matches!(vc.revocation_status(), RevocationStatus::Revoked(_))
+                        }) && good.ka.alive().is_ok()
+                            && !matches!(good.ka.revocation_status(), RevocationStatus::Revoked(_));
+                        now_ok.then(|| cert.fingerprint().to_hex())
+                    }
+                    Err(_) => None,
+                };
+                last = Some(verdict);
+            }
+        }
+        self.good = last.flatten();
+        Ok(())
     }
 }
 
@@ -538,12 +743,22 @@ fn import_keyblock(block: Vec<Packet>, now: u64) -> BlockOutcome {
     let primary_handle = KeyHandle::from(primary.fingerprint());
     let primary_keyid = primary.keyid();
     let key_created = to_unix(primary.creation_time());
+    let mut material: Vec<u8> = Vec::new();
+    let _ = Packet::PublicKey(primary.clone()).serialize(&mut material);
 
     let mut uids: Vec<PendingUid> = Vec::new();
     let mut subkeys: HashSet<String> = HashSet::new();
     let mut sigs: HashSet<Vec<u8>> = HashSet::new();
     let mut in_subkey = false;
     for p in iter {
+        let public = match &p {
+            Packet::SecretSubkey(k) => Some(Packet::PublicSubkey(k.clone().take_secret().0)),
+            Packet::SecretKey(_) => None,
+            other => Some(other.clone()),
+        };
+        if let Some(public) = public {
+            let _ = public.serialize(&mut material);
+        }
         match p {
             Packet::UserID(u) => {
                 in_subkey = false;
@@ -665,6 +880,7 @@ fn import_keyblock(block: Vec<Packet>, now: u64) -> BlockOutcome {
             uids: kept,
             subkeys,
             sigs,
+            material: vec![material],
         }),
         expired,
     )
@@ -777,6 +993,11 @@ fn merge(keys: &mut Vec<StoredKey>, new: StoredKey) -> (usize, u32) {
         return (keys.len() - 1, 1);
     };
     let existing = &mut keys[idx];
+    for block in new.material {
+        if !existing.material.contains(&block) {
+            existing.material.push(block);
+        }
+    }
     let mut reason = 0;
     for u in new.uids {
         match existing.uids.iter_mut().find(|e| e.value == u.value) {

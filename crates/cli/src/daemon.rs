@@ -212,6 +212,7 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
         query: RwLock::new(query_settings),
         http: RwLock::new(Arc::new(http_settings(cfg))),
         nrtm,
+        submit: RwLock::new(Arc::new(settings::submit_settings(cfg))),
     });
     tokio::spawn(whois_server::serve(
         whois_listener,
@@ -253,6 +254,9 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
                     }
                     if let Ok(mut s) = http_state.http.write() {
                         *s = Arc::new(http_settings(cfg));
+                    }
+                    if let Ok(mut s) = http_state.submit.write() {
+                        *s = Arc::new(settings::submit_settings(cfg));
                     }
                     let _ = mirror_tx.send(Arc::new(settings::mirror_settings(cfg)));
                 }

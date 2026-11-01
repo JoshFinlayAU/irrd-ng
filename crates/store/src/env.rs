@@ -15,7 +15,7 @@ use crate::messages;
 /// add a [`Migration`] from the previous version, and commit a fixture
 /// environment of the new version next to the old one (see
 /// `tests/schema_fixture.rs`).
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 pub(crate) type Table = Database<'static, Bytes, Bytes>;
 
@@ -117,6 +117,7 @@ tables! {
     api_token_idx = "idx_auth_api_token",
     auth_webauthn = "auth_webauthn",
     change_log = "change_log",
+    pgp_keyring = "pgp_keyring",
 }
 
 pub(crate) const META_SCHEMA_VERSION: &[u8] = b"schema_version";
@@ -180,6 +181,10 @@ pub(crate) struct Migration {
 ///   `member-of` and `mbrs-by-ref`. The index is rebuilt from the objects.
 /// - 2 to 3: IPv6 objects within `::/96`, whose `ip_last` v4 stores as
 ///   IPv4, get their address range index entries.
+/// - 3 to 4: the `pgp_keyring` table, irrd-ng's counterpart of v4's GnuPG
+///   keyring. It is created empty, as every table is on open; v4's keyring
+///   lives outside its database, so there is nothing to carry over.
+///   `irrd_load_pgp_keys` fills it from the stored key-cert objects.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         from: 1,
@@ -190,6 +195,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         from: 2,
         to: 3,
         run: |_, wtxn, t| crate::index::index_mixed_family_ranges(wtxn, t),
+    },
+    Migration {
+        from: 3,
+        to: 4,
+        run: |_, _, _| Ok(()),
     },
 ];
 

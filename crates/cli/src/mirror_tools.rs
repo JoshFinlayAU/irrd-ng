@@ -248,12 +248,15 @@ fn option_name(arg: &str) -> &str {
 
 enum Leaf {
     Help,
-    Args(Vec<String>),
+    /// Positional arguments, and the last of `--enable`/`--disable`
+    /// (`true` unless `--disable` came last).
+    Args(Vec<String>, bool),
 }
 
 /// Parse a leaf command's arguments: options anywhere, `--` ends them.
 fn parse_leaf(cmd: &Command, args: &[String]) -> Result<Leaf, ExitCode> {
     let mut positional = Vec::new();
+    let mut enable = true;
     let mut only_args = false;
     for a in args {
         if only_args || !a.starts_with('-') || a == "-" {
@@ -264,7 +267,7 @@ fn parse_leaf(cmd: &Command, args: &[String]) -> Result<Leaf, ExitCode> {
             print!("{}", cmd.help);
             return Ok(Leaf::Help);
         } else if cmd.flags.contains(&a.as_str()) {
-            // --enable/--disable: read when user-change-override lands.
+            enable = a != "--disable";
         } else {
             let mut possible: Vec<&str> = cmd.flags.to_vec();
             possible.push("--help");
@@ -285,7 +288,7 @@ fn parse_leaf(cmd: &Command, args: &[String]) -> Result<Leaf, ExitCode> {
             &format!("Got unexpected extra argument{s} ({})", extra.join(" ")),
         ));
     }
-    Ok(Leaf::Args(positional))
+    Ok(Leaf::Args(positional, enable))
 }
 
 enum GroupParse {
@@ -411,7 +414,7 @@ pub(crate) fn irrdctl(args: &[OsString]) -> ExitCode {
             };
             let positional = match parse_leaf(cmd, &rest) {
                 Ok(Leaf::Help) => return ExitCode::SUCCESS,
-                Ok(Leaf::Args(p)) => p,
+                Ok(Leaf::Args(p, _)) => p,
                 Err(c) => return c,
             };
             match sub.as_str() {
@@ -421,23 +424,22 @@ pub(crate) fn irrdctl(args: &[OsString]) -> ExitCode {
             }
         }
         other => {
-            let cmd = if other == "user-mfa-clear" {
+            let mfa = other == "user-mfa-clear";
+            let cmd = if mfa {
                 &USER_MFA_CLEAR
             } else {
                 &USER_CHANGE_OVERRIDE
             };
             match parse_leaf(cmd, &rest) {
                 Ok(Leaf::Help) => ExitCode::SUCCESS,
-                Ok(Leaf::Args(_)) => not_implemented(cmd.path),
+                Ok(Leaf::Args(p, _)) if mfa => crate::submit_tools::user_mfa_clear(&cfg, &p[0]),
+                Ok(Leaf::Args(p, enable)) => {
+                    crate::submit_tools::user_change_override(&cfg, &p[0], enable)
+                }
                 Err(c) => c,
             }
         }
     }
-}
-
-fn not_implemented(path: &str) -> ExitCode {
-    eprintln!("{}", messages::not_implemented(path));
-    ExitCode::from(1)
 }
 
 /// `irrdctl nrtm4 client-clear-known-keys SOURCE`

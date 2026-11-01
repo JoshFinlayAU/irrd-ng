@@ -354,7 +354,10 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             _ => return Err(StoreError::ValueError("'mnt-by'".to_owned())),
         };
         self.put_suspended_object(&SuspendedObjectRow {
-            pk: Uuid::new_v4(),
+            // Time ordered, so rows suspended in one transaction (which share
+            // a timestamp) sort in the order they were suspended, as
+            // PostgreSQL returns v4's in practice.
+            pk: Uuid::now_v7(),
             rpsl_pk: row.rpsl_pk.clone(),
             source: row.source.clone(),
             object_class: row.object_class.clone(),
@@ -1338,6 +1341,16 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         self.t
             .change_log
             .put(self.txn, row.pk.as_bytes(), &encode(row)?)?;
+        Ok(())
+    }
+
+    /// Store one PGP keyring entry (see [`crate::ReadView::pgp_keyring`]).
+    /// The keyring is not part of any v4 table and is never journaled.
+    pub fn put_pgp_key(&mut self, fingerprint: &str, encoded: &[u8]) -> Result<()> {
+        self.check_write_permitted()?;
+        self.t
+            .pgp_keyring
+            .put(self.txn, fingerprint.as_bytes(), encoded)?;
         Ok(())
     }
 

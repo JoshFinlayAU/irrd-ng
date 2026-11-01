@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rpki::{BulkRouteRoaValidator, ScopeFilterValidator};
-use rpsl::Keyring;
 use store::{JournalEntryOrigin, Store, StoreError};
 
 use crate::file_import::{self, Counters, ImportSettings, ParseEnv, StreamError};
@@ -81,7 +80,7 @@ pub(crate) fn merge_counters(total: &mut Counters, c: Counters) {
 pub(crate) struct ImportParser {
     pub(crate) import: ImportSettings,
     pub(crate) rpsl: rpsl::RpslSettings,
-    pub(crate) keyring: Keyring,
+    pub(crate) keyring: crate::keyring::StoreKeyring,
     pub(crate) roa: Option<BulkRouteRoaValidator>,
     pub(crate) scopefilter: ScopeFilterValidator,
 }
@@ -112,7 +111,7 @@ impl ImportParser {
                 keep_plain_text: false,
             },
             rpsl: settings.rpsl.clone(),
-            keyring: Keyring::new(),
+            keyring: crate::keyring::StoreKeyring::load(store),
             roa,
             scopefilter: ScopeFilterValidator::new(settings.scopefilter.clone()),
         })
@@ -359,9 +358,10 @@ pub async fn run_nrtm3(
 
     let settings = ctx.settings.clone();
     let src2 = src.clone();
+    let store = ctx.store.clone();
     let (last_serial, ops) = blocking(move || {
         let stream = nrtm3::parse_nrtm_stream(&src2.name, &response)?;
-        let keyring = Keyring::new();
+        let keyring = crate::keyring::StoreKeyring::load(&store);
         let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
         let env = OperationEnv {
             rpsl: &settings.rpsl,

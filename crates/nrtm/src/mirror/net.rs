@@ -199,6 +199,15 @@ fn root_store_from(bundle: Option<std::ffi::OsString>) -> Result<rustls::RootCer
 /// headers={"User-Agent": HTTP_USER_AGENT})`. The timeout applies to
 /// connecting and to each read, as in `requests`.
 pub fn http_client(timeout: Duration) -> Result<reqwest::Client, PyErr> {
+    http_client_builder(timeout)?
+        .build()
+        .map_err(|e| PyErr::Other(e.to_string()))
+}
+
+/// [`http_client`]'s configuration, for callers that need to change
+/// more (`irr_rpsl_submit` does not follow redirects, as urllib does not
+/// for its POST and DELETE requests).
+pub fn http_client_builder(timeout: Duration) -> Result<reqwest::ClientBuilder, PyErr> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let roots = root_store()?;
     let tls = rustls::ClientConfig::builder_with_provider(provider)
@@ -206,14 +215,12 @@ pub fn http_client(timeout: Duration) -> Result<reqwest::Client, PyErr> {
         .map_err(|e| PyErr::Other(e.to_string()))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-    reqwest::Client::builder()
+    Ok(reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .dns_resolver(Arc::new(DnsResolver))
         .user_agent(HTTP_USER_AGENT)
         .connect_timeout(timeout)
-        .read_timeout(timeout)
-        .build()
-        .map_err(|e| PyErr::Other(e.to_string()))
+        .read_timeout(timeout))
 }
 
 /// `str()` of the exception `requests` raises when a request fails before

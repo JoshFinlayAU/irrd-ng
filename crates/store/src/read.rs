@@ -499,6 +499,18 @@ impl<'a> ReadView<'a> {
         self.all(self.t.change_log)
     }
 
+    /// Every PGP keyring entry, as `(fingerprint, encoded key)`, in
+    /// fingerprint order. The encoding belongs to the `rpsl` crate's
+    /// keyring.
+    pub fn pgp_keyring(&self) -> Result<Vec<(String, Vec<u8>)>> {
+        let mut out = Vec::new();
+        for item in self.t.pgp_keyring.iter(self.txn)? {
+            let (k, v) = item?;
+            out.push((String::from_utf8_lossy(k).into_owned(), v.to_vec()));
+        }
+        Ok(out)
+    }
+
     fn all<T: serde::de::DeserializeOwned>(&self, table: crate::env::Table) -> Result<Vec<T>> {
         let mut out = Vec::new();
         for item in table.iter(self.txn)? {
