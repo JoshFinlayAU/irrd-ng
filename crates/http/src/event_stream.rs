@@ -335,7 +335,7 @@ fn stream_initial(
     use graphql::Value as V;
     // One read transaction for the header and every row, as v4 runs them
     // in one database transaction.
-    let rtx = state.store.read()?;
+    let rtx = state.store.read_long()?;
     let view = rtx.view();
     let max_serial = view.max_serial_global()?;
     let max_ts = view.max_journal_timestamp()?;

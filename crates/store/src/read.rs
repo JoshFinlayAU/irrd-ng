@@ -28,6 +28,8 @@ pub type ObjectId = u64;
 pub struct ReadTx {
     inner: Arc<Inner>,
     txn: Option<RoTxn<'static, WithoutTls>>,
+    /// Registered as a long reader (see `ReaderGate`).
+    long: bool,
 }
 
 impl std::fmt::Debug for ReadTx {
@@ -37,15 +39,16 @@ impl std::fmt::Debug for ReadTx {
 }
 
 impl ReadTx {
-    pub(crate) fn begin(inner: Arc<Inner>) -> Result<Self> {
-        inner.gate.enter();
+    pub(crate) fn begin(inner: Arc<Inner>, long: bool) -> Result<Self> {
+        inner.gate.enter(long);
         match inner.env.clone().static_read_txn() {
             Ok(txn) => Ok(ReadTx {
                 inner,
                 txn: Some(txn),
+                long,
             }),
             Err(e) => {
-                inner.gate.leave();
+                inner.gate.leave(long);
                 Err(e.into())
             }
         }
@@ -71,7 +74,7 @@ impl ReadTx {
 impl Drop for ReadTx {
     fn drop(&mut self) {
         drop(self.txn.take());
-        self.inner.gate.leave();
+        self.inner.gate.leave(self.long);
     }
 }
 

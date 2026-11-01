@@ -20,6 +20,8 @@ struct Job {
     reserve: usize,
 }
 
+const GIB: usize = 1 << 30;
+
 /// The name of the single writer thread.
 pub const WRITER_THREAD_NAME: &str = "store-writer";
 
@@ -174,13 +176,42 @@ impl Store {
     /// done here (waiting for this process's other readers) and the
     /// transaction retried.
     pub fn read(&self) -> Result<ReadTx> {
-        match ReadTx::begin(self.inner.clone()) {
+        self.begin_read(false)
+    }
+
+    /// Begin a read transaction that may stay open for a long time (a
+    /// standby snapshot, an export). While it is open, growing the map
+    /// waits for it, as LMDB requires, but queries are not held back
+    /// meanwhile: only the write that needed the space waits. Short reads
+    /// use [`Store::read`].
+    pub fn read_long(&self) -> Result<ReadTx> {
+        self.begin_read(true)
+    }
+
+    fn begin_read(&self, long: bool) -> Result<ReadTx> {
+        match ReadTx::begin(self.inner.clone(), long) {
             Err(e) if is_map_resized(&e) => {
                 env::resize(&self.inner, 0)?;
-                ReadTx::begin(self.inner.clone())
+                ReadTx::begin(self.inner.clone(), long)
             }
             r => r,
         }
+    }
+
+    /// Grow the map now, if needed, so that at least `bytes` more can be
+    /// written without growing it again. Used before a long read: the map
+    /// cannot grow while one is open, so a write that needs more space
+    /// would wait for it to end.
+    pub fn reserve_headroom(&self, bytes: usize) -> Result<()> {
+        if self.writer.is_none() {
+            return Ok(());
+        }
+        self.write_reserving(bytes, |_| Ok(())).map(|_| ())
+    }
+
+    /// Bytes of the data file in use.
+    pub fn used_bytes(&self) -> usize {
+        env::used_bytes(&self.inner.env)
     }
 
     /// Run `f` as one v4 database transaction on the writer thread and
@@ -370,7 +401,13 @@ impl Store {
         on_state: &mut dyn FnMut(&crate::replog::ReplicationState) -> Result<()>,
         row: crate::replog::RowSink<'_>,
     ) -> Result<crate::replog::ReplicationState> {
-        let r = self.read()?;
+        // The snapshot's read transaction stays open while the standby
+        // takes the rows, which can be minutes for a large store, and the
+        // map cannot grow meanwhile. Grow it first, by as much as is in use,
+        // so that writes in that time very likely fit; if one does not, it
+        // waits for the snapshot (a long reader), and queries carry on.
+        self.reserve_headroom(self.used_bytes().max(GIB))?;
+        let r = self.read_long()?;
         r.with_txn(|txn, t| {
             let st = crate::replog::state(txn, t)?;
             on_state(&st)?;

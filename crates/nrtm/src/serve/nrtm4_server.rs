@@ -200,7 +200,7 @@ pub fn run_writer(store: &Store, settings: &SourceMirrorSettings, now: Timestamp
     let Some(local_path) = settings.nrtm4_server_local_path.as_deref() else {
         return Err("expected str, bytes or os.PathLike object, not NoneType".to_owned());
     };
-    let txn = store.read().map_err(store_err)?;
+    let txn = store.read_long().map_err(store_err)?;
     let max_serial_global = txn
         .view()
         .max_serial_global()
