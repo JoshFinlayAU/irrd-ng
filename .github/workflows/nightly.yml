@@ -1,0 +1,281 @@
+name: nightly
+
+# The slower differential suites, too long to run on every push:
+#
+#   mirror     parity/mirror/run.sh       irrd-ng and v4 mirroring a v4 upstream
+#   serve      parity/mirror/serve.sh     v4 mirroring irrd-ng and v4 upstreams
+#   submit     parity/submit/run.sh       identical submissions to v4 and irrd-ng
+#   rehearsal  parity/rehearsal/run.sh    the drop-in rehearsal over every suite
+#
+# Each runs on its own runner against the pinned v4 image. Real IRR dumps
+# come from the same weekly cache as the parity workflow and are never
+# committed. Reports are uploaded when a suite fails.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: musl build and dump cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - name: Baseline pin
+        run: parity/check-baseline.sh
+      - name: Week number for the dump cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: parity/.cache/*.db.gz
+          key: irr-dumps-${{ steps.week.outputs.week }}-${{ hashFiles('parity/dumps.tsv') }}
+          restore-keys: irr-dumps-
+      # A registry that is briefly unreachable should not cost the whole
+      # night: each suite checks for the dumps it needs.
+      - name: Fetch dumps
+        run: MAX_AGE_DAYS=7 parity/fetch-dumps.sh || echo "::warning::some dumps could not be fetched"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: nightly-musl
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-zigbuild@0.24.0
+      - run: cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
+      - name: Check linkage
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/irrd-ng
+          file "$bin" | grep -q 'statically linked' || { echo "::error::$bin is not statically linked"; exit 1; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: irrd-ng-musl
+          path: target/x86_64-unknown-linux-musl/release/irrd-ng
+          if-no-files-found: error
+          retention-days: 3
+
+  mirror:
+    name: mirroring differential
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the v4 reference image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: parity/v4/Dockerfile
+          tags: irrd-ng-parity/irrd-v4:4.5.4
+          load: true
+          cache-from: type=gha,scope=irrd-v4
+          cache-to: type=gha,scope=irrd-v4,mode=max
+      - name: Week number for the dump cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: parity/.cache/*.db.gz
+          key: irr-dumps-${{ steps.week.outputs.week }}-${{ hashFiles('parity/dumps.tsv') }}
+          restore-keys: irr-dumps-
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: irrd-ng-musl
+          path: bin
+      - name: parity/mirror/run.sh
+        run: |
+          chmod +x bin/irrd-ng
+          mkdir -p parity/out
+          IRRD_NG_BIN=$PWD/bin/irrd-ng parity/mirror/run.sh 2>&1 | tee parity/out/mirror-run.log
+      - name: Collect reports
+        if: failure()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" parity/.work parity/out || true
+          docker compose -f parity/mirror/compose.yaml --project-directory parity/mirror logs --no-color > parity/out/mirror-compose.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: nightly-mirror
+          path: |
+            parity/out/mirror-*.log
+            parity/.work/mirror/logs/
+            parity/.work/mirror/compare/**/*.txt
+          retention-days: 14
+
+  serve:
+    name: serving differential
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the v4 reference image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: parity/v4/Dockerfile
+          tags: irrd-ng-parity/irrd-v4:4.5.4
+          load: true
+          cache-from: type=gha,scope=irrd-v4
+          cache-to: type=gha,scope=irrd-v4,mode=max
+      - name: Week number for the dump cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: parity/.cache/*.db.gz
+          key: irr-dumps-${{ steps.week.outputs.week }}-${{ hashFiles('parity/dumps.tsv') }}
+          restore-keys: irr-dumps-
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: irrd-ng-musl
+          path: bin
+      - name: parity/mirror/serve.sh
+        run: |
+          chmod +x bin/irrd-ng
+          mkdir -p parity/out
+          IRRD_NG_BIN=$PWD/bin/irrd-ng parity/mirror/serve.sh 2>&1 | tee parity/out/serve-run.log
+      - name: Collect reports
+        if: failure()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" parity/.work parity/out || true
+          docker compose -f parity/mirror/compose.yaml --project-directory parity/mirror --profile serve logs --no-color > parity/out/serve-compose.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: nightly-serve
+          path: |
+            parity/out/serve-*.log
+            parity/.work/serve/logs/
+            parity/.work/serve/compare/**/*.txt
+          retention-days: 14
+
+  submit:
+    name: submission differential
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      # The scenario takes its RPSL samples from v4's source.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the v4 reference image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: parity/v4/Dockerfile
+          tags: irrd-ng-parity/irrd-v4:4.5.4
+          load: true
+          cache-from: type=gha,scope=irrd-v4
+          cache-to: type=gha,scope=irrd-v4,mode=max
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: nightly-submit
+      # submit/run.sh builds irrd-ng itself (release without LTO).
+      - name: parity/submit/run.sh
+        run: |
+          mkdir -p parity/out
+          parity/submit/run.sh 2>&1 | tee parity/out/submit-run.log
+      - name: Collect reports
+        if: failure()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" parity/.work parity/out || true
+          WORK=$PWD/parity/.work/submit docker compose -f parity/submit/compose.yaml --project-directory parity/submit logs --no-color > parity/out/submit-compose.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: nightly-submit
+          path: |
+            parity/out/submit-*.log
+            parity/.work/submit/out/
+          retention-days: 14
+
+  rehearsal:
+    name: drop-in rehearsal
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - name: Baseline pin
+        run: parity/check-baseline.sh
+      - name: bgpq4
+        run: sudo apt-get update -q && sudo apt-get install -y -q bgpq4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the v4 reference image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: parity/v4/Dockerfile
+          tags: irrd-ng-parity/irrd-v4:4.5.4
+          load: true
+          cache-from: type=gha,scope=irrd-v4
+          cache-to: type=gha,scope=irrd-v4,mode=max
+      - name: Week number for the dump cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: parity/.cache/*.db.gz
+          key: irr-dumps-${{ steps.week.outputs.week }}-${{ hashFiles('parity/dumps.tsv') }}
+          restore-keys: irr-dumps-
+      - name: Cut fixtures
+        run: python3 -I parity/tools/cut_fixtures.py parity/.cache
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: irrd-ng-musl
+          path: bin
+      # The rehearsal loads the Tier 1 stack itself and leaves v4 running.
+      - name: parity/rehearsal/run.sh
+        run: |
+          chmod +x bin/irrd-ng
+          IRRD_NG=$PWD/bin/irrd-ng parity/rehearsal/run.sh
+      - name: Collect reports
+        if: failure()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" parity/.work parity/out || true
+          docker compose -f parity/compose.yaml --profile twin --profile rehearsal logs --no-color --tail 2000 > parity/out/rehearsal-compose.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: nightly-rehearsal
+          path: |
+            parity/out/rehearsal-*
+          retention-days: 14
+      - name: Stop
+        if: always()
+        run: parity/down.sh --volumes
