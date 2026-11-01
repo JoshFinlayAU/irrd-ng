@@ -25,13 +25,20 @@ Each entry says what v4 does, what irrd-ng does instead, who can see the differe
 - **Visible to**: operators of NRTMv4 mirrors, and their downstream users, after an upstream session reset. Nothing changes until a reset happens.
 - **Why**: a plain bug in v4. A reset is part of the NRTMv4 protocol and the client is meant to recover from it. `parity/mirror/run.sh` step 11 checks that v4 still gets stuck and irrd-ng ends up identical to the upstream.
 
+## DIV-004: ROA import ignores repeated ROAs
+
+- **v4** (`irrd/rpki/importer.py`, `ROA.save()`): every ROA gets a pseudo-IRR `route` or `route6` object keyed on prefix, origin and max length, inserted with `rpsl_guaranteed_no_existing`. When the same prefix, origin and max length appear twice, under the same trust anchor or under two different ones, the second insert hits `rpsl_objects_rpsl_pk_source_class_unique`. The whole import rolls back, the error is logged, the runner still exits normally, and the previous ROAs stay in place. Validators publish the same ROA from more than one trust anchor often enough that this happens in practice, and it repeats on every run until the source data changes, so RPKI state silently stops updating.
+- **irrd-ng**: an exact repeat (same prefix, origin, max length and trust anchor) is stored once. A repeat under another trust anchor is stored in `roa_object` as its own row, as v4's table allows, but only the first one gets a pseudo-IRR object, so the object's `source:` comment names the first trust anchor in file order. The import then completes as it would have without the repeats. A warning `Ignored N duplicate ROA(s): ...` is logged, with one debug line per repeat. Validation results are unaffected, since a repeated ROA covers exactly what the first one does.
+- **Visible to**: operators whose ROA source contains repeats, who now get current RPKI state instead of a stuck import, and their users through `!f` filtering, RPKI-aware queries and notification mails.
+- **Why**: a v4 bug with no upside. Josh decided on 2026-11-01 to fix it. `parity/status/run.sh` step 03 checks that v4 still fails on the file with repeats and that irrd-ng on that file ends up exactly where v4 does on the same file without them, apart from the one extra trust anchor row.
+
 ## Not a divergence: comment line stripping
 
 v4's `split_paragraphs_rpsl` (`irrd/utils/text.py:69`) has an operator precedence slip, `strip_comments and line.startswith("%") or line.startswith("#")`, so `#` lines are always dropped and `%` lines only when `strip_comments` is set. Read literally that looks like a bug, but the behaviour it produces is the right one: RPSL treats `#` lines as comments everywhere, while NRTMv3 streams (the one caller that passes `strip_comments=False`) must keep `%` lines for `%START` and `%END`. Correcting the precedence would make irrd-ng keep `#` lines in NRTMv3 streams, which would then reject any mirrored object containing a whole-line comment and any stream with a `#` line after `%END`. irrd-ng therefore implements v4's behaviour, written out explicitly, and produces identical results.
 
 ## Accepted minor divergences
 
-These are corner cases where irrd-ng cannot or does not match v4 exactly. None of them shows up on the fixture data from eight real registries or on the oracle corpora. All of them were reviewed and accepted on 2026-11-01. They keep their P numbers because code and test comments refer to them.
+These are corner cases where irrd-ng cannot or does not match v4 exactly. None of them shows up on the fixture data from eight real registries or on the oracle corpora. P-01 to P-14 were reviewed and accepted on 2026-11-01, and P-15 to P-20 later the same day, on the condition that none of them changes what a client sees. They keep their P numbers because code and test comments refer to them.
 
 ### Configuration
 
@@ -56,10 +63,6 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 - **P-13 Answer order v4 does not fix.** v4 builds `!g`, `!6` and `!a` answers by joining a Python set of prefix strings (`irrd/storage/preload.py`, `routes_for_origins`), and the `-i` error for an unsupported attribute joins the set from `lookup_field_names()`. Python randomises string hashing per process, so two v4 processes on the same data give different orders: on the Tier 1 fixtures, 242 of 3,863 whois items and 199 of 3,629 `/v1/whois/` items differ between two v4 instances, and only in order. No fixed order in irrd-ng can match v4 byte for byte. The harness accepts a permutation of v4's answer for exactly these cases, with the `A<len>` line still exact (`parity/corpus/whois/unordered.tsv`), and reports them as "equivalent", never as identical. irrd-ng uses one fixed order: prefixes by address family, then address, then length, and the unsupported attribute names sorted.
 - **P-14 Objects with equal sort keys.** v4 orders object answers by `ip_first`, `asn_first`, `rpsl_pk` (and source priority where the query orders by source); the same `rpsl_pk` in two sources ties, and Postgres returns ties in no fixed order (seen on `!r0.0.0.0/0,M` between two v4 instances). The harness accepts a different order only within runs of objects with the same class, key and origin. irrd-ng breaks these ties by its internal object id, which follows the order objects were stored in, so its answer is stable from one start to the next.
 
-## Proposed, awaiting review
-
-P-15 to P-20 came out of the Phase 2 store and import work and were not in this file when the list above was accepted. P-21 to P-29 came out of Phases 5 and 6. Each needs a decision: accept it, or keep it open as a bug to fix.
-
 ### Store and tools
 
 - **P-15 No gaps in `serial_global`.** v4's Postgres sequence keeps the values a rolled-back transaction used, so `serial_global` has gaps after a failed update. irrd-ng rolls the counter back with the transaction, so it has none. `serial_global` only appears in exports and the journal tables, and NRTM serving uses the per-source serials, which match.
@@ -69,10 +72,14 @@ P-15 to P-20 came out of the Phase 2 store and import work and were not in this 
 - **P-19 Fixed order where v4 uses Python set order in loaders.** v4 lists unknown object classes, and applies the deletions in `irrd_update_database`, in Python set order, which changes between runs. It applies that tool's modifications in whatever order Postgres stores the rows, which is stable in practice but not defined. irrd-ng lists unknown classes in first-seen order and applies both deletions and modifications in key order, so the journal for one `irrd_update_database` run can list the same changes in a different order.
 - **P-20 Small faithfulness gaps in stored metadata.** `rpsl_objects.ip_size` is derived from `ip_first` and `ip_last` instead of being stored. `database_status.updated` is the transaction time, not the moment of the statement. Store log lines come from an `irrd_ng.store` logger, which v4 does not have.
 
+## Proposed, awaiting review
+
+P-21 to P-29 came out of Phases 5 and 6. Each needs a decision: accept it, or keep it open as a bug to fix.
+
 ### RPKI, scope filter and route preference
 
 - **P-21 Journal order inside one status batch.** When a ROA import, scope filter run or route preference run changes many objects at once, irrd-ng writes the journal entries in the store's key order. v4 writes them in the order its unordered table scan returns. The serials, operations and object texts are the same; only the order within the batch differs.
-- **P-22 Shorter log for the duplicate ROA failure.** v4's ROA import fails when the same prefix, origin and max length appear under two trust anchors, and still exits normally. irrd-ng reproduces that, but its log line leaves out SQLAlchemy's `[SQL: ...]` and `[parameters: ...]` blocks and the traceback.
+- **P-22 Withdrawn.** irrd-ng no longer reproduces v4's duplicate ROA failure, so its log text no longer matters (DIV-004).
 - **P-23 Approximated parser errors in ROA import logs.** Rarer ujson error texts, and the Python dict printout of a malformed ROA record, are approximated in the log.
 - **P-24 Order inside RPKI notification mails.** v4 lists objects, and the sources in the subject, in Python set order, which changes between runs. irrd-ng uses first-seen order.
 - **P-25 Long non-ASCII mail headers.** irrd-ng writes a non-ASCII header as one encoded word where Python's email package splits a long one into several. Mail clients decode both to the same text.

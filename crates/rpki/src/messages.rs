@@ -74,19 +74,20 @@ pub const FORMAT_SINGLE_CLOSE_BRACE: &str = "Single '}' encountered in format st
 /// `str.format()` on `pseudo_irr_remarks`: an unclosed `{`.
 pub const FORMAT_UNCLOSED_BRACE: &str = "expected '}' before end of string";
 
-/// The integrity error v4 hits when two ROAs give the same pseudo-IRR
-/// object. psycopg2's text, as SQLAlchemy prefixes it; v4 also appends the
-/// statement and its parameters, which are left out.
-pub fn pseudo_irr_unique_violation(rpsl_pk: &str, source: &str, object_class: &str) -> String {
+/// irrd-ng only (DIV-004): a ROA that repeats an earlier one, either
+/// exactly or with another trust anchor.
+pub fn duplicate_roa(prefix: &str, asn: u32, max_length: i64, trust_anchor: &str) -> String {
     format!(
-        "(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint \"rpsl_objects_rpsl_pk_source_class_unique\"\nDETAIL:  Key (rpsl_pk, source, object_class)=({rpsl_pk}, {source}, {object_class}) already exists.\n"
+        "Ignoring duplicate ROA for {prefix} / AS{asn} max length {max_length} from {trust_anchor}"
     )
 }
 
-/// `DatabaseHandler._flush_rpsl_object_writing_buffer()` logs the failing
-/// statement before re-raising. v4 prints the whole multi-row statement
-/// with a placeholder per value; the values part is left out here.
-pub const INSERT_STATEMENT_FAILED: &str = "Exception occurred while executing statement: INSERT INTO rpsl_objects (rpsl_pk, source, object_class, parsed_data, object_text, ip_version, ip_first, ip_last, ip_size, prefix_length, prefix, asn_first, asn_last, rpki_status, scopefilter_status, route_preference_status, updated) VALUES ..., rolling back";
+/// irrd-ng only (DIV-004): the summary after an import with repeats.
+pub fn duplicate_roas_ignored(count: usize) -> String {
+    format!(
+        "Ignored {count} duplicate ROA(s): a ROA is only stored once per trust anchor, and only the first ROA for a prefix, origin and max length gets a pseudo-IRR object"
+    )
+}
 
 // ---- irrd/mirroring/mirror_runners_import.py ----
 

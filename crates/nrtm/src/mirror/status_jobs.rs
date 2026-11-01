@@ -137,28 +137,22 @@ pub fn import_and_validate(
     let slurm_shown = jobs.slurm_source.clone().unwrap_or_else(|| "None".into());
     let parsed = RoaImport::parse(roa_json, slurm_json, Some(&jobs.pseudo_irr_remarks))?;
     let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
-    let mut objects = Vec::with_capacity(parsed.roas.len());
-    for roa in &parsed.roas {
-        objects.push(roa.pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?);
-    }
-    if let Some(i) = parsed.duplicate_at_commit {
-        // v4 has logged the import as done before its commit fails.
-        tracing::info!(target: LOG_TARGET, "{}", rmsg::roa_import_imported(&roa_source, &slurm_shown, parsed.roas.len()));
-        return Err(importer::duplicate_error(&parsed.roas[i]));
+    let mut objects = Vec::with_capacity(parsed.pseudo.len());
+    for &i in &parsed.pseudo {
+        objects.push(parsed.roas[i].pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?);
     }
 
     // First transaction, journaling disabled: replace every ROA and every
     // pseudo-IRR object.
     let roas = Arc::new(parsed.roas);
-    let objects = Arc::new(objects);
-    let (r2, o2) = (roas.clone(), objects.clone());
-    let reserve = objects.len().saturating_mul(2048);
+    let reserve = roas.len().saturating_mul(2048);
+    let (r2, o2) = (roas.clone(), objects);
     store
         .write_reserving(reserve, move |tx| {
             tx.disable_journaling();
             tx.delete_all_roa_objects()?;
             tx.delete_all_rpsl_objects_with_journal(importer::RPKI_IRR_PSEUDO_SOURCE, true)?;
-            for (roa, obj) in r2.iter().zip(o2.iter()) {
+            for roa in r2.iter() {
                 if let Some(prefix) = roa.ip_prefix() {
                     tx.insert_roa_object(
                         roa.prefix.version(),
@@ -168,6 +162,8 @@ pub fn import_and_validate(
                         &roa.trust_anchor,
                     )?;
                 }
+            }
+            for obj in o2.iter() {
                 tx.upsert_rpsl_object(obj, JournalEntryOrigin::PseudoIrr, None, None)?;
             }
             Ok(())
@@ -274,7 +270,7 @@ pub fn dry_run_roa_import(
     let parsed = RoaImport::parse(roa_json, slurm_json, Some(&jobs.pseudo_irr_remarks))?;
     let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
     let mut out = Vec::new();
-    for roa in &parsed.roas {
+    for roa in parsed.pseudo.iter().map(|&i| &parsed.roas[i]) {
         let obj = roa.pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?;
         out.push(format!(
             "pseudo\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
@@ -286,9 +282,6 @@ pub fn dry_run_roa_import(
             roa.prefix.broadcast(),
             roa.prefix_str,
         ));
-    }
-    if let Some(i) = parsed.duplicate_at_commit {
-        return Err(importer::duplicate_error(&parsed.roas[i]));
     }
     let validator =
         BulkRouteRoaValidator::from_roas(&parsed.roas, settings.rpki_excluded_sources.clone());
@@ -600,10 +593,11 @@ mod tests {
         );
     }
 
-    // The v4 quirk: a ROA repeated under another trust anchor fails the
-    // whole import and the previous ROAs stay.
+    // DIV-004: v4 fails the whole import on a ROA repeated under another
+    // trust anchor and keeps the previous ROAs. irrd-ng imports it, with
+    // one pseudo-IRR object for the pair.
     #[test]
-    fn duplicate_roa_keeps_previous_state() {
+    fn duplicate_roa_is_imported_once() {
         let dir = tempfile::tempdir().expect("dir");
         let store = open(&dir, settings(&[]));
         let ms = mirror_settings();
@@ -613,12 +607,9 @@ mod tests {
             {"asn": "AS65002", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
             {"asn": "AS65002", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"}
         ]}"#;
-        let e = import_and_validate(&store, &ms, dup, None).expect_err("duplicate");
-        assert!(
-            e.to_string()
-                .contains("rpsl_objects_rpsl_pk_source_class_unique")
-        );
-        assert_eq!(statuses(&store, "RPKI")[0].0, "192.0.2.0/24AS65001/ML24");
+        import_and_validate(&store, &ms, dup, None).expect("duplicate imported");
+        let pks: Vec<String> = statuses(&store, "RPKI").into_iter().map(|s| s.0).collect();
+        assert_eq!(pks, ["192.0.2.0/24AS65002/ML24"]);
     }
 
     // Route preference: the full runner, and the pre-commit hook for

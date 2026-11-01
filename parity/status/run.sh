@@ -6,7 +6,7 @@
 # Loads the Tier 1 fixtures plus two synthetic sources (data/) into the
 # pinned v4 with v4's own mirror import, copies that database into an
 # irrd-ng store with `irrd-ng import`, and then takes both through the same
-# steps: ROA imports (churned ROAs, a duplicate across trust anchors, SLURM),
+# steps: ROA imports (churned ROAs, duplicates (DIV-004), SLURM),
 # scope filter changes, route preference changes, and an
 # irrd_update_database run that triggers route preference re-evaluation
 # before commit. v4 runs each job through its own runner classes
@@ -84,7 +84,7 @@ a = json.load(open(sys.argv[1]))["roas"] + json.load(open(sys.argv[2]))["roas"]
 json.dump({"roas": a}, open(sys.argv[3], "w"))' "$work/roas-gen.json" corpus/whois/data/roas-static.json "$work/roas-base.json"
 python3 -I status/roas.py base "$work/roas-base.json" > "$work/roas1.json"
 python3 -I status/roas.py mutate "$work/roas-base.json" > "$work/roas2.json"
-python3 -I status/roas.py dup "$work/roas2.json" > "$work/roas-dup.json"
+python3 -I status/roas.py dup "$work/roas1.json" > "$work/roas-dup.json"
 
 # ---- load ----
 step_config '{"load": true, "roas": "roas1.json"}'
@@ -116,6 +116,7 @@ compare_step() {
   chmod a+rwx "$d/v4"  # the v4 container writes as its own user
   v4run python3 /tools/export_v4.py postgresql://irrd:irrd@postgres/irrd "/out/$name/v4" > /dev/null
   ng export-jsonl --config "$work/irrd-ng.yaml" --table all --output-dir "$d/ng" > /dev/null
+  [[ -z ${NG_EXPORT_HOOK:-} ]] || $NG_EXPORT_HOOK "$d/ng"
   echo "== $name"
   local ok=1
   python3 -I status/compare_status.py "$d/v4" "$d/ng" --exclude-file status/excluded-columns.tsv \
@@ -147,14 +148,42 @@ both 01-roa-import 'v4job ROAImportRunner' 'ngjob roa-import'
 step_config '{"roas": "roas2.json"}'
 both 02-roa-churn 'v4job ROAImportRunner' 'ngjob roa-import'
 
-# v4 fails on a ROA repeated under another trust anchor and keeps the
-# previous state; so must irrd-ng.
+# DIV-004. A ROA repeated under the same or another trust anchor: v4 fails
+# the whole import and keeps the previous state, irrd-ng drops the exact
+# repeat and gives the other one no pseudo-IRR object. So v4 must log the
+# failure on roas-dup.json, and irrd-ng on roas-dup.json must end up where
+# v4 does on the same file without the repeats (roas1.json), plus the one
+# extra roa_object row for the other trust anchor.
+mkdir -p "$out/03-roa-duplicate"
 step_config '{"roas": "roas-dup.json"}'
-both 03-roa-duplicate 'v4job ROAImportRunner' 'ngjob roa-import'
-for side in v4 ng; do
-  grep -q 'rpsl_objects_rpsl_pk_source_class_unique' "$out/03-roa-duplicate/$side.log" \
-    || { echo "  $side did not report the duplicate ROA"; failed=1; }
-done
+v4job ROAImportRunner > "$out/03-roa-duplicate/v4-stuck.log" 2>&1 || true
+grep -q 'rpsl_objects_rpsl_pk_source_class_unique' "$out/03-roa-duplicate/v4-stuck.log" \
+  || { echo "  v4 did not fail on the duplicate ROA"; failed=1; }
+python3 -I status/mails.py dump "$out/03-roa-duplicate/v4-stuck-mails.json" > /dev/null
+step_config '{"roas": "roas1.json"}'
+v4job ROAImportRunner > "$out/03-roa-duplicate/v4.log" 2>&1 || true
+python3 -I status/mails.py dump "$out/03-roa-duplicate/v4-mails.json" > /dev/null
+step_config '{"roas": "roas-dup.json"}'
+ngjob roa-import > "$out/03-roa-duplicate/ng.log" 2>&1 || true
+python3 -I status/mails.py dump "$out/03-roa-duplicate/ng-mails.json" > /dev/null
+grep -q 'Ignored 2 duplicate ROA(s)' "$out/03-roa-duplicate/ng.log" \
+  || { echo "  irrd-ng did not report the duplicate ROAs"; failed=1; }
+# Moves irrd-ng's one extra row aside, and fails unless there is exactly one.
+split_dup_ta() {
+  python3 -I -c '
+import json, sys
+path = sys.argv[1] + "/roa_object.jsonl"
+rows = [json.loads(line) for line in open(path)]
+extra = [r for r in rows if r.get("trust_anchor") == "duplicate-ta"]
+with open(path, "w") as f:
+    for r in rows:
+        if r.get("trust_anchor") != "duplicate-ta":
+            f.write(json.dumps(r) + "\n")
+json.dump(extra, open(sys.argv[1] + "/../ng-duplicate-ta.json", "w"))
+sys.exit(0 if len(extra) == 1 else f"  irrd-ng stored {len(extra)} rows for duplicate-ta, expected 1")
+' "$1" || failed=1
+}
+NG_EXPORT_HOOK=split_dup_ta compare_step 03-roa-duplicate
 
 step_config '{"roas": "roas2.json", "slurm": "slurm.json"}'
 both 04-slurm 'v4job ROAImportRunner' 'ngjob roa-import'

@@ -362,59 +362,20 @@ impl IpSet {
 }
 
 /// What a ROA source and an optional SLURM file give: v4's
-/// `ROADataImporter.roa_objs`, in order.
+/// `ROADataImporter.roa_objs`, in order, without repeats (DIV-004).
 #[derive(Debug, Clone, Default)]
 pub struct RoaImport {
     /// The ROAs to insert, in v4's order (file order, then SLURM
-    /// assertions).
+    /// assertions). A ROA repeated with the same trust anchor is kept
+    /// once.
     pub roas: Vec<Roa>,
-    /// The ROA whose pseudo-IRR object fails v4's unique constraint when
-    /// the import commits, after the import has logged its ROA count.
-    pub duplicate_at_commit: Option<usize>,
-}
-
-/// v4's upsert buffer for the pseudo-IRR objects, reduced to what decides
-/// where a repeated object fails. Objects are inserted with
-/// `rpsl_guaranteed_no_existing`, so a second object with the same key is a
-/// unique violation in the flush that writes it. The buffer is flushed
-/// before an object whose key is already in it and whenever it holds more
-/// than 15,000 objects, and finally at commit.
-#[derive(Default)]
-struct FlushSim {
-    buffer: Vec<usize>,
-    buffer_keys: HashSet<(&'static str, String)>,
-    inserted: HashSet<(&'static str, String)>,
-}
-
-impl FlushSim {
-    /// Flush; the index of the first object that fails, if any.
-    fn flush(&mut self, roas: &[Roa]) -> Option<usize> {
-        self.buffer_keys.clear();
-        for i in std::mem::take(&mut self.buffer) {
-            let key = (roas[i].pseudo_class(), roas[i].pseudo_pk());
-            if !self.inserted.insert(key) {
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    /// `upsert_rpsl_object()` of `roas[i]`; the index of a failing object
-    /// if this triggered a flush that failed.
-    fn upsert(&mut self, roas: &[Roa], i: usize) -> Option<usize> {
-        let key = (roas[i].pseudo_class(), roas[i].pseudo_pk());
-        if self.buffer_keys.contains(&key)
-            && let Some(f) = self.flush(roas)
-        {
-            return Some(f);
-        }
-        self.buffer_keys.insert(key);
-        self.buffer.push(i);
-        if self.buffer.len() > store::write::MAX_RECORDS_BUFFER_BEFORE_INSERT {
-            return self.flush(roas);
-        }
-        None
-    }
+    /// Indexes into `roas` of the ROAs that get a pseudo-IRR object: the
+    /// first ROA for each prefix, origin and max length. v4 tries to create
+    /// one for every ROA and fails the whole import on the repeat.
+    pub pseudo: Vec<usize>,
+    /// How many ROAs were dropped or got no pseudo-IRR object because they
+    /// repeat an earlier one.
+    pub duplicates: usize,
 }
 
 #[derive(Default)]
@@ -531,8 +492,8 @@ impl RoaImport {
     /// raise what it raises where it raises it: a bad `remarks` template
     /// (`remarks`, when given) at the first save, and a repeated
     /// pseudo-IRR object in the flush that writes it. A problem is logged
-    /// and returned exactly as v4 raises it; a repeat that only fails at
-    /// commit is returned in [`RoaImport::duplicate_at_commit`].
+    /// and returned exactly as v4 raises it. Repeated ROAs are not a
+    /// problem here, unlike in v4 (DIV-004): see [`RoaImport`].
     pub fn parse(
         rpki_json: &str,
         slurm_json: Option<&str>,
@@ -569,7 +530,10 @@ impl RoaImport {
         }
 
         let mut roas = Vec::with_capacity(roa_dicts.len());
-        let mut sim = FlushSim::default();
+        let mut pseudo = Vec::with_capacity(roa_dicts.len());
+        let mut duplicates = 0;
+        let mut seen_roas = HashSet::new();
+        let mut seen_pseudo = HashSet::new();
         for (idx, d) in roa_dicts.iter().enumerate() {
             let missing = |key: &str| {
                 let record = if idx < n_file {
@@ -616,6 +580,11 @@ impl RoaImport {
                     asn,
                 )));
             }
+            if !seen_roas.insert((prefix_str.clone(), asn, max_length, ta.clone())) {
+                duplicates += 1;
+                tracing::debug!(target: LOG_TARGET, "{}", messages::duplicate_roa(&prefix_str, asn, max_length, &ta));
+                continue;
+            }
             roas.push(Roa {
                 prefix,
                 prefix_str,
@@ -629,27 +598,23 @@ impl RoaImport {
             {
                 roas[0].pseudo_text(r)?;
             }
-            if let Some(f) = sim.upsert(&roas, roas.len() - 1) {
-                return Err(duplicate_error(&roas[f]));
+            let roa = &roas[roas.len() - 1];
+            if seen_pseudo.insert((roa.pseudo_class(), roa.pseudo_pk())) {
+                pseudo.push(roas.len() - 1);
+            } else {
+                duplicates += 1;
+                tracing::debug!(target: LOG_TARGET, "{}", messages::duplicate_roa(&roa.prefix_str, roa.asn, roa.max_length, &roa.trust_anchor));
             }
         }
-        let duplicate_at_commit = sim.flush(&roas);
+        if duplicates > 0 {
+            tracing::warn!(target: LOG_TARGET, "{}", messages::duplicate_roas_ignored(duplicates));
+        }
         Ok(RoaImport {
             roas,
-            duplicate_at_commit,
+            pseudo,
+            duplicates,
         })
     }
-}
-
-/// The text v4 reports for the duplicate pseudo-IRR object; v4's handler
-/// logs the failed statement first, which this does too.
-pub fn duplicate_error(roa: &Roa) -> RoaImportError {
-    tracing::error!(target: "irrd.storage.database_handler", "{}", messages::INSERT_STATEMENT_FAILED);
-    RoaImportError::Other(messages::pseudo_irr_unique_violation(
-        &roa.pseudo_pk(),
-        RPKI_IRR_PSEUDO_SOURCE,
-        roa.pseudo_class(),
-    ))
 }
 
 fn slurm_record_repr(d: &RawRoa) -> String {
@@ -879,7 +844,8 @@ mod tests {
              source:         RPKI  # Trust Anchor: APNIC RPKI Root\n"
         );
         assert_eq!(obj.rpki_status, RpkiStatus::Valid);
-        assert_eq!(imp.duplicate_at_commit, None);
+        assert_eq!(imp.pseudo, vec![0, 1, 2, 3]);
+        assert_eq!(imp.duplicates, 0);
     }
 
     #[test]
@@ -941,54 +907,40 @@ mod tests {
         );
     }
 
+    // DIV-004: v4 fails the whole import on these; irrd-ng keeps one
+    // pseudo-IRR object per prefix, origin and max length, and every
+    // distinct ROA row.
     #[test]
-    fn duplicate_across_trust_anchors() {
+    fn duplicates_are_ignored() {
         let imp = RoaImport::parse(
             r#"{"roas": [
                 {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
                 {"asn": "AS2", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
-                {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"}
+                {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"},
+                {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
+                {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 25, "ta": "b"}
             ]}"#,
             None,
             None,
         )
         .expect("parsed");
-        let d = &imp.roas[imp.duplicate_at_commit.expect("duplicate")];
-        assert_eq!(d.trust_anchor, "b");
+        let rows: Vec<(u32, i64, &str)> = imp
+            .roas
+            .iter()
+            .map(|r| (r.asn, r.max_length, r.trust_anchor.as_str()))
+            .collect();
         assert_eq!(
-            duplicate_error(d).to_string(),
-            "(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint \"rpsl_objects_rpsl_pk_source_class_unique\"\nDETAIL:  Key (rpsl_pk, source, object_class)=(192.0.2.0/24AS1/ML24, RPKI, route) already exists.\n"
+            rows,
+            [(1, 24, "a"), (2, 24, "a"), (1, 24, "b"), (1, 25, "b")]
         );
+        assert_eq!(imp.pseudo, vec![0, 1, 3]);
+        assert_eq!(imp.duplicates, 2);
     }
 
-    // Where v4's buffered inserts fail: a repeat within the last 15,000
-    // objects fails at commit (after the import is logged as done); an
-    // earlier one fails in the flush the next 15,001st object triggers,
-    // before a later bad ROA is even read.
+    // A repeat no longer stops the import early, so a later bad ROA or a
+    // bad remarks template is still reported as v4 reports it.
     #[test]
-    fn duplicate_fails_in_the_flush_that_writes_it() {
-        let mut roas: Vec<String> = (0..15_010u32)
-            .map(|i| {
-                format!(
-                    r#"{{"asn": "AS{}", "prefix": "10.{}.{}.0/24", "maxLength": 24, "ta": "a"}}"#,
-                    65000 + i / 65536,
-                    (i / 256) % 256,
-                    i % 256
-                )
-            })
-            .collect();
-        roas[5] = roas[3].replace("\"a\"", "\"b\"");
-        roas.push(
-            r#"{"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 1, "ta": "a"}"#.to_owned(),
-        );
-        let json = format!(r#"{{"roas": [{}]}}"#, roas.join(","));
-        let e = RoaImport::parse(&json, None, None).expect_err("fails");
-        assert!(
-            e.to_string()
-                .contains("(10.0.3.0/24AS65000/ML24, RPKI, route)"),
-            "{e}"
-        );
-
+    fn errors_after_a_duplicate() {
         let late = r#"{"roas": [
             {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
             {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"},

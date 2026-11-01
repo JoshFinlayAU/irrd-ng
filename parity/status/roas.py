@@ -3,7 +3,7 @@
 
     roas.py base BASE.json > roas1.json     # BASE plus step 1 ROAs
     roas.py mutate BASE.json > roas2.json   # churned BASE plus step 2 ROAs
-    roas.py dup IN.json > roas-dup.json     # IN plus a repeat under another TA
+    roas.py dup IN.json > roas-dup.json     # IN plus two repeats of its first ROA
 
 BASE is what parity/load.sh builds for the rpki profile (make_roas.py over
 the fixtures plus corpus/whois/data/roas-static.json). The churn is
@@ -74,9 +74,10 @@ def main():
             out.append(r)
         out += [entry(*r) for r in STEP2]
     elif cmd == "dup":
+        # The same ROA again under the same trust anchor and under another.
         first = dict(roas[0])
         first["ta"] = "duplicate-ta"
-        out = roas + [first]
+        out = roas + [dict(roas[0]), first]
         json.dump({"roas": out}, sys.stdout, indent=0)
         sys.stdout.write("\n")
         return
