@@ -133,3 +133,12 @@ Copyright (c) 2021, Rajiv Sarvepalli
     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
     THE SOFTWARE.
+
+==============================================================================
+
+The irrd-ng binary contains copies of the GraphiQL explorer files IRRd v4
+serves under /static/js/graphiql/: GraphiQL 3.9.0, @graphiql/plugin-explorer
+3.2.6 (which includes graphiql-explorer 0.9.0), React 18.3.1 and
+ReactDOM 18.3.1, all under the MIT licence. Their origins and full licence
+texts are in crates/http/assets/graphiql/ in the source, and in
+licenses/graphiql/ in each release tarball.

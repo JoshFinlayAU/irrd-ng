@@ -1,0 +1,2 @@
+# Byte-identical copies of upstream files: never convert line endings.
+crates/http/assets/graphiql/** -text
