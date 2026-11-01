@@ -244,10 +244,55 @@ pub fn log_unreadable_client(ip: &str, e: &str) -> String {
 pub const HTTP_MISSING_Q: &str = "Missing required query parameter \"q\"";
 
 /// Log: `{client_str}: sent answer to HTTP query, elapsed {elapsed:.9f}s, {length} chars: {query}`
+///
+/// v4 logs the percent-decoded query as it is, so `%0A` in it starts a new
+/// log line that the client wrote. irrd-ng escapes control characters in
+/// it (`\n`, `\r`, `\t`, `\xNN`, `\uNNNN`); the log is not something a
+/// client sees, and a query without them logs exactly as in v4.
 pub fn log_sent_http_answer(client: &str, elapsed: f64, n: usize, query: &str) -> String {
+    let query = escape_controls(query);
     format!("{client}: sent answer to HTTP query, elapsed {elapsed:.9}s, {n} chars: {query}")
+}
+
+/// `text` with control characters (and the Unicode line and paragraph
+/// separators) escaped as Python escapes them.
+pub fn escape_controls(text: &str) -> std::borrow::Cow<'_, str> {
+    let special = |c: char| c.is_control() || c == '\u{2028}' || c == '\u{2029}';
+    if !text.chars().any(special) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Cc: all below U+0100.
+            c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c if special(c) => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// The exception logged when a set hierarchy is nested past
 /// `MAX_SET_LEVELS` (v4's `RecursionError`).
 pub const SET_RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_query_log_escapes_control_characters() {
+        assert_eq!(
+            log_sent_http_answer("192.0.2.1:5", 0.5, 3, "!iAS-X,1"),
+            "192.0.2.1:5: sent answer to HTTP query, elapsed 0.500000000s, 3 chars: !iAS-X,1"
+        );
+        assert_eq!(
+            log_sent_http_answer("c", 0.0, 0, "!v\nINFO forged\r\t\x1b[0m\u{85}\u{2028}é\\n"),
+            "c: sent answer to HTTP query, elapsed 0.000000000s, 0 chars: !v\\nINFO forged\\r\\t\\x1b[0m\\x85\\u2028é\\n"
+        );
+    }
+}
