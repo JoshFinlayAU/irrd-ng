@@ -204,7 +204,6 @@ pub(crate) const META_LOAD_INCOMPLETE: &[u8] = b"load_incomplete";
 pub(crate) const META_LOAD_INCOMPLETE_SOURCE: &[u8] = b"load_incomplete_source:";
 
 const GIB: usize = 1 << 30;
-const MIB: usize = 1 << 20;
 
 /// How a store is opened.
 #[derive(Debug, Clone)]
@@ -221,6 +220,10 @@ pub struct StoreOptions {
     /// "load incomplete" marker so an interrupted load is never opened as
     /// a complete store.
     pub bulk_load: bool,
+    /// The least the map grows by at a time (1 GiB). Tests lower it to
+    /// keep maps small.
+    #[doc(hidden)]
+    pub growth_step: usize,
 }
 
 impl StoreOptions {
@@ -231,6 +234,7 @@ impl StoreOptions {
             initial_map_size: GIB,
             read_only: false,
             bulk_load: false,
+            growth_step: GIB,
         }
     }
 }
@@ -365,6 +369,8 @@ pub(crate) struct Inner {
     pub(crate) read_only: bool,
     /// Opened in bulk-load mode: replication logs a resync, not the rows.
     pub(crate) bulk_load: bool,
+    /// [`StoreOptions::growth_step`].
+    pub(crate) growth_step: usize,
     pub(crate) path: PathBuf,
     /// Sources whose interrupted bulk load was found (and flagged for a
     /// reload) when this store was opened.
@@ -392,16 +398,17 @@ pub(crate) fn used_bytes(env: &Env<WithoutTls>) -> usize {
     (info.last_page_number + 1) * page
 }
 
-/// A map size with headroom for `used` bytes: double, at least 1 GiB more.
-pub(crate) fn grown_size(used: usize, current: usize) -> usize {
-    page_round((used * 2).max(used + GIB).max(current + 256 * MIB))
+/// A map size with headroom for `used` bytes: double, at least `step`
+/// (1 GiB) more, and at least a quarter `step` more than `current`.
+pub(crate) fn grown_size(used: usize, current: usize, step: usize) -> usize {
+    page_round((used * 2).max(used + step).max(current + step / 4))
 }
 
 /// Whether the map should grow before the next write: under a quarter, or
-/// under 256 MiB, free.
-pub(crate) fn needs_growth(used: usize, map: usize) -> bool {
+/// under a quarter `step` (256 MiB), free.
+pub(crate) fn needs_growth(used: usize, map: usize, step: usize) -> bool {
     let free = map.saturating_sub(used);
-    free < map / 4 || free < 256 * MIB
+    free < map / 4 || free < step / 4
 }
 
 pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
@@ -412,7 +419,11 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
     let existing = std::fs::metadata(path.join("data.mdb"))
         .map(|m| m.len() as usize)
         .unwrap_or(0);
-    let map_size = page_round(options.initial_map_size.max(grown_size(existing, 0)));
+    let map_size = page_round(options.initial_map_size.max(grown_size(
+        existing,
+        0,
+        options.growth_step,
+    )));
     let mut opts = EnvOpenOptions::new().read_txn_without_tls();
     opts.map_size(map_size)
         .max_dbs(TABLE_NAMES.len() as u32 + 8)
@@ -502,6 +513,7 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
         gate: ReaderGate::default(),
         read_only: options.read_only,
         bulk_load: options.bulk_load,
+        growth_step: options.growth_step,
         path: path.clone(),
         recovered_interrupted_loads: recovered,
     }))
@@ -624,14 +636,56 @@ pub(crate) fn record_map_size(wtxn: &mut RwTxn<'_>, tables: &Tables, size: usize
     Ok(())
 }
 
-/// Grow the map to `new_size`, waiting for this process's readers.
+std::thread_local! {
+    /// On a store's writer thread: that store's [`Inner`] (as an address).
+    static WRITER_OF: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Mark the current thread as `inner`'s writer thread, the only thread
+/// that opens its write transactions and the only one that may resize it.
+pub(crate) fn set_writer_thread(inner: &Inner) {
+    WRITER_OF.with(|w| w.set(std::ptr::from_ref(inner) as usize));
+}
+
+/// Whether the current thread is `inner`'s writer thread.
+pub(crate) fn on_writer_thread(inner: &Inner) -> bool {
+    WRITER_OF.with(|w| w.get() == std::ptr::from_ref(inner) as usize)
+}
+
+/// Whether this process's mapping covers every page in use, so that
+/// LMDB does not refuse transactions with `MDB_MAP_RESIZED`. Registered
+/// with the reader gate, so no resize changes the mapping meanwhile.
+pub(crate) fn mapping_covers_data(inner: &Inner) -> bool {
+    inner.gate.enter(false);
+    let covers = used_bytes(&inner.env) <= inner.env.info().map_size;
+    inner.gate.leave(false);
+    covers
+}
+
+/// Grow the map to `new_size` (0: adopt the size another process set),
+/// waiting for this process's readers.
+///
+/// Only the writer thread, between write transactions, may call this; in
+/// a read-only store, which opens no write transactions, any thread may.
 pub(crate) fn resize(inner: &Inner, new_size: usize) -> Result<()> {
+    debug_assert!(
+        inner.read_only || on_writer_thread(inner),
+        "map resize off the writer thread"
+    );
     let new_size = page_round(new_size);
     inner.gate.exclusive(|| {
         tracing::info!(target: LOG_TARGET, "{}", messages::map_resized(new_size));
-        // SAFETY: the reader gate guarantees no read transaction of this
-        // process is open, and the writer thread (the only one that opens
-        // write transactions) is the caller and holds none.
+        // SAFETY: LMDB (and heed's contract) allows a resize only while no
+        // transaction of this process is open in the environment. The
+        // reader gate guarantees no read transaction is open (every
+        // `ReadTx`, and the raw read transactions `Store::info` and
+        // `Store::table_stats` open inside one, is registered with it).
+        // Write transactions are opened only on the writer thread, and
+        // only inside `attempt()`, which has returned before its caller
+        // gets here: either this is that thread, between transactions, or
+        // the store is read-only (`MDB_RDONLY`) and opens none. heed
+        // refuses a second `Env` for the same path in one process, so no
+        // other handle in this process can have one open either.
         unsafe { inner.env.resize(new_size) }
     })?;
     Ok(())

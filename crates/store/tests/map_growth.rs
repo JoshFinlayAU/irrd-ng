@@ -2,7 +2,8 @@
 
 mod common;
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use common::TempDir;
@@ -93,4 +94,166 @@ fn snapshot_grows_the_map_before_it_starts() {
         .expect("snapshot");
     let info = seen.expect("state seen");
     assert!(info.map_size - info.used_bytes >= info.used_bytes.max(1 << 30));
+}
+
+/// Set (to the store directory and a row name prefix) in the child
+/// process of [`map_grown_by_another_process_is_renewed_between_transactions`].
+const GROW_CHILD_DIR: &str = "IRRD_NG_TEST_GROW_MAP_DIR";
+const GROW_CHILD_PREFIX: &str = "IRRD_NG_TEST_GROW_MAP_PREFIX";
+const CHILD_ROWS: usize = 24;
+const CHILD_ROW_BYTES: usize = 1 << 20;
+
+fn small_step_options(path: &std::path::Path) -> store::StoreOptions {
+    let mut o = store::StoreOptions::new(path);
+    o.initial_map_size = 4 << 20;
+    o.growth_step = 1 << 20;
+    o
+}
+
+fn setting(name: String, value: String) -> store::SettingRow {
+    store::SettingRow {
+        name,
+        value: Some(value),
+        created: store::Timestamp::now(),
+    }
+}
+
+/// The child half: as `irrd_load_database` would, another process opens
+/// the store and writes far beyond the first process's mapping, growing
+/// the map. Does nothing unless run as that child.
+#[test]
+fn grow_map_child() {
+    let (Some(dir), Some(prefix)) = (
+        std::env::var_os(GROW_CHILD_DIR),
+        std::env::var(GROW_CHILD_PREFIX).ok(),
+    ) else {
+        return;
+    };
+    let store = store::Store::open(
+        &small_step_options(std::path::Path::new(&dir)),
+        store::StoreSettings::default(),
+    )
+    .expect("child open");
+    for i in 0..CHILD_ROWS {
+        let value = "x".repeat(CHILD_ROW_BYTES);
+        let name = format!("{prefix}-{i}");
+        store
+            .write(move |tx| tx.put_setting(&setting(name.clone(), value.clone())))
+            .expect("child write");
+    }
+}
+
+fn run_grow_child(dir: &TempDir, prefix: &str) {
+    let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            "grow_map_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(GROW_CHILD_DIR, &dir.0)
+        .env(GROW_CHILD_PREFIX, prefix)
+        .status()
+        .expect("run child");
+    assert!(status.success(), "child: {status}");
+}
+
+/// Wait until `counter` has moved on by more than 10 from `from`.
+fn progresses(counter: &AtomicUsize, from: usize) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while counter.load(Ordering::Relaxed) <= from + 10 {
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+/// Another process grows the map while this one reads and writes. LMDB
+/// then refuses new transactions here (`MDB_MAP_RESIZED`) until the
+/// mapping is renewed, which must not overlap any transaction of this
+/// process, read or write: readers hand the renewal to the writer thread
+/// (the store asserts in debug builds that only the writer thread
+/// resizes a read-write store), and reads and writes carry on.
+///
+/// The first growth happens while this process only reads, so readers
+/// meet the error; the second while it also writes as fast as it can.
+#[test]
+fn map_grown_by_another_process_is_renewed_between_transactions() {
+    let dir = TempDir::new("grown-by-other");
+    let store = store::Store::open(&small_step_options(&dir.0), store::StoreSettings::default())
+        .expect("open");
+    store
+        .write(|tx| tx.put_setting(&setting("parent".into(), "0".into())))
+        .expect("first write");
+    let before = store.info().expect("info").map_size;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let writing = Arc::new(AtomicBool::new(false));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let mut threads = Vec::new();
+    for _ in 0..4 {
+        let (s, stop, reads) = (store.clone(), stop.clone(), reads.clone());
+        threads.push(std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let r = s.read().expect("read during growth");
+                let rows = r.view().settings().expect("settings");
+                assert!(rows.iter().any(|row| row.name == "parent"));
+                reads.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+    }
+    {
+        let (s, stop, writing, writes) =
+            (store.clone(), stop.clone(), writing.clone(), writes.clone());
+        threads.push(std::thread::spawn(move || {
+            let mut n = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                if !writing.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+                n += 1;
+                let v = n.to_string();
+                s.write(move |tx| tx.put_setting(&setting("parent".into(), v.clone())))
+                    .expect("write during growth");
+                writes.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+    }
+
+    // Grown while only reading.
+    run_grow_child(&dir, "first");
+    assert!(progresses(&reads, reads.load(Ordering::Relaxed)));
+    let after_first = store.info().expect("info").map_size;
+    assert!(after_first >= CHILD_ROWS * CHILD_ROW_BYTES);
+
+    // Grown while reading and writing.
+    writing.store(true, Ordering::Relaxed);
+    assert!(progresses(&writes, writes.load(Ordering::Relaxed)));
+    run_grow_child(&dir, "second");
+    assert!(progresses(&reads, reads.load(Ordering::Relaxed)));
+    assert!(progresses(&writes, writes.load(Ordering::Relaxed)));
+
+    stop.store(true, Ordering::Relaxed);
+    for t in threads {
+        t.join().expect("no reader or writer failed");
+    }
+
+    // This process now maps everything the child wrote.
+    let info = store.info().expect("info");
+    assert!(info.map_size > before);
+    assert!(info.map_size >= 2 * CHILD_ROWS * CHILD_ROW_BYTES);
+    let r = store.read().expect("read");
+    let rows = r.view().settings().expect("settings");
+    for prefix in ["first-", "second-"] {
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.name.starts_with(prefix))
+                .count(),
+            CHILD_ROWS
+        );
+    }
 }

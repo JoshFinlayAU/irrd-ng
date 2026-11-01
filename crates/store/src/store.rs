@@ -189,13 +189,41 @@ impl Store {
     }
 
     fn begin_read(&self, long: bool) -> Result<ReadTx> {
-        match ReadTx::begin(self.inner.clone(), long) {
-            Err(e) if is_map_resized(&e) => {
-                env::resize(&self.inner, 0)?;
-                ReadTx::begin(self.inner.clone(), long)
+        let mut tries = 0;
+        loop {
+            match ReadTx::begin(self.inner.clone(), long) {
+                Err(e) if is_map_resized(&e) && tries < 3 => {
+                    tries += 1;
+                    self.renew_map(e)?;
+                }
+                r => return r,
             }
-            r => r,
         }
+    }
+
+    /// Renew this process's mapping after another process grew the map
+    /// (`MDB_MAP_RESIZED`, `e`). The remap must not overlap any
+    /// transaction of this process, read or write, so in a read-write
+    /// store the writer thread does it, between its transactions: an empty
+    /// write job is enough, since beginning its write transaction hits the
+    /// same error and `run_batch` renews the mapping. A read-only store
+    /// opens no write transactions, so the reader does it here.
+    fn renew_map(&self, e: StoreError) -> Result<()> {
+        if self.writer.is_none() {
+            return env::resize(&self.inner, 0);
+        }
+        if env::mapping_covers_data(&self.inner) {
+            // The writer renewed it meanwhile (its next transaction met
+            // the same error); don't wait for whatever it runs now.
+            return Ok(());
+        }
+        if env::on_writer_thread(&self.inner) {
+            // Inside a write job: the write transaction is open, so the
+            // mapping cannot be renewed now. (Not expected: no other
+            // process can have committed since that transaction began.)
+            return Err(e);
+        }
+        self.write(|_| Ok(()))
     }
 
     /// Grow the map now, if needed, so that at least `bytes` more can be
@@ -501,6 +529,7 @@ impl Drop for BulkLoad {
 }
 
 fn writer_loop(inner: &Inner, shared: &Shared, rx: Receiver<Job>) {
+    env::set_writer_thread(inner);
     while let Ok(first) = rx.recv() {
         let mut batch = vec![first];
         while batch.len() < MAX_GROUP {
@@ -552,7 +581,7 @@ fn run_batch(
             Ok(Attempt::Done(results)) => return results,
             Ok(Attempt::MapFull) => {
                 let map = inner.env.info().map_size;
-                let new = env::grown_size(map, map);
+                let new = env::grown_size(map, map, inner.growth_step);
                 if let Err(e) = env::resize(inner, new) {
                     return fail_all(batch.len(), &e);
                 }
@@ -583,8 +612,11 @@ fn fail_all(n: usize, e: &StoreError) -> Vec<Result<ChangedObjects>> {
 fn ensure_headroom(inner: &Inner, reserve: usize) -> Result<()> {
     let used = env::used_bytes(&inner.env);
     let map = inner.env.info().map_size;
-    if env::needs_growth(used, map) || map.saturating_sub(used) < reserve {
-        env::resize(inner, env::grown_size(used + reserve, map))?;
+    if env::needs_growth(used, map, inner.growth_step) || map.saturating_sub(used) < reserve {
+        env::resize(
+            inner,
+            env::grown_size(used + reserve, map, inner.growth_step),
+        )?;
     }
     Ok(())
 }
