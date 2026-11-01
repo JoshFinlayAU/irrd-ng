@@ -342,3 +342,29 @@ pub(crate) fn set_sources_query(r: &QueryResolver, name: &str) -> String {
     );
     c.render(&["source"], None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Recorded from v4 (`rpslObjects(mntBy: [...], recordLimit: 3,
+    /// objectClass: ["route", "aut-num"])`), columns in table order.
+    #[test]
+    fn lookup_query_like_v4() {
+        let mut q = ObjectQuery {
+            limit: Some(3),
+            rpki: Some(vec![store::RpkiStatus::NotFound, store::RpkiStatus::Valid]),
+            scope: Some(vec![store::ScopeFilterStatus::InScope]),
+            routepref: Some(vec![store::RoutePreferenceStatus::Visible]),
+            sources: Some(vec!["RADB".into(), "NTTCOM".into()]),
+            ..Default::default()
+        };
+        q.object_classes(vec!["route".into(), "aut-num".into()]);
+        q.lookups
+            .push(("mnt-by".into(), vec!["MAINT-AS10217".into()]));
+        assert_eq!(
+            object_query(&q, &["rpsl_pk", "source", "object_class", "parsed_data"]),
+            "RPSLDatabaseQuery: SELECT rpsl_objects.rpsl_pk, rpsl_objects.source, rpsl_objects.object_class, rpsl_objects.parsed_data \nFROM rpsl_objects \nWHERE rpsl_objects.object_class IN (__[POSTCOMPILE_object_class_1]) AND rpsl_objects.rpki_status IN (__[POSTCOMPILE_rpki_status_1]) AND rpsl_objects.scopefilter_status IN (__[POSTCOMPILE_scopefilter_status_1]) AND rpsl_objects.route_preference_status IN (__[POSTCOMPILE_route_preference_status_1]) AND rpsl_objects.source IN (__[POSTCOMPILE_source_1]) AND parsed_data->:lookup_attr_name0 ? :lookup_attr_value0\n LIMIT :param_1\nPARAMS: {'object_class_1': ['route', 'aut-num'], 'rpki_status_1': [<RPKIStatus.not_found: 'NOT_FOUND'>, <RPKIStatus.valid: 'VALID'>], 'scopefilter_status_1': [<ScopeFilterStatus.in_scope: 'IN_SCOPE'>], 'route_preference_status_1': [<RoutePreferenceStatus.visible: 'VISIBLE'>], 'source_1': ['RADB', 'NTTCOM'], 'lookup_attr_name0': 'mnt-by', 'lookup_attr_value0': 'MAINT-AS10217', 'param_1': 3}"
+        );
+    }
+}

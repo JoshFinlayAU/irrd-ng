@@ -1058,3 +1058,85 @@ impl graphql::Extensions for Resolvers<'_, '_> {
         self.sql_queries.borrow().clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_like_ariadne_and_irrd() {
+        assert_eq!(camel_to_snake("rpslPk"), "rpsl_pk");
+        assert_eq!(
+            camel_to_snake("ipLessSpecificOneLevel"),
+            "ip_less_specific_one_level"
+        );
+        assert_eq!(
+            camel_to_snake("nrtm4ClientVersion"),
+            "nrtm_4_client_version"
+        );
+        assert_eq!(camel_to_snake("eMail"), "e_mail");
+        assert_eq!(camel_to_snake("source_type"), "source_type");
+        assert_eq!(snake_to_camel_case("mnt-by"), "mntBy");
+        assert_eq!(snake_to_camel_case("e-mail"), "eMail");
+        assert_eq!(snake_to_camel_case("rpki_max_length"), "rpkiMaxLength");
+        assert_eq!(snake_to_camel_case("RPSLRoute"), "RPSLRoute");
+    }
+
+    #[test]
+    fn schema_is_v4s() {
+        let s = schema();
+        let names: Vec<&str> = s.types.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "RPKIStatus",
+                "ScopeFilterStatus",
+                "RoutePreferenceStatus",
+                "ASN",
+                "IP",
+                "Query",
+                "String",
+                "Int",
+                "Boolean",
+                "DatabaseStatus",
+                "RPSLJournalEntry",
+                "ASNPrefixes",
+                "AsSetPrefixes",
+                "SetMembers",
+                "RPSLObject",
+                "RPSLContact",
+                "RPSLAsBlock",
+                "RPSLAsSet",
+                "RPSLAutNum",
+                "RPSLDomain",
+                "RPSLFilterSet",
+                "RPSLInetRtr",
+                "RPSLInet6Num",
+                "RPSLInetnum",
+                "RPSLIrt",
+                "RPSLKeyCert",
+                "RPSLMntner",
+                "RPSLOrganisation",
+                "RPSLPeeringSet",
+                "RPSLPerson",
+                "RPSLRole",
+                "RPSLRoute",
+                "RPSLRouteSet",
+                "RPSLRoute6",
+                "RPSLRtrSet",
+                "RPSLContactUnion",
+                "__Schema",
+                "__Type",
+                "__TypeKind",
+                "__Field",
+                "__InputValue",
+                "__EnumValue",
+                "__Directive",
+                "__DirectiveLocation"
+            ]
+        );
+        for class in rpsl::OBJECT_CLASSES {
+            assert!(graphql_type_name(class.name).is_some(), "{}", class.name);
+        }
+    }
+}

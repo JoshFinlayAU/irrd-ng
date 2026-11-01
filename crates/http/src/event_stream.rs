@@ -90,7 +90,10 @@ impl Events {
                 store.read().ok()?.view().max_serial_global().ok()?
             };
             let mut last = max(&store).unwrap_or(0);
-            let mut published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+            let mut published = me
+                .inner
+                .published
+                .load(std::sync::atomic::Ordering::Relaxed);
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 let st = store.clone();
@@ -113,7 +116,10 @@ impl Events {
                 .await
                 .ok()
                 .flatten();
-                let now_published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+                let now_published = me
+                    .inner
+                    .published
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 if let Some((now, sources)) = grown {
                     if now_published == published {
                         for s in sources {
@@ -122,7 +128,10 @@ impl Events {
                     }
                     last = now;
                 }
-                published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+                published = me
+                    .inner
+                    .published
+                    .load(std::sync::atomic::Ordering::Relaxed);
             }
         });
     }

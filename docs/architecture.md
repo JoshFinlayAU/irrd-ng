@@ -74,9 +74,27 @@ irrd-ng irrd_load_database --config irrd.yaml --source RADB radb.db   # or: irrd
 irrd-ng irrd --config irrd.yaml --foreground
 ```
 
-`irrd` serves whois on `server.whois.interface`/`port` and HTTP (`/v1/whois/` so far) on `server.http.interface`/`port`. v4's environment overrides work for any setting, e.g. `IRRD_SERVER_WHOIS_PORT=8043`, which is the easy way to run it beside a v4 on the same host. The HTTP server applies v4's trusted-host check against `server.http.url`, so clients must send a matching `Host`.
+`irrd` serves whois on `server.whois.interface`/`port` and HTTP (`/v1/whois/`, `/v1/status/`, `/graphql/`, `/metrics/` and the event stream) on `server.http.interface`/`port`. v4's environment overrides work for any setting, e.g. `IRRD_SERVER_WHOIS_PORT=8043`, which is the easy way to run it beside a v4 on the same host. The HTTP server applies v4's trusted-host check against `server.http.url`, so clients must send a matching `Host`.
 
 Whois connections are served like v4's fixed worker pool: every connection is accepted and waits for one of `server.whois.max_connections` slots, rather than being refused. A panic while answering a query is contained to that query: it is logged with the query, and the client gets v4's internal error, exactly as if v4's code had raised an exception there.
+
+## The HTTP API
+
+v4's HTTP side is Starlette behind uvicorn, with GraphQL through ariadne and graphql-core. irrd-ng serves the same routes from hyper, with the middleware behaviour copied: the trusted host check, slash redirects, 405s with their `allow` headers, uvicorn's proxy headers and `server` header, and IRRd's security headers in their order.
+
+GraphQL was the part where "copy the behaviour" meant porting a library. Clients see graphql-core's messages verbatim: syntax errors, every validation rule's text and the order rules report in, coercion errors with Python's `repr()` of the value, and the JSON shape of each error. No Rust GraphQL crate produces those, so the `graphql` crate is a port of the parts of graphql-core 3.3 and ariadne 1.1 that IRRd uses: the lexer and parser, the schema built from v4's SDL in graphql-core's type map order (introspection shows it), all specified validation rules run as graphql-core runs them (a parallel visitor over a `TypeInfo`), ariadne's cost validator, the executor with null propagation, and introspection. It knows nothing about IRRd; the resolvers live in the `http` crate.
+
+Porting it this closely brought v4's quirks along, and they stay:
+
+- ariadne's cost validator computes field arguments without the request's variables. A variable in a required argument (`recursiveSetMembers(setNames: $names)`) therefore fails validation in v4 with `Invalid argument` and a printed source location. irrd-ng answers the same.
+- IRRd's error formatter replaces the message of any error that wraps a non-GraphQL exception with `Internal server error`, which covers a resolver's `ValueError` ("Your query must be more specific."), unknown sources, non-null violations and some coercion failures.
+- graphql-core places an error that starts a line at the end of the previous one, because it counts lines with `str.splitlines()`.
+
+`rpslObjects` runs any combination of filters through a port of `RPSLDatabaseQuery` over the store's indexes (`query::objects`). v4 runs these queries without `ORDER BY`, so its row order is whatever PostgreSQL's plan gives; irrd-ng returns rows in internal id order. `sqlTrace` reports the SQL v4 would have run, rendered as SQLAlchemy would, since there is no SQL to report.
+
+`/v1/status/` and `/metrics/` are generated from the store as v4 generates them from PostgreSQL, the status table formatted the way BeautifulTable 0.8 formats it. Object counts come from the key index alone, so they never touch object data.
+
+The event stream replaces Redis with an in-process stream with Redis-style ids. The store publishes `journal_extended` after each commit that added journal entries and the mirror runner publishes `full_reload`; a watcher notices journal growth from other processes (the command line tools write the store directly) within two seconds. Followers open a short read transaction for each journal poll, so a long-lived WebSocket never pins old pages. The WebSocket protocol, `permessage-deflate` included, is implemented directly, and the handshake is answered before hyper sees the connection so the 101 response keeps uvicorn's header case.
 
 ## Mirroring
 

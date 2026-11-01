@@ -6,6 +6,8 @@
 /parity/.cache/
 /parity/out/
 /parity/.work/
+# Load bench results
+/bench/out/
 # Local-only data and notes
 /backups/
 /memory/
