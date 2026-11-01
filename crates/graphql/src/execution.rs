@@ -383,6 +383,10 @@ impl<'a> Executor<'a> {
         out
     }
 
+    /// `collect_fields_impl()`, depth first through inline fragments and
+    /// fragment spreads as graphql-core recurses, on an explicit stack.
+    /// (Validation already ends chains of fragments far shorter than
+    /// would matter here, but an explicit stack does not depend on it.)
     fn collect_into(
         &self,
         t: TypeId,
@@ -390,7 +394,12 @@ impl<'a> Executor<'a> {
         out: &mut Groups<'a>,
         visited: &mut Vec<&'a str>,
     ) {
-        for sel in &set.selections {
+        let mut stack: Vec<std::slice::Iter<'a, Selection>> = vec![set.selections.iter()];
+        while let Some(level) = stack.last_mut() {
+            let Some(sel) = level.next() else {
+                stack.pop();
+                continue;
+            };
             match sel {
                 Selection::Field(f) => {
                     if !self.should_include(&f.directives) {
@@ -408,7 +417,7 @@ impl<'a> Executor<'a> {
                     {
                         continue;
                     }
-                    self.collect_into(t, &i.selection_set, out, visited);
+                    stack.push(i.selection_set.selections.iter());
                 }
                 Selection::FragmentSpread(fs) => {
                     let name = fs.name.value.as_str();
@@ -422,7 +431,7 @@ impl<'a> Executor<'a> {
                     if !self.fragment_applies(Some(&f.type_condition), t) {
                         continue;
                     }
-                    self.collect_into(t, &f.selection_set, out, visited);
+                    stack.push(f.selection_set.selections.iter());
                 }
             }
         }

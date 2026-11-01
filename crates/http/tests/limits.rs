@@ -19,7 +19,9 @@ impl Drop for Tmp {
 }
 
 async fn start() -> (Tmp, std::net::SocketAddr) {
-    let p = std::env::temp_dir().join(format!("irrd-ng-http-limits-{}", std::process::id()));
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let p = std::env::temp_dir().join(format!("irrd-ng-http-limits-{}-{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&p);
     let mut o = StoreOptions::new(&p);
     o.initial_map_size = 16 << 20;
@@ -98,4 +100,37 @@ async fn request_limits() {
         post(addr, "/graphql/", b"[").await,
         "HTTP/1.1 400 Bad Request"
     );
+}
+
+/// A long chain of fragments, unauthenticated and well under the body
+/// limit, is v4's `RecursionError` (a 500) and leaves the server running,
+/// on worker threads with the daemon's 8 MiB stacks.
+#[test]
+fn fragment_chain_is_a_recursion_error() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(8 << 20)
+        .enable_all()
+        .build()
+        .expect("runtime");
+    rt.block_on(async {
+        let (_tmp, addr) = start().await;
+        let n = 20_000;
+        let mut query = String::from("query{...F0} ");
+        for i in 0..n {
+            query.push_str(&format!("fragment F{i} on Query{{...F{}}} ", i + 1));
+        }
+        query.push_str(&format!("fragment F{n} on Query{{__typename}}"));
+        let body = format!(r#"{{"query": "{query}"}}"#);
+        assert!(body.len() > 650_000 && body.len() < MAX_BODY);
+        assert_eq!(
+            post(addr, "/graphql/", body.as_bytes()).await,
+            "HTTP/1.1 500 Internal Server Error"
+        );
+        // And the server is still there.
+        assert_eq!(
+            post(addr, "/graphql/", br#"{"query": "{__typename}"}"#).await,
+            "HTTP/1.1 200 OK"
+        );
+    });
 }

@@ -23,6 +23,11 @@ pub(crate) struct CostValidator {
     /// Fragments whose cost is being computed: a cycle recurses until
     /// Python's recursion limit.
     in_progress: Vec<String>,
+    /// The `compute_node_cost()` and `get_fragment_cost_coefficients()`
+    /// calls on the stack, one Python frame each; past `Ctx::py_frames`
+    /// ariadne fails with `RecursionError` (two frames per fragment
+    /// spread, one per field or inline fragment).
+    frames: usize,
 }
 
 impl CostValidator {
@@ -32,10 +37,37 @@ impl CostValidator {
             cost: 0,
             fragment_costs: HashMap::new(),
             in_progress: Vec::new(),
+            frames: 0,
         }
     }
 
+    /// Enter one more Python frame: false (and the `RecursionError`) past
+    /// the limit, or once the error has happened.
+    fn push_frame(&mut self, cx: &mut Ctx<'_>) -> bool {
+        self.frames += 1;
+        if self.frames > cx.py_frames {
+            cx.recursion_error = true;
+        }
+        !cx.recursion_error
+    }
+
+    /// `compute_node_cost()`.
     fn node_cost<'a>(
+        &mut self,
+        cx: &mut Ctx<'a>,
+        set: Option<&'a SelectionSet>,
+        t: Option<TypeId>,
+    ) -> i64 {
+        let c = if self.push_frame(cx) {
+            self.node_cost_inner(cx, set, t)
+        } else {
+            0
+        };
+        self.frames -= 1;
+        c
+    }
+
+    fn node_cost_inner<'a>(
         &mut self,
         cx: &mut Ctx<'a>,
         set: Option<&'a SelectionSet>,
@@ -49,6 +81,9 @@ impl CostValidator {
         let ft = fields_of(t);
         let mut total = 0i64;
         for sel in &set.selections {
+            if cx.recursion_error {
+                return 0;
+            }
             let mut node_cost = 1i64;
             match sel {
                 Selection::Field(f) => {
@@ -84,7 +119,25 @@ impl CostValidator {
         total
     }
 
+    /// `get_fragment_cost_coefficients()`, with its coefficient and offset
+    /// folded into one cost: without cost directives they are 0 and the
+    /// cost.
     fn fragment_cost<'a>(
+        &mut self,
+        cx: &mut Ctx<'a>,
+        frag: &'a FragmentDefinition,
+        t: Option<TypeId>,
+    ) -> i64 {
+        let c = if self.push_frame(cx) {
+            self.fragment_cost_inner(cx, frag, t)
+        } else {
+            0
+        };
+        self.frames -= 1;
+        c
+    }
+
+    fn fragment_cost_inner<'a>(
         &mut self,
         cx: &mut Ctx<'a>,
         frag: &'a FragmentDefinition,
@@ -108,6 +161,9 @@ impl CostValidator {
         let at_one = self.node_cost(cx, Some(&frag.selection_set), t);
         let _at_two = self.node_cost(cx, Some(&frag.selection_set), t);
         self.in_progress.pop();
+        if cx.recursion_error {
+            return 0;
+        }
         self.fragment_costs.insert(key, at_one);
         at_one
     }

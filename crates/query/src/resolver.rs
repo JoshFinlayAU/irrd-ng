@@ -123,9 +123,19 @@ fn visible(o: &RpslObjectRef<'_>) -> bool {
 }
 
 /// The resolver: one per whois session (or HTTP request).
+///
+/// Like v4, which reads most settings with `get_setting()` as it answers
+/// and builds a few once per connection, it has two copies of the
+/// settings: the current ones, which [`QueryResolver::update_settings`]
+/// replaces before each query of a session so a SIGHUP reaches open
+/// connections, and the ones of the connection's start, which
+/// `QuerySourceManager` copies in `__init__()`: the valid sources and
+/// aliases, `sources_default`, and whether the resolver is RPKI-aware.
 #[derive(Debug, Clone)]
 pub struct QueryResolver {
     settings: Arc<QuerySettings>,
+    /// The settings when the connection started.
+    conn: Arc<QuerySettings>,
     /// `source_manager.sources`
     sources: Vec<String>,
     /// `source_manager.sources_resolved`, kept current with `sources`.
@@ -383,6 +393,7 @@ impl QueryResolver {
         };
         let rpki_aware = settings.rpki_enabled;
         let mut r = QueryResolver {
+            conn: settings.clone(),
             settings,
             sources,
             sources_resolved: Vec::new(),
@@ -397,9 +408,26 @@ impl QueryResolver {
         r
     }
 
-    /// The settings in use.
+    /// The current settings: what `get_setting()` would return.
     pub fn settings(&self) -> &QuerySettings {
         &self.settings
+    }
+
+    /// The settings when the connection started, for what v4's
+    /// `QuerySourceManager` copied then: `all_valid_real_sources`,
+    /// `all_valid_aliases`, `all_valid_sources` and `sources_default`.
+    pub fn connection_settings(&self) -> &QuerySettings {
+        &self.conn
+    }
+
+    /// Use `settings` from now on, as v4's `get_setting()` reads them
+    /// after a SIGHUP. The selected sources stay; their resolution follows
+    /// the new `source_aliases`, as v4's `sources_resolved` property does.
+    pub fn update_settings(&mut self, settings: Arc<QuerySettings>) {
+        if !Arc::ptr_eq(&self.settings, &settings) {
+            self.settings = settings;
+            self.resolve_sources();
+        }
     }
 
     /// `source_manager.sources`
@@ -412,10 +440,12 @@ impl QueryResolver {
         &self.sources_resolved
     }
 
+    /// `sources_resolved`: real sources as of the connection's start,
+    /// aliases as configured now.
     fn resolve_sources(&mut self) {
         let mut out: Vec<String> = Vec::new();
         for s in &self.sources {
-            if self.settings.is_valid_real_source(s) && !out.contains(s) {
+            if self.conn.is_valid_real_source(s) && !out.contains(s) {
                 out.push(s.clone());
             }
             if let Some(aliased) = self.settings.alias(s) {
@@ -433,14 +463,14 @@ impl QueryResolver {
     pub fn set_query_sources(&mut self, sources: Option<Vec<String>>) -> QResult<()> {
         let sources = match sources {
             None => {
-                if self.settings.sources_default.is_empty() {
-                    self.settings.all_valid_sources()
+                if self.conn.sources_default.is_empty() {
+                    self.conn.all_valid_sources()
                 } else {
-                    self.settings.sources_default.clone()
+                    self.conn.sources_default.clone()
                 }
             }
             Some(s) => {
-                if !s.iter().all(|x| self.settings.is_valid_source(x)) {
+                if !s.iter().all(|x| self.conn.is_valid_source(x)) {
                     return invalid(messages::SOURCES_UNAVAILABLE.to_owned());
                 }
                 s

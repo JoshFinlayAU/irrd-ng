@@ -94,7 +94,7 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
      /usr/local/bin/irrd-ng import --from-postgres 'postgresql://irrd@localhost/irrd'
    ```
 
-   The import reads every table in one consistent, read-only snapshot: RPSL objects, the journal with its serials, `database_status` including NRTMv4 client and server state, ROAs, suppressed objects, protected names, settings and the web UI tables (users, permissions, API keys, WebAuthn, change log). It prints a line per table and a summary. `sslmode` follows libpq; the verifying modes use `sslrootcert` if given and otherwise the Mozilla roots built into the binary.
+   The import reads every table in one consistent, read-only snapshot: RPSL objects, the journal with its serials, `database_status` including NRTMv4 client and server state, ROAs, suppressed objects, protected names, settings and the web UI tables (users, permissions, API keys, WebAuthn, change log). It prints a line per table and a summary. `sslmode` and `sslrootcert` follow libpq: the verifying modes check against `sslrootcert`, by default `~/.postgresql/root.crt`, and refuse to connect when that file is missing; `require` checks the chain too when the file exists. `sslrootcert=system` uses the Mozilla roots built into the binary and requires `verify-full`.
 
    By default the import also rebuilds the PGP keyring from every `key-cert` object, so PGP signed submissions keep working as they did on v4. Pass `--no-load-pgp-keys` to leave the keyring empty instead, which is what a v4 installation moved to a new host would see; `irrd_load_pgp_keys` can then fill it per source.
 

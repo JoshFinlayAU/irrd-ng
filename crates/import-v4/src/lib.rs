@@ -124,7 +124,8 @@ pub fn connect(dsn: &str) -> Result<Client, ImportError> {
     if parsed.mode == postgres::config::SslMode::Disable {
         config.connect(NoTls).map_err(ImportError::Connect)
     } else {
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(dsn::tls_config(&parsed)?);
+        let plan = dsn::plan(&parsed, dsn::home_dir().as_deref())?;
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(dsn::tls_config(&plan)?);
         config.connect(tls).map_err(ImportError::Connect)
     }
 }

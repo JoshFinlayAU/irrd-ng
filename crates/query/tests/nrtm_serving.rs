@@ -231,3 +231,69 @@ fn days_limit() {
         "%% ERROR: There are no journal entries greater than or equal to this serial 181.\n\n\n"
     );
 }
+
+/// A session answers each query with the settings it is given before it,
+/// as v4's whois worker reads them with `get_setting()` after a SIGHUP:
+/// taking a client off `nrtm_access_list_unfiltered` stops unfiltered
+/// output on an open `-k` connection at its next query. What v4's
+/// `QuerySourceManager` copies when the connection starts stays: the
+/// valid sources, and the session's own selection.
+#[test]
+fn settings_change_reaches_an_open_session() {
+    let (_t, st) = setup("reload", 0);
+    let mut session =
+        WhoisSession::new(settings(|_| {}), Arc::new(NrtmServer), "198.51.100.1", "x");
+    let ask = |session: &mut WhoisSession, q: &str| {
+        let mut out = Vec::new();
+        session.query_whois(&st, q, &mut out);
+        String::from_utf8(out).expect("utf8")
+    };
+    let unfiltered = RANGE_V3.replace("DummyValue  # Filtered for security", "foobar");
+    assert_eq!(
+        ask(&mut session, "-k"),
+        "%  No entries found for the selected source(s).\n\n\n"
+    );
+    assert_eq!(ask(&mut session, "!sTEST"), "C\n");
+    assert_eq!(
+        ask(&mut session, "-g TEST:3:110-190"),
+        format!("{unfiltered}\n\n\n")
+    );
+    assert_eq!(ask(&mut session, "-q sources"), "TEST:3:X:100-200\n\n\n");
+
+    // Off the unfiltered list, onto the filtered one; and a new source.
+    let mut moved = (*settings(|s| s.nrtm_access_list_unfiltered = None)).clone();
+    moved.access_lists.insert(
+        "nrtm".into(),
+        vec![rpsl::Ip::parse("198.51.100.1", 0).expect("ip")],
+    );
+    moved.sources.push("NEW".into());
+    let moved = Arc::new(moved);
+    session.update_settings(moved.clone());
+    assert_eq!(
+        ask(&mut session, "-g TEST:3:110-190"),
+        format!("{RANGE_V3}\n\n\n")
+    );
+    // NEW was not a source when the connection started.
+    assert_eq!(
+        ask(&mut session, "-g NEW:3:1-LAST"),
+        "%% ERROR: Unknown source: NEW\n\n\n"
+    );
+    assert_eq!(
+        query(&st, &moved, "198.51.100.1", "-g NEW:3:1-LAST"),
+        "%% ERROR: Access denied\n\n\n"
+    );
+    // The source selection and -k survive.
+    assert_eq!(ask(&mut session, "!s-lc"), "A5\nTEST\nC\n");
+
+    // Off both lists.
+    session.update_settings(settings(|s| {
+        s.nrtm_access_list = None;
+        s.nrtm_access_list_unfiltered = None;
+    }));
+    assert_eq!(
+        ask(&mut session, "-g TEST:3:110-190"),
+        "%% ERROR: Access denied\n\n\n"
+    );
+    assert_eq!(ask(&mut session, "-q sources"), "TEST:3:N:100-200\n\n\n");
+    assert!(session.multiple_command_mode);
+}
