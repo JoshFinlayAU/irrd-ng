@@ -133,14 +133,16 @@ pub fn import_and_validate(
     let jobs = &settings.status_jobs;
     let roa_source = jobs.roa_source.clone().unwrap_or_default();
     let slurm_shown = jobs.slurm_source.clone().unwrap_or_else(|| "None".into());
-    let parsed = RoaImport::parse(roa_json, slurm_json)?;
+    let parsed = RoaImport::parse(roa_json, slurm_json, Some(&jobs.pseudo_irr_remarks))?;
     let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
     let mut objects = Vec::with_capacity(parsed.roas.len());
     for roa in &parsed.roas {
         objects.push(roa.pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?);
     }
-    if let Some(dup) = parsed.first_duplicate() {
-        return Err(importer::duplicate_error(dup));
+    if let Some(i) = parsed.duplicate_at_commit {
+        // v4 has logged the import as done before its commit fails.
+        tracing::info!(target: LOG_TARGET, "{}", rmsg::roa_import_imported(&roa_source, &slurm_shown, parsed.roas.len()));
+        return Err(importer::duplicate_error(&parsed.roas[i]));
     }
 
     // First transaction, journaling disabled: replace every ROA and every
@@ -267,7 +269,7 @@ pub fn dry_run_roa_import(
     slurm_json: Option<&str>,
 ) -> Result<Vec<String>, RoaImportError> {
     let jobs = &settings.status_jobs;
-    let parsed = RoaImport::parse(roa_json, slurm_json)?;
+    let parsed = RoaImport::parse(roa_json, slurm_json, Some(&jobs.pseudo_irr_remarks))?;
     let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
     let mut out = Vec::new();
     for roa in &parsed.roas {
@@ -283,8 +285,8 @@ pub fn dry_run_roa_import(
             roa.prefix_str,
         ));
     }
-    if let Some(dup) = parsed.first_duplicate() {
-        return Err(importer::duplicate_error(dup));
+    if let Some(i) = parsed.duplicate_at_commit {
+        return Err(importer::duplicate_error(&parsed.roas[i]));
     }
     let validator =
         BulkRouteRoaValidator::from_roas(&parsed.roas, settings.rpki_excluded_sources.clone());

@@ -368,6 +368,53 @@ pub struct RoaImport {
     /// The ROAs to insert, in v4's order (file order, then SLURM
     /// assertions).
     pub roas: Vec<Roa>,
+    /// The ROA whose pseudo-IRR object fails v4's unique constraint when
+    /// the import commits, after the import has logged its ROA count.
+    pub duplicate_at_commit: Option<usize>,
+}
+
+/// v4's upsert buffer for the pseudo-IRR objects, reduced to what decides
+/// where a repeated object fails. Objects are inserted with
+/// `rpsl_guaranteed_no_existing`, so a second object with the same key is a
+/// unique violation in the flush that writes it. The buffer is flushed
+/// before an object whose key is already in it and whenever it holds more
+/// than 15,000 objects, and finally at commit.
+#[derive(Default)]
+struct FlushSim {
+    buffer: Vec<usize>,
+    buffer_keys: HashSet<(&'static str, String)>,
+    inserted: HashSet<(&'static str, String)>,
+}
+
+impl FlushSim {
+    /// Flush; the index of the first object that fails, if any.
+    fn flush(&mut self, roas: &[Roa]) -> Option<usize> {
+        self.buffer_keys.clear();
+        for i in std::mem::take(&mut self.buffer) {
+            let key = (roas[i].pseudo_class(), roas[i].pseudo_pk());
+            if !self.inserted.insert(key) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// `upsert_rpsl_object()` of `roas[i]`; the index of a failing object
+    /// if this triggered a flush that failed.
+    fn upsert(&mut self, roas: &[Roa], i: usize) -> Option<usize> {
+        let key = (roas[i].pseudo_class(), roas[i].pseudo_pk());
+        if self.buffer_keys.contains(&key)
+            && let Some(f) = self.flush(roas)
+        {
+            return Some(f);
+        }
+        self.buffer_keys.insert(key);
+        self.buffer.push(i);
+        if self.buffer.len() > store::write::MAX_RECORDS_BUFFER_BEFORE_INSERT {
+            return self.flush(roas);
+        }
+        None
+    }
 }
 
 #[derive(Default)]
@@ -479,10 +526,18 @@ fn parse_ip_other(v: &serde_json::Value) -> Result<Ip, RoaImportError> {
 }
 
 impl RoaImport {
-    /// `ROADataImporter(rpki_json_str, slurm_json_str)` up to, but not
-    /// including, saving: parse, filter and check every ROA. A problem is
-    /// logged and returned exactly as v4 raises it.
-    pub fn parse(rpki_json: &str, slurm_json: Option<&str>) -> Result<RoaImport, RoaImportError> {
+    /// `ROADataImporter(rpki_json_str, slurm_json_str)`: parse, filter and
+    /// check every ROA, and follow v4's saving of each one far enough to
+    /// raise what it raises where it raises it: a bad `remarks` template
+    /// (`remarks`, when given) at the first save, and a repeated
+    /// pseudo-IRR object in the flush that writes it. A problem is logged
+    /// and returned exactly as v4 raises it; a repeat that only fails at
+    /// commit is returned in [`RoaImport::duplicate_at_commit`].
+    pub fn parse(
+        rpki_json: &str,
+        slurm_json: Option<&str>,
+        remarks: Option<&str>,
+    ) -> Result<RoaImport, RoaImportError> {
         let doc: RawDoc = match serde_json::from_str(rpki_json) {
             Ok(d) => d,
             Err(e) => {
@@ -514,6 +569,7 @@ impl RoaImport {
         }
 
         let mut roas = Vec::with_capacity(roa_dicts.len());
+        let mut sim = FlushSim::default();
         for (idx, d) in roa_dicts.iter().enumerate() {
             let missing = |key: &str| {
                 let record = if idx < n_file {
@@ -567,26 +623,28 @@ impl RoaImport {
                 max_length,
                 trust_anchor: ta,
             });
+            // ROA.save(): render the pseudo-IRR object, then upsert it.
+            if roas.len() == 1
+                && let Some(r) = remarks
+            {
+                roas[0].pseudo_text(r)?;
+            }
+            if let Some(f) = sim.upsert(&roas, roas.len() - 1) {
+                return Err(duplicate_error(&roas[f]));
+            }
         }
-        Ok(RoaImport { roas })
-    }
-
-    /// v4 inserts each pseudo-IRR object with `rpsl_guaranteed_no_existing`,
-    /// so a second ROA with the same prefix, origin and max length (from
-    /// another trust anchor, or a repeat) fails the whole import with a
-    /// unique violation on `rpsl_objects`. This is the error v4 reports:
-    /// the first repeated key in order is the first row that fails in the
-    /// flush that fails.
-    pub fn first_duplicate(&self) -> Option<&Roa> {
-        let mut seen = HashSet::with_capacity(self.roas.len());
-        self.roas
-            .iter()
-            .find(|r| !seen.insert((r.pseudo_class(), r.pseudo_pk())))
+        let duplicate_at_commit = sim.flush(&roas);
+        Ok(RoaImport {
+            roas,
+            duplicate_at_commit,
+        })
     }
 }
 
-/// The text v4 reports for the duplicate pseudo-IRR object.
+/// The text v4 reports for the duplicate pseudo-IRR object; v4's handler
+/// logs the failed statement first, which this does too.
 pub fn duplicate_error(roa: &Roa) -> RoaImportError {
+    tracing::error!(target: "irrd.storage.database_handler", "{}", messages::INSERT_STATEMENT_FAILED);
     RoaImportError::Other(messages::pseudo_irr_unique_violation(
         &roa.pseudo_pk(),
         RPKI_IRR_PSEUDO_SOURCE,
@@ -749,7 +807,7 @@ mod tests {
     const REMARKS: &str = "This AS{asn} route object represents routing data retrieved\nfrom the RPKI. This route object is the result of an automated\nRPKI-to-IRR conversion process performed by IRRd.\n";
 
     fn err(json: &str, slurm: Option<&str>) -> String {
-        RoaImport::parse(json, slurm)
+        RoaImport::parse(json, slurm, None)
             .expect_err("should fail")
             .to_string()
     }
@@ -776,7 +834,7 @@ mod tests {
                 {"asn": 64496, "prefix": "198.51.100.0/24"},
                 {"asn": 64497, "prefix": "2001:DB8::/32", "maxPrefixLength": 48}
             ]}}"#;
-        let imp = RoaImport::parse(rpki, Some(slurm)).expect("parsed");
+        let imp = RoaImport::parse(rpki, Some(slurm), None).expect("parsed");
         let got: Vec<(String, u32, i64, &str)> = imp
             .roas
             .iter()
@@ -821,7 +879,7 @@ mod tests {
              source:         RPKI  # Trust Anchor: APNIC RPKI Root\n"
         );
         assert_eq!(obj.rpki_status, RpkiStatus::Valid);
-        assert_eq!(imp.first_duplicate(), None);
+        assert_eq!(imp.duplicate_at_commit, None);
     }
 
     #[test]
@@ -892,9 +950,10 @@ mod tests {
                 {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"}
             ]}"#,
             None,
+            None,
         )
         .expect("parsed");
-        let d = imp.first_duplicate().expect("duplicate");
+        let d = &imp.roas[imp.duplicate_at_commit.expect("duplicate")];
         assert_eq!(d.trust_anchor, "b");
         assert_eq!(
             duplicate_error(d).to_string(),
@@ -902,10 +961,58 @@ mod tests {
         );
     }
 
+    // Where v4's buffered inserts fail: a repeat within the last 15,000
+    // objects fails at commit (after the import is logged as done); an
+    // earlier one fails in the flush the next 15,001st object triggers,
+    // before a later bad ROA is even read.
+    #[test]
+    fn duplicate_fails_in_the_flush_that_writes_it() {
+        let mut roas: Vec<String> = (0..15_010u32)
+            .map(|i| {
+                format!(
+                    r#"{{"asn": "AS{}", "prefix": "10.{}.{}.0/24", "maxLength": 24, "ta": "a"}}"#,
+                    65000 + i / 65536,
+                    (i / 256) % 256,
+                    i % 256
+                )
+            })
+            .collect();
+        roas[5] = roas[3].replace("\"a\"", "\"b\"");
+        roas.push(
+            r#"{"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 1, "ta": "a"}"#.to_owned(),
+        );
+        let json = format!(r#"{{"roas": [{}]}}"#, roas.join(","));
+        let e = RoaImport::parse(&json, None, None).expect_err("fails");
+        assert!(
+            e.to_string()
+                .contains("(10.0.3.0/24AS65000/ML24, RPKI, route)"),
+            "{e}"
+        );
+
+        let late = r#"{"roas": [
+            {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "a"},
+            {"asn": "AS1", "prefix": "192.0.2.0/24", "maxLength": 24, "ta": "b"},
+            {"asn": "AS1", "prefix": "198.51.100.0/24", "maxLength": 1, "ta": "a"}
+        ]}"#;
+        assert!(
+            RoaImport::parse(late, None, None)
+                .expect_err("bad ROA")
+                .to_string()
+                .starts_with("Invalid ROA: prefix size 24 is smaller than max length 1")
+        );
+        assert!(
+            RoaImport::parse(late, None, Some("{bad}"))
+                .expect_err("format")
+                .to_string()
+                .contains("'bad'")
+        );
+    }
+
     #[test]
     fn host_prefix_and_remarks_format() {
         let imp = RoaImport::parse(
             r#"{"roas": [{"asn": 65000, "prefix": "192.0.2.1/32", "maxLength": "32", "ta": "x"}]}"#,
+            None,
             None,
         )
         .expect("parsed");
@@ -932,6 +1039,7 @@ mod tests {
                 r#"{"slurmVersion": 1, "validationOutputFilters": {"prefixFilters": [
                     {"prefix": "10.0.0.0/25"}, {"prefix": "10.0.0.128/25"}]}}"#,
             ),
+            None,
         )
         .expect("parsed");
         assert_eq!(imp.roas.len(), 1);

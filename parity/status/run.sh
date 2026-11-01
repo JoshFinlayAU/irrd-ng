@@ -198,6 +198,10 @@ if [[ $queries == 1 ]]; then
   echo "== whois and /v1/whois/ suites on the final state"
   python3 -I tools/corpus_bindings.py --out "$work/bindings.json" "${fixtures[@]}" corpus/whois/data/*.db \
     status/data/STATUSAUTH.db "$work/STATUSLOW-update.db" > /dev/null
+  # Without the scope filter settings: both schedulers would otherwise run
+  # the scope filter once at start, each at its own moment, and the
+  # timestamps that writes (!J) would differ. The statuses stay as they are.
+  step_config "{\"roas\": \"roas1.json\", $P2}"
   rm -rf "$work/store-q"
   ng import --from-postgres "postgresql://irrd:irrd@127.0.0.1:${PARITY_PG_PORT:-9532}/irrd?sslmode=disable" \
     --store "$work/store-q" > "$out/ng-import-q.log" 2>&1 || { tail -20 "$out/ng-import-q.log" >&2; exit 1; }

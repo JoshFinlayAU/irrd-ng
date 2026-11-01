@@ -83,6 +83,11 @@ pub fn pseudo_irr_unique_violation(rpsl_pk: &str, source: &str, object_class: &s
     )
 }
 
+/// `DatabaseHandler._flush_rpsl_object_writing_buffer()` logs the failing
+/// statement before re-raising. v4 prints the whole multi-row statement
+/// with a placeholder per value; the values part is left out here.
+pub const INSERT_STATEMENT_FAILED: &str = "Exception occurred while executing statement: INSERT INTO rpsl_objects (rpsl_pk, source, object_class, parsed_data, object_text, ip_version, ip_first, ip_last, ip_size, prefix_length, prefix, asn_first, asn_last, rpki_status, scopefilter_status, route_preference_status, updated) VALUES ..., rolling back";
+
 // ---- irrd/mirroring/mirror_runners_import.py ----
 
 /// `f"Running full ROA import from: {roa_source}, SLURM {slurm_source}"`
