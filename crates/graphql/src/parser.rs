@@ -654,16 +654,55 @@ fn dedent_block_string_lines(lines: &[String]) -> Vec<String> {
     mapped[first..end].to_vec()
 }
 
+/// How deeply selection sets, list and object values and list types may
+/// nest. graphql-core's parser recurses a few Python frames per level and
+/// ends in a `RecursionError` at Python's recursion limit (around 240
+/// levels of selection sets in v4); this parser recurses too, so it stops
+/// at a fixed depth before its stack could run out.
+pub const MAX_NESTING: usize = 200;
+
+/// The exception v4 ends with on a document nested too deeply.
+pub const RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";
+
+/// Why [`parse_checked`] failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseFailure {
+    /// A `GraphQLSyntaxError`.
+    Syntax(SyntaxError),
+    /// Nested deeper than [`MAX_NESTING`]: a `RecursionError`, which is
+    /// not a GraphQL error and which ariadne does not catch.
+    TooDeep,
+}
+
 /// `parse(source)`.
 pub fn parse(body: &[char]) -> PResult<Document> {
+    parse_checked(body).map_err(|e| match e {
+        ParseFailure::Syntax(e) => e,
+        ParseFailure::TooDeep => SyntaxError {
+            pos: 0,
+            description: RECURSION_ERROR.to_owned(),
+        },
+    })
+}
+
+/// `parse(source)`, telling a `RecursionError` from a syntax error.
+pub fn parse_checked(body: &[char]) -> Result<Document, ParseFailure> {
     let mut p = Parser {
         lx: Lexer::new(body),
+        depth: 0,
+        too_deep: false,
     };
-    p.parse_document()
+    match p.parse_document() {
+        _ if p.too_deep => Err(ParseFailure::TooDeep),
+        Ok(d) => Ok(d),
+        Err(e) => Err(ParseFailure::Syntax(e)),
+    }
 }
 
 struct Parser<'a> {
     lx: Lexer<'a>,
+    depth: usize,
+    too_deep: bool,
 }
 
 const DIRECTIVE_LOCATIONS: &[&str] = &[
@@ -697,6 +736,21 @@ impl Parser<'_> {
 
     fn pos(&self) -> usize {
         self.lx.token.start
+    }
+
+    /// Run `f` one nesting level deeper, or fail past [`MAX_NESTING`].
+    fn nested<T>(&mut self, f: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
+        if self.depth >= MAX_NESTING {
+            self.too_deep = true;
+            return Err(SyntaxError {
+                pos: self.pos(),
+                description: RECURSION_ERROR.to_owned(),
+            });
+        }
+        self.depth += 1;
+        let r = f(self);
+        self.depth -= 1;
+        r
     }
 
     fn unexpected<T>(&self, at: Option<&Token>) -> PResult<T> {
@@ -967,7 +1021,8 @@ impl Parser<'_> {
 
     fn parse_selection_set(&mut self) -> PResult<SelectionSet> {
         let start = self.pos();
-        let selections = self.many(Kind::BraceL, Self::parse_selection, Kind::BraceR)?;
+        let selections =
+            self.nested(|p| p.many(Kind::BraceL, Self::parse_selection, Kind::BraceR))?;
         Ok(SelectionSet {
             pos: start,
             selections,
@@ -1080,29 +1135,33 @@ impl Parser<'_> {
         let t = self.lx.token.clone();
         match t.kind {
             Kind::BracketL => {
-                let items = self.any(
-                    Kind::BracketL,
-                    |p| p.parse_value_literal(is_const),
-                    Kind::BracketR,
-                )?;
+                let items = self.nested(|p| {
+                    p.any(
+                        Kind::BracketL,
+                        |p| p.parse_value_literal(is_const),
+                        Kind::BracketR,
+                    )
+                })?;
                 Ok(ValueNode::List(t.start, items))
             }
             Kind::BraceL => {
-                let fields = self.any(
-                    Kind::BraceL,
-                    |p| {
-                        let start = p.pos();
-                        let name = p.parse_name()?;
-                        p.expect(Kind::Colon)?;
-                        let value = p.parse_value_literal(is_const)?;
-                        Ok(ObjectField {
-                            pos: start,
-                            name,
-                            value,
-                        })
-                    },
-                    Kind::BraceR,
-                )?;
+                let fields = self.nested(|p| {
+                    p.any(
+                        Kind::BraceL,
+                        |p| {
+                            let start = p.pos();
+                            let name = p.parse_name()?;
+                            p.expect(Kind::Colon)?;
+                            let value = p.parse_value_literal(is_const)?;
+                            Ok(ObjectField {
+                                pos: start,
+                                name,
+                                value,
+                            })
+                        },
+                        Kind::BraceR,
+                    )
+                })?;
                 Ok(ValueNode::Object(t.start, fields))
             }
             Kind::Int => {
@@ -1171,7 +1230,7 @@ impl Parser<'_> {
     fn parse_type_reference(&mut self) -> PResult<Type> {
         let start = self.pos();
         let t = if self.expect_optional(Kind::BracketL)? {
-            let inner = self.parse_type_reference()?;
+            let inner = self.nested(Self::parse_type_reference)?;
             self.expect(Kind::BracketR)?;
             Type::List(start, Box::new(inner))
         } else {

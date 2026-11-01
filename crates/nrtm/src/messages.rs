@@ -657,3 +657,7 @@ pub fn nrtm4_server_expired_delta(source: &str, version: &str) -> String {
 pub fn nrtm4_server_dangling_delta(source: &str, name: &str) -> String {
     format!("{source}: Removed dangling delta file {name}")
 }
+
+/// psycopg2's `NumericValueOutOfRange` for a serial past Postgres' bigint,
+/// which is where v4 fails on one (Python's int itself never overflows).
+pub const BIGINT_OUT_OF_RANGE: &str = "bigint out of range";

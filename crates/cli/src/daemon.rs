@@ -343,20 +343,57 @@ fn replication_settings(
         return Err(messages::REPLICATION_NEEDS_SECRET.to_owned());
     }
     let secret = secret.unwrap_or_default().into_bytes();
-    let serve = port.map(|p| {
-        replication::ServerSettings::new(
-            settings::str_setting(cfg, "ng_replication.interface").unwrap_or_else(|| "::0".into()),
-            p as u16,
-            secret.clone(),
-        )
-    });
+    let path = |key: &str| {
+        settings::str_setting(cfg, &format!("ng_replication.{key}"))
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    let serve = match port {
+        None => None,
+        Some(p) => {
+            let mut s = replication::ServerSettings::new(
+                settings::str_setting(cfg, "ng_replication.interface")
+                    .unwrap_or_else(|| "::0".into()),
+                p as u16,
+                secret.clone(),
+            );
+            if let (Some(cert), Some(key)) = (path("tls_certificate"), path("tls_key")) {
+                s.tls = Some(
+                    replication::tls::server_config(&cert, &key)
+                        .map_err(|e| messages::replication_tls(&e))?,
+                );
+            }
+            Some(s)
+        }
+    };
     let follow = match (readonly, active_host) {
-        (true, Some(host)) => Some(replication::FollowerSettings::new(
-            host,
-            settings::int_setting(cfg, "ng_replication.active_port").unwrap_or(0) as u16,
-            secret,
-            store_path,
-        )),
+        (true, Some(host)) => {
+            let mut f = replication::FollowerSettings::new(
+                host.clone(),
+                settings::int_setting(cfg, "ng_replication.active_port").unwrap_or(0) as u16,
+                secret,
+                store_path,
+            );
+            let pin = settings::str_setting(cfg, "ng_replication.tls_pin");
+            let trust = match (path("tls_ca"), pin.as_deref()) {
+                (Some(ca), _) => Some(replication::tls::Trust::Ca(ca)),
+                (None, Some(pin)) => Some(replication::tls::Trust::Pin(
+                    replication::tls::parse_pin(pin)
+                        .ok_or_else(|| messages::replication_tls("invalid tls_pin"))?,
+                )),
+                (None, None) => None,
+            };
+            if let Some(trust) = trust {
+                let name = settings::str_setting(cfg, "ng_replication.tls_server_name")
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(host);
+                f.tls = Some(
+                    replication::tls::client_config(trust, &name)
+                        .map_err(|e| messages::replication_tls(&e))?,
+                );
+            }
+            Some(f)
+        }
         _ => None,
     };
     Ok(Replication { serve, follow })
@@ -534,10 +571,21 @@ fn run_irrd(cfg: &mut Configuration, store_path: &std::path::Path, owner: Owner)
     if readonly && repl.follow.is_none() {
         tracing::warn!(target: replication::LOG_TARGET, "{}", messages::STANDBY_WITHOUT_ACTIVE);
     }
+    if repl.serve.as_ref().is_some_and(|s| s.tls.is_none()) {
+        tracing::warn!(target: replication::LOG_TARGET, "{}", replication::messages::SERVING_PLAINTEXT);
+    }
+    if repl.follow.as_ref().is_some_and(|f| f.tls.is_none()) {
+        tracing::warn!(target: replication::LOG_TARGET, "{}", replication::messages::FOLLOWING_PLAINTEXT);
+    }
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("irrd")
+        // Queries, GraphQL and submissions run on these threads. The
+        // parsers stop nesting well inside 2 MiB, but the default leaves
+        // little headroom for the deepest legal inputs; virtual memory is
+        // cheap.
+        .thread_stack_size(8 << 20)
         .build()
     {
         Ok(r) => r,

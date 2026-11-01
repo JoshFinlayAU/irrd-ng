@@ -70,3 +70,17 @@ pub fn protocol_mismatch(active: u32, standby: u32) -> String {
 pub const LOG_NOT_ENABLED: &str = "the active's replication log is not enabled";
 
 pub const STOPPED: &str = "Replication follower stopped";
+
+pub fn tls_failed(e: &str) -> String {
+    format!("TLS handshake failed: {e}")
+}
+
+/// Sent to, and logged about, a standby that connects without TLS to an
+/// active that requires it.
+pub const REQUIRES_TLS: &str = "the active only accepts TLS: set ng_replication.tls_ca or ng_replication.tls_pin on the standby";
+
+pub const TLS_NOT_CONFIGURED: &str = "the standby started a TLS handshake, but ng_replication.tls_certificate and tls_key are not set on this active";
+
+pub const SERVING_PLAINTEXT: &str = "ng_replication.tls_certificate is not set: the replication stream to standbys, including password hashes and API keys, is not encrypted. Use TLS, a private network or a tunnel.";
+
+pub const FOLLOWING_PLAINTEXT: &str = "ng_replication.tls_ca and tls_pin are not set: the replication stream from the active, including password hashes and API keys, is not encrypted. Use TLS, a private network or a tunnel.";

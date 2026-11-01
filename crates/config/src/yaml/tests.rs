@@ -67,3 +67,45 @@ fn bad_characters_are_found_when_their_chunk_is_read() {
         "ERR unacceptable character #x0001: special characters are not allowed\n  in \"t.yaml\", position 5"
     );
 }
+
+/// Nesting past PyYAML's recursion depth is its RecursionError, not a
+/// stack overflow, and aliases cannot multiply into an out-of-memory kill.
+/// Both were found by fuzzing the configuration loader.
+#[test]
+fn deep_nesting_and_alias_bombs_fail_cleanly() {
+    // irrd.yaml is read on the main thread or a runtime thread, both with
+    // 8 MiB of stack; test threads get less, and debug builds use far more
+    // stack per level.
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(deep_nesting_and_alias_bombs)
+        .expect("thread")
+        .join()
+        .expect("no panic");
+}
+
+fn deep_nesting_and_alias_bombs() {
+    use super::composer::MAX_DEPTH;
+    let seq = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+    assert!(!load(&seq(MAX_DEPTH)).starts_with("CRASH"));
+    let crash = "CRASH RecursionError: maximum recursion depth exceeded";
+    assert_eq!(load(&seq(MAX_DEPTH + 1)), crash);
+    assert_eq!(load(&"[".repeat(100_000)), crash);
+    assert_eq!(load(&"{a: ".repeat(100_000)), crash);
+    let block: String = (0..5_000)
+        .map(|i| format!("{}a:\n", " ".repeat(i)))
+        .collect();
+    assert_eq!(load(&block), crash);
+    let mut bomb = String::from("a: &a [x,x,x,x,x,x,x,x,x]\n");
+    for i in 0..8u8 {
+        let (p, c) = (char::from(b'a' + i), char::from(b'b' + i));
+        bomb.push_str(&format!(
+            "{c}: &{c} [*{p},*{p},*{p},*{p},*{p},*{p},*{p},*{p},*{p}]\n"
+        ));
+    }
+    assert!(
+        load(&bomb).starts_with("CRASH MemoryError"),
+        "{}",
+        load(&bomb)
+    );
+}

@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
-use crate::protocol::{self, Conn, Kind, Reader, Writer};
+use crate::protocol::{self, Conn, Kind, Stream, Writer};
 use crate::{Error, FollowerSettings, LOG_TARGET, messages};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -57,7 +57,7 @@ pub async fn run(
     tracing::info!(target: LOG_TARGET, "{}", messages::STOPPED);
 }
 
-async fn connect(settings: &FollowerSettings) -> Result<TcpStream, Error> {
+async fn connect(settings: &FollowerSettings) -> Result<Stream, Error> {
     let stream = tokio::time::timeout(
         CONNECT_TIMEOUT,
         TcpStream::connect((settings.host.as_str(), settings.port)),
@@ -67,7 +67,18 @@ async fn connect(settings: &FollowerSettings) -> Result<TcpStream, Error> {
     let _ = stream.set_nodelay(true);
     let sock = socket2::SockRef::from(&stream);
     let _ = sock.set_keepalive(true);
-    Ok(stream)
+    let Some(tls) = &settings.tls else {
+        return Ok(Box::new(stream));
+    };
+    let connector = tokio_rustls::TlsConnector::from(tls.config.clone());
+    let s = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        connector.connect(tls.server_name.clone(), stream),
+    )
+    .await
+    .map_err(|_| Error::Timeout)?
+    .map_err(|e| Error::Protocol(messages::tls_failed(&e.to_string())))?;
+    Ok(Box::new(s))
 }
 
 /// One connection: handshake, then apply what the active sends until the
@@ -90,8 +101,7 @@ async fn session(
         Kind::Error => return Err(Error::Remote(String::from_utf8_lossy(&p).into_owned())),
         _ => return Err(Error::Protocol("expected CHALLENGE".into())),
     }
-    let mut r = Reader(&p);
-    let (proto, schema, sn, proof) = (r.u32()?, r.u32()?, r.array32()?, r.array32()?);
+    let (proto, schema, sn, proof) = protocol::parse_challenge(&p)?;
     if proto != protocol::PROTOCOL_VERSION {
         return Err(Error::Protocol(messages::protocol_mismatch(
             proto,
@@ -135,8 +145,7 @@ async fn session(
             Kind::Heartbeat => {}
             Kind::Error => return Err(Error::Remote(String::from_utf8_lossy(&p).into_owned())),
             Kind::SnapshotBegin => {
-                let mut r = Reader(&p);
-                let (id, seq) = (r.str()?, r.u64()?);
+                let (id, seq) = protocol::parse_position(&p)?;
                 tracing::info!(target: LOG_TARGET, "{}", messages::snapshot_loading(&id, seq));
                 let f = tokio::fs::File::create(&spool_path).await?;
                 spool = Some((tokio::io::BufWriter::with_capacity(1 << 20, f), id, seq));
@@ -167,14 +176,7 @@ async fn session(
                 );
             }
             Kind::Entries => {
-                let mut r = Reader(&p);
-                let id = r.str()?;
-                let n = r.u32()?;
-                let mut entries = Vec::with_capacity(n as usize);
-                for _ in 0..n {
-                    let seq = r.u64()?;
-                    entries.push((seq, r.blob()?.to_vec()));
-                }
+                let (id, entries) = protocol::parse_entries(&p)?;
                 let s = store.clone();
                 blocking(move || s.apply_replication_entries(&id, entries)).await?;
                 *progressed = true;

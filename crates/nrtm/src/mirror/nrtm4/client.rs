@@ -168,7 +168,9 @@ pub fn find_next_version(
             lv,
         )));
     }
-    let next = lv + 1;
+    let next = lv
+        .checked_add(1)
+        .ok_or_else(|| PyErr::Other(messages::BIGINT_OUT_OF_RANGE.into()))?;
     if let Some(min) = unf.min_delta_version()
         && min > next
     {

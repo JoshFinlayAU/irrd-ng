@@ -130,13 +130,22 @@ pub(crate) struct Composer {
     parser: Parser,
     anchors: HashMap<String, NodeId>,
     nodes: Vec<Node>,
+    depth: usize,
 }
+
+/// How deeply collections may nest. PyYAML's composer recurses two
+/// Python frames per level, so `safe_load` raises `RecursionError` past
+/// about 494 levels (measured with PyYAML 6.0 on Python 3.13; v4's own
+/// frames lower it by a few). This composer recurses too, and stops at
+/// the same depth instead of overflowing its stack.
+pub(crate) const MAX_DEPTH: usize = 494;
 
 impl Composer {
     pub(crate) fn new(parser: Parser) -> Self {
         Composer {
             parser,
             anchors: HashMap::new(),
+            depth: 0,
             nodes: Vec::new(),
         }
     }
@@ -189,6 +198,26 @@ impl Composer {
     }
 
     fn compose_node(&mut self) -> Result<NodeId> {
+        let collection = matches!(
+            self.parser.peek_event()?.map(|e| &e.kind),
+            Some(EventKind::SequenceStart { .. } | EventKind::MappingStart { .. })
+        );
+        if !collection {
+            return self.compose_node_inner();
+        }
+        if self.depth >= MAX_DEPTH {
+            return Err(Error::Crash(crate::python::PyException::new(
+                "RecursionError",
+                "maximum recursion depth exceeded",
+            )));
+        }
+        self.depth += 1;
+        let r = self.compose_node_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn compose_node_inner(&mut self) -> Result<NodeId> {
         let Some(event) = self.parser.peek_event()?.cloned() else {
             return Err(Error::Crash(crate::python::PyException::new(
                 "AttributeError",

@@ -633,3 +633,45 @@ fn rpki_ov_state_uses_v4_member_names() {
         );
     }
 }
+
+/// A long chain of nested sets: resolved in a loop, and past
+/// `MAX_SET_LEVELS` answered with v4's internal error (its
+/// `RecursionError`) instead of overflowing the stack.
+#[test]
+fn long_set_chains_do_not_overflow_the_stack() {
+    let p = std::env::temp_dir().join(format!("irrd-ng-query-chain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&p);
+    let _tmp = Tmp(p.clone());
+    let mut o = StoreOptions::new(&p);
+    o.initial_map_size = 64 << 20;
+    let st = Store::open(&o, StoreSettings::default()).expect("store");
+    let n = query::MAX_SET_LEVELS + 100;
+    let mut text = String::new();
+    for i in 0..n {
+        text.push_str(&format!(
+            "as-set: AS-C{i}\nmembers: AS{}, AS-C{}\nmnt-by: MNT-A\nsource: TEST1\n\n",
+            65000 + i,
+            i + 1
+        ));
+    }
+    load(&st, "TEST1", &text);
+    let settings = Arc::new(QuerySettings {
+        version: "4.5.4".into(),
+        sources: vec!["TEST1".into()],
+        ..QuerySettings::default()
+    });
+    // Near the end of the chain: resolved in full.
+    let start = n - 50;
+    let short = one(&st, &settings, &format!("!iAS-C{start},1"));
+    assert!(short.starts_with('A'), "{short}");
+    assert!(short.contains(&format!("AS{}", 65000 + n - 1)), "{short}");
+    // From the top: too deep, as in v4.
+    assert_eq!(
+        one(&st, &settings, "!iAS-C0,1"),
+        "F An internal error occurred while processing this query.\n"
+    );
+    assert_eq!(
+        one(&st, &settings, "!aAS-C0"),
+        "F An internal error occurred while processing this query.\n"
+    );
+}

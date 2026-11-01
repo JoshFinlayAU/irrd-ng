@@ -13,12 +13,27 @@ use std::time::{Duration, Instant};
 
 use query::{NrtmV3, QuerySettings, WhoisSession, messages};
 use store::Store;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 
 pub(crate) const LOG_TARGET: &str = "irrd.server.whois.server";
 const ACCESS_LOG_TARGET: &str = "irrd.server.access_check";
+
+/// The longest query line read. v4's `readline()` has no limit, so a
+/// client could make a worker buffer as much as it can send before the
+/// read timeout; in irrd-ng that memory would come out of the one process
+/// every client shares. Real queries are far shorter.
+pub(crate) const MAX_LINE: usize = 1 << 20;
+
+/// How long a response may make no progress because the client is not
+/// reading it. v4 has no limit, so a client that stops reading holds a
+/// worker for good.
+pub(crate) const WRITE_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// After a failed `accept()` (out of file descriptors, say), wait this
+/// long before the next one instead of spinning.
+pub(crate) const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
 /// What every connection shares.
 pub(crate) struct WhoisShared {
@@ -35,6 +50,7 @@ pub(crate) async fn serve(listener: TcpListener, shared: Arc<WhoisShared>, max_c
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(target: LOG_TARGET, "{}", messages::log_failed_connection(&e.to_string()));
+                tokio::time::sleep(ACCEPT_BACKOFF).await;
                 continue;
             }
         };
@@ -47,6 +63,19 @@ pub(crate) async fn serve(listener: TcpListener, shared: Arc<WhoisShared>, max_c
             handle_connection(stream, peer, &shared).await;
         });
     }
+}
+
+/// Write all of `buf`, giving up if the client accepts nothing for
+/// [`WRITE_STALL_TIMEOUT`]. Whether it all went out.
+async fn write_or_stall<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, buf: &[u8]) -> bool {
+    let mut rest = buf;
+    while !rest.is_empty() {
+        match tokio::time::timeout(WRITE_STALL_TIMEOUT, w.write(rest)).await {
+            Ok(Ok(n)) if n > 0 => rest = &rest[n..],
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// `data.decode("utf-8", errors="backslashreplace")`
@@ -115,9 +144,14 @@ async fn handle_connection(stream: TcpStream, peer: std::net::SocketAddr, shared
     loop {
         line.clear();
         let timeout = Duration::from_secs(session.timeout);
-        match tokio::time::timeout(timeout, reader.read_until(b'\n', &mut line)).await {
+        let mut limited = (&mut reader).take(MAX_LINE as u64);
+        match tokio::time::timeout(timeout, limited.read_until(b'\n', &mut line)).await {
             Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
             Ok(Ok(_)) => {}
+        }
+        if line.len() >= MAX_LINE && !line.ends_with(b"\n") {
+            tracing::info!(target: LOG_TARGET, "{}", crate::messages::whois_line_too_long(&client_str));
+            break;
         }
         let decoded = decode_backslashreplace(&line);
         let query = rpsl::python::strip(&decoded);
@@ -133,7 +167,7 @@ async fn handle_connection(stream: TcpStream, peer: std::net::SocketAddr, shared
         }
         out.clear();
         tokio::task::block_in_place(|| session.query_whois(&shared.store, query, &mut out));
-        if write_half.write_all(&out).await.is_err() {
+        if !write_or_stall(&mut write_half, &out).await {
             break;
         }
         tracing::info!(
@@ -165,7 +199,6 @@ mod tests {
 #[cfg(test)]
 mod server_tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
 
     async fn ask(addr: std::net::SocketAddr, q: &str) -> String {
         let mut s = TcpStream::connect(addr).await.expect("connect");
@@ -216,6 +249,18 @@ mod server_tests {
             for _ in 0..4 {
                 assert_eq!(ask(addr, "!v").await, "A22\nIRRd -- version 4.5.4\nC\n");
             }
+            // A query line past MAX_LINE closes the connection unanswered;
+            // a long one within it is read as usual.
+            let pad = " ".repeat(MAX_LINE - 10);
+            assert_eq!(
+                ask(addr, &format!("{pad}!v")).await,
+                "A22\nIRRd -- version 4.5.4\nC\n"
+            );
+            let mut s = TcpStream::connect(addr).await.expect("connect");
+            let _ = s.write_all(format!("{pad}{pad}!v\n").as_bytes()).await;
+            let mut out = Vec::new();
+            let _ = s.read_to_end(&mut out).await;
+            assert_eq!(out, b"");
         });
         // The read transaction of the panicking query was released.
         st.write(|tx| tx.record_serial_seen("TEST", 1))

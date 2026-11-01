@@ -46,6 +46,12 @@ impl From<store::StoreError> for QueryError {
 
 pub(crate) type QResult<T> = Result<T, QueryError>;
 
+/// How many levels of nested sets one resolution follows. v4's
+/// `_recursive_set_resolve()` recurses once per level, so it raises a
+/// `RecursionError` once a chain of sets nears Python's recursion limit
+/// of 1000 frames, less the frames of the query handling around it.
+pub const MAX_SET_LEVELS: usize = 975;
+
 pub(crate) fn invalid<T>(msg: String) -> QResult<T> {
     Err(QueryError::Invalid(msg))
 }
@@ -799,7 +805,11 @@ impl QueryResolver {
         Ok(out)
     }
 
-    /// `_recursive_set_resolve()`
+    /// `_recursive_set_resolve()`. v4 recurses once per level of the set
+    /// hierarchy and ends in a `RecursionError`, its internal error, at
+    /// Python's recursion limit; this walks the levels in a loop and fails
+    /// the same way at [`MAX_SET_LEVELS`], so a long chain of sets cannot
+    /// overflow the stack.
     fn recursive_set_resolve<'t>(
         &self,
         view: &ReadView<'t>,
@@ -808,62 +818,71 @@ impl QueryResolver {
         sets_seen: &mut HashSet<Cow<'t, str>>,
         root_source: Option<&str>,
     ) -> QResult<HashSet<Cow<'t, str>>> {
-        if members.iter().all(|m| sets_seen.contains(m)) {
-            return Ok(HashSet::new());
-        }
-        sets_seen.extend(members.iter().cloned());
-
-        let mut set_members: HashSet<Cow<'t, str>> = HashSet::new();
-        let mut resolved_as_members: HashSet<Cow<'t, str>> = HashSet::new();
-        let (sub_members, leaf_members) = self.find_set_members(view, st, &members, root_source)?;
-
-        for sub in &sub_members {
-            if matches!(st.root_class, None | Some(SetClass::RouteSet)) {
-                let head = sub.split('^').next().unwrap_or_default();
-                if ipy(head).is_some() {
-                    set_members.insert(sub.clone());
-                    continue;
-                }
+        let mut result: HashSet<Cow<'t, str>> = HashSet::new();
+        let mut members = members;
+        let mut root_source = root_source;
+        for _ in 0..MAX_SET_LEVELS {
+            if members.iter().all(|m| sets_seen.contains(m)) {
+                return Ok(result);
             }
-            if let Ok((formatted, _)) = rpsl::parse_as_number(sub, false, false, false) {
-                if st.root_class == Some(SetClass::RouteSet) {
-                    let mut routes = Vec::new();
-                    self.routes_for_origins(
-                        view,
-                        &mut std::iter::once(formatted.as_str()),
-                        None,
-                        &mut routes,
-                    )?;
-                    for (v, a, l) in routes {
-                        set_members.insert(Cow::Owned(prefix_text(v, a, l)));
+            sets_seen.extend(members.iter().cloned());
+
+            let mut set_members: HashSet<Cow<'t, str>> = HashSet::new();
+            let mut resolved_as_members: HashSet<Cow<'t, str>> = HashSet::new();
+            let (sub_members, leaf_members) =
+                self.find_set_members(view, st, &members, root_source)?;
+
+            for sub in &sub_members {
+                if matches!(st.root_class, None | Some(SetClass::RouteSet)) {
+                    let head = sub.split('^').next().unwrap_or_default();
+                    if ipy(head).is_some() {
+                        set_members.insert(sub.clone());
+                        continue;
                     }
-                    resolved_as_members.insert(sub.clone());
-                } else {
-                    set_members.insert(sub.clone());
+                }
+                if let Ok((formatted, _)) = rpsl::parse_as_number(sub, false, false, false) {
+                    if st.root_class == Some(SetClass::RouteSet) {
+                        let mut routes = Vec::new();
+                        self.routes_for_origins(
+                            view,
+                            &mut std::iter::once(formatted.as_str()),
+                            None,
+                            &mut routes,
+                        )?;
+                        for (v, a, l) in routes {
+                            set_members.insert(Cow::Owned(prefix_text(v, a, l)));
+                        }
+                        resolved_as_members.insert(sub.clone());
+                    } else {
+                        set_members.insert(sub.clone());
+                    }
                 }
             }
-        }
 
-        st.max_depth -= 1;
-        if st.max_depth == 0 {
-            let mut all = set_members;
-            all.extend(sub_members);
-            all.extend(leaf_members);
-            return Ok(all);
-        }
+            st.max_depth -= 1;
+            if st.max_depth == 0 {
+                result.extend(set_members);
+                result.extend(sub_members);
+                result.extend(leaf_members);
+                return Ok(result);
+            }
 
-        let further: HashSet<Cow<'t, str>> = sub_members
-            .into_iter()
-            .filter(|m| {
-                !set_members.contains(m)
-                    && !sets_seen.contains(m)
-                    && !resolved_as_members.contains(m)
-                    && !st.excluded.contains(m.as_ref())
-            })
-            .collect();
-        let new_members = self.recursive_set_resolve(view, st, further, sets_seen, None)?;
-        set_members.extend(new_members);
-        Ok(set_members)
+            let further: HashSet<Cow<'t, str>> = sub_members
+                .into_iter()
+                .filter(|m| {
+                    !set_members.contains(m)
+                        && !sets_seen.contains(m)
+                        && !resolved_as_members.contains(m)
+                        && !st.excluded.contains(m.as_ref())
+                })
+                .collect();
+            result.extend(set_members);
+            members = further;
+            root_source = None;
+        }
+        Err(QueryError::Internal(
+            messages::SET_RECURSION_ERROR.to_owned(),
+        ))
     }
 
     /// `_find_set_members()`: (members found, names not found).

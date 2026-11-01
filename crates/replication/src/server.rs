@@ -8,14 +8,15 @@ use store::replog::{Entry, write_spool_row};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
-use crate::protocol::{self, Conn, Kind, Reader, Writer};
-use crate::{Error, LOG_TARGET, ServerSettings, messages};
+use crate::protocol::{self, Conn, Kind, Stream, Writer};
+use crate::{Error, LOG_TARGET, ServerSettings, messages, tls};
 
 /// How much log one `ENTRIES` frame carries at most (roughly).
 const BATCH_BYTES: usize = 4 << 20;
 /// How often an idle stream looks for new entries.
 const POLL: Duration = Duration::from_millis(200);
-/// How long the handshake may take.
+/// How long the handshake may take (each of the TLS handshake and the
+/// two frames the standby sends).
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Snapshot rows per frame (roughly, in bytes).
 const SNAPSHOT_FRAME: usize = 1 << 20;
@@ -103,8 +104,42 @@ pub async fn serve(
     }
 }
 
+/// Set up the connection's byte stream: TLS when the active has a
+/// certificate, plain TCP when it does not. Each end insists on its own
+/// choice, so a standby that disagrees is refused rather than served in
+/// the clear.
+async fn open_stream(stream: TcpStream, settings: &ServerSettings) -> Result<Stream, Error> {
+    let mut first = [0u8; 1];
+    let n = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.peek(&mut first))
+        .await
+        .map_err(|_| Error::Timeout)??;
+    let wants_tls = n == 1 && first[0] == tls::TLS_HANDSHAKE_BYTE;
+    match (&settings.tls, wants_tls) {
+        (Some(config), true) => {
+            let acceptor = tokio_rustls::TlsAcceptor::from(config.clone());
+            let s = tokio::time::timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream))
+                .await
+                .map_err(|_| Error::Timeout)?
+                .map_err(|e| Error::Protocol(messages::tls_failed(&e.to_string())))?;
+            Ok(Box::new(s))
+        }
+        (Some(_), false) => {
+            // Read the standby's HELLO before answering, so the ERROR is
+            // not lost to a reset from closing with unread data.
+            let mut conn = Conn::new(Box::new(stream) as Stream);
+            if let Ok(Ok(_)) = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.recv()).await {
+                conn.send(Kind::Error, messages::REQUIRES_TLS.as_bytes())
+                    .await?;
+            }
+            Err(Error::Protocol(messages::REQUIRES_TLS.into()))
+        }
+        (None, true) => Err(Error::Protocol(messages::TLS_NOT_CONFIGURED.into())),
+        (None, false) => Ok(Box::new(stream)),
+    }
+}
+
 async fn handshake(
-    conn: &mut Conn<TcpStream>,
+    conn: &mut Conn<Stream>,
     settings: &ServerSettings,
 ) -> Result<(String, u64), Error> {
     let (kind, p) = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.recv())
@@ -113,9 +148,7 @@ async fn handshake(
     if kind != Kind::Hello {
         return Err(Error::Protocol("expected HELLO".into()));
     }
-    let mut r = Reader(&p);
-    r.magic()?;
-    let (proto, schema, cn) = (r.u32()?, r.u32()?, r.array32()?);
+    let (proto, schema, cn) = protocol::parse_hello(&p)?;
     let refuse = if proto != protocol::PROTOCOL_VERSION {
         Some(messages::protocol_mismatch(
             protocol::PROTOCOL_VERSION,
@@ -144,8 +177,7 @@ async fn handshake(
     if kind != Kind::Auth {
         return Err(Error::Protocol("expected AUTH".into()));
     }
-    let mut r = Reader(&p);
-    let proof = r.array32()?;
+    let (proof, mut r) = protocol::parse_auth(&p)?;
     if !protocol::constant_time_eq(&proof, &protocol::client_proof(&settings.secret, &cn, &sn)) {
         conn.send(Kind::Error, messages::AUTH_FAILED.as_bytes())
             .await?;
@@ -162,7 +194,7 @@ async fn handle(
     settings: Arc<ServerSettings>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), Error> {
-    let mut conn = Conn::new(stream);
+    let mut conn = Conn::new(open_stream(stream, &settings).await?);
     let (follow_id, follow_seq) = handshake(&mut conn, &settings).await?;
 
     let s = store.clone();
@@ -246,7 +278,7 @@ enum Snap {
 /// Stream every replicated row from one read transaction. Returns the log
 /// sequence the snapshot is at.
 async fn send_snapshot(
-    conn: &mut Conn<TcpStream>,
+    conn: &mut Conn<Stream>,
     store: &Store,
     peer: &str,
     id: &str,

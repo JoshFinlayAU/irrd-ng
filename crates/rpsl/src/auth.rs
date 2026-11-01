@@ -80,6 +80,9 @@ fn hash_shape_ok_ignoring_cost(hash: &str) -> bool {
         && cost.bytes().all(|b| b.is_ascii_digit())
         && cost.parse::<u32>().is_ok_and(|c| (4..=31).contains(&c))
         && data.len() == 53
+        // passlib raises ValueError on other characters, which v4 treats
+        // as a failed check; pwhash would panic on control characters.
+        && data.bytes().all(|b| HASH64.contains(&b))
 }
 
 fn truncate_bytes(b: &[u8], n: usize) -> &[u8] {
@@ -228,6 +231,19 @@ mod tests {
             &"a".repeat(71),
             &h
         ));
+    }
+
+    #[test]
+    fn bcrypt_hash_with_bad_characters_fails_without_panicking() {
+        let good = "$2b$12$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW";
+        for bad in ['\u{1}', '\u{1f}', ' ', '$', '!'] {
+            let mut h = good.to_owned();
+            h.replace_range(20..21, &bad.to_string());
+            assert!(
+                !verify_password(PasswordHasher::BcryptPw, "x", &h),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

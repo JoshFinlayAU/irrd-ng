@@ -26,6 +26,16 @@ const PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const CLOSE_POLICY: u16 = 1008;
 /// `WS_1003_UNSUPPORTED_DATA`
 const CLOSE_UNSUPPORTED: u16 = 1003;
+/// Close code for a protocol violation.
+const CLOSE_PROTOCOL_ERROR: u16 = 1002;
+/// Close code for a message over [`MAX_MESSAGE`].
+const CLOSE_TOO_BIG: u16 = 1009;
+/// uvicorn's `ws_max_size` default, which v4 does not change: the largest
+/// message accepted, after reassembling fragments and after
+/// decompression.
+const MAX_MESSAGE: usize = 16 * 1024 * 1024;
+/// The largest control frame payload (RFC 6455 section 5.5).
+const MAX_CONTROL: u64 = 125;
 
 /// A handshake to finish once hyper has sent the 101.
 pub(crate) struct Upgrade {
@@ -85,7 +95,7 @@ impl std::fmt::Debug for Upgrade {
 
 /// Negotiated `permessage-deflate` parameters.
 #[derive(Debug, Clone, Default)]
-struct Deflate {
+pub(crate) struct Deflate {
     server_no_context_takeover: bool,
     client_no_context_takeover: bool,
     server_max_window_bits: Option<u8>,
@@ -109,6 +119,11 @@ pub(crate) fn is_upgrade(headers: &HeaderMap) -> bool {
         && header(headers, "connection")
             .split(',')
             .any(|t| t.trim().eq_ignore_ascii_case("upgrade"))
+}
+
+/// [`negotiate`], for the fuzz targets.
+pub(crate) fn negotiate_for_fuzzing(offers: &str) -> Option<Deflate> {
+    negotiate(offers)
 }
 
 /// The first `permessage-deflate` offer the server can accept.
@@ -377,20 +392,23 @@ pub(crate) fn response(up: Upgrade, settings: &HttpSettings) -> Response<ReplyBo
 
 // ---- frames ----
 
-struct Conn<IO> {
+pub(crate) struct Conn<IO> {
     io: IO,
     deflate: Option<Deflate>,
     compress: Option<Compress>,
     decompress: Option<Decompress>,
 }
 
-enum Frame {
+pub(crate) enum Frame {
     Text(String),
     Binary,
     Ping(Vec<u8>),
     Pong,
     /// A close frame: the payload of the close frame to answer with.
     Close(Vec<u8>),
+    /// The client broke a limit or the protocol: close with this code and
+    /// stop reading, as the websockets library fails the connection.
+    Fail(u16),
 }
 
 /// The close frame websockets answers a client's close frame with: the
@@ -417,7 +435,7 @@ fn close_reply(payload: &[u8]) -> Vec<u8> {
 }
 
 impl<IO> Conn<IO> {
-    fn new(io: IO, deflate: Option<Deflate>) -> Self {
+    pub(crate) fn new(io: IO, deflate: Option<Deflate>) -> Self {
         let compress = deflate.as_ref().map(|d| {
             Compress::new_with_window_bits(
                 Compression::default(),
@@ -492,7 +510,7 @@ impl<IO: AsyncWrite + Unpin> Conn<IO> {
 
 impl<IO: AsyncRead + Unpin> Conn<IO> {
     /// One complete message (reassembling fragments).
-    async fn read_message(&mut self) -> std::io::Result<Frame> {
+    pub(crate) async fn read_message(&mut self) -> std::io::Result<Frame> {
         let mut message: Vec<u8> = Vec::new();
         let mut compressed = false;
         let mut opcode0: Option<u8> = None;
@@ -513,8 +531,12 @@ impl<IO: AsyncRead + Unpin> Conn<IO> {
                 self.io.read_exact(&mut b).await?;
                 len = u64::from_be_bytes(b);
             }
-            if len > 64 * 1024 * 1024 {
-                return Err(std::io::Error::other("frame too large"));
+            let control = opcode & 0x08 != 0;
+            if control && (len > MAX_CONTROL || !fin) {
+                return Ok(Frame::Fail(CLOSE_PROTOCOL_ERROR));
+            }
+            if len > (MAX_MESSAGE - message.len()) as u64 {
+                return Ok(Frame::Fail(CLOSE_TOO_BIG));
             }
             let mut mask = [0u8; 4];
             if masked {
@@ -556,26 +578,41 @@ impl<IO: AsyncRead + Unpin> Conn<IO> {
                 d.reset(false);
             }
             message.extend_from_slice(&[0, 0, 0xff, 0xff]);
-            let mut out = Vec::with_capacity(message.len() * 4 + 64);
-            let mut input: &[u8] = &message;
-            loop {
-                let before = d.total_in();
-                out.reserve(message.len() * 2 + 1024);
-                d.decompress_vec(input, &mut out, FlushDecompress::Sync)
-                    .map_err(std::io::Error::other)?;
-                let used = (d.total_in() - before) as usize;
-                input = &input[used..];
-                if input.is_empty() {
-                    break;
-                }
+            match inflate(d, &message)? {
+                Some(out) => message = out,
+                None => return Ok(Frame::Fail(CLOSE_TOO_BIG)),
             }
-            message = out;
         }
         match opcode0 {
             Some(0x1) => Ok(Frame::Text(String::from_utf8_lossy(&message).into_owned())),
             _ => Ok(Frame::Binary),
         }
     }
+}
+
+/// Decompress one message, or `None` if it inflates past [`MAX_MESSAGE`].
+/// Input after the end of a deflate stream is ignored, as zlib's
+/// `decompressobj` leaves it in `unused_data`.
+fn inflate(d: &mut Decompress, message: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+    const CHUNK: usize = 64 * 1024;
+    let mut out: Vec<u8> = Vec::new();
+    let mut input = message;
+    while !input.is_empty() && out.len() <= MAX_MESSAGE {
+        let (before_in, before_out) = (d.total_in(), d.total_out());
+        out.reserve(CHUNK);
+        let status = d
+            .decompress_vec(input, &mut out, FlushDecompress::Sync)
+            .map_err(std::io::Error::other)?;
+        let used = (d.total_in() - before_in) as usize;
+        input = &input[used..];
+        if status == flate2::Status::StreamEnd || (used == 0 && d.total_out() == before_out) {
+            break;
+        }
+    }
+    if out.len() > MAX_MESSAGE {
+        return Ok(None);
+    }
+    Ok(Some(out))
 }
 
 /// `EventStreamEndpoint`: accept, check the access list, send the
@@ -623,6 +660,10 @@ async fn session<IO>(
             Frame::Pong | Frame::Binary => {}
             Frame::Close(reply) => {
                 let _ = out_tx.send(Out::Close(reply)).await;
+                break;
+            }
+            Frame::Fail(code) => {
+                let _ = out_tx.send(close_code(code)).await;
                 break;
             }
             Frame::Text(data) => {
@@ -794,6 +835,10 @@ async fn graphql_ws_loop<R: AsyncRead + Unpin>(
                 let _ = out.send(Out::Close(reply)).await;
                 return None;
             }
+            Frame::Fail(code) => {
+                let _ = out.send(close_code(code)).await;
+                return None;
+            }
             Frame::Text(t) => t,
         };
         let Some(message) = graphql::value::json_loads_str(&text) else {
@@ -922,6 +967,128 @@ mod tests {
         assert_eq!(
             base64_decode("dGhlIHNhbXBsZSBub25jZQ==").map(|v| v.len()),
             Some(16)
+        );
+    }
+
+    /// One masked client frame.
+    fn frame(fin: bool, rsv1: bool, op: u8, payload: &[u8]) -> Vec<u8> {
+        let mask = [9u8, 8, 7, 6];
+        let mut f = vec![op | if fin { 0x80 } else { 0 } | if rsv1 { 0x40 } else { 0 }];
+        if payload.len() < 126 {
+            f.push(0x80 | payload.len() as u8);
+        } else if payload.len() <= 0xffff {
+            f.push(0x80 | 126);
+            f.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        } else {
+            f.push(0x80 | 127);
+            f.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+        }
+        f.extend_from_slice(&mask);
+        f.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
+        f
+    }
+
+    fn read_all(input: Vec<u8>, deflate: bool) -> Vec<String> {
+        let d = deflate.then(|| negotiate("permessage-deflate").expect("offer"));
+        let mut conn = Conn::new(std::io::Cursor::new(input), d);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime");
+        let mut out = Vec::new();
+        loop {
+            match rt.block_on(conn.read_message()) {
+                Ok(Frame::Text(t)) => out.push(format!("text:{}", t.len())),
+                Ok(Frame::Binary) => out.push("binary".into()),
+                Ok(Frame::Ping(p)) => out.push(format!("ping:{}", p.len())),
+                Ok(Frame::Pong) => out.push("pong".into()),
+                Ok(Frame::Close(_)) => out.push("close".into()),
+                Ok(Frame::Fail(code)) => {
+                    out.push(format!("fail:{code}"));
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+        out
+    }
+
+    fn deflate_raw(data: &[u8], finish: bool) -> Vec<u8> {
+        let mut c = Compress::new(Compression::default(), false);
+        let mut out = Vec::with_capacity(data.len() / 2 + 1024);
+        let flush = if finish {
+            FlushCompress::Finish
+        } else {
+            FlushCompress::Sync
+        };
+        loop {
+            out.reserve(64 * 1024);
+            let before = c.total_in() as usize;
+            let st = c
+                .compress_vec(&data[before..], &mut out, flush)
+                .expect("compress");
+            if st == flate2::Status::StreamEnd
+                || (!finish && c.total_in() as usize == data.len() && out.len() < out.capacity())
+            {
+                break;
+            }
+        }
+        if out.ends_with(&[0, 0, 0xff, 0xff]) {
+            out.truncate(out.len() - 4);
+        }
+        out
+    }
+
+    #[test]
+    fn message_limits_match_uvicorn() {
+        // Up to the limit, fragments are reassembled.
+        let half = vec![b'a'; MAX_MESSAGE / 2];
+        let mut input = frame(false, false, 0x1, &half);
+        input.extend(frame(true, false, 0x0, &half));
+        assert_eq!(read_all(input, false), vec![format!("text:{MAX_MESSAGE}")]);
+        // One byte more, or an endless run of fragments, is a 1009.
+        let mut input = frame(false, false, 0x1, &half);
+        input.extend(frame(false, false, 0x0, &half));
+        input.extend(frame(true, false, 0x0, b"x"));
+        assert_eq!(read_all(input, false), vec!["fail:1009".to_owned()]);
+        // A frame header claiming more than the limit fails before any
+        // payload is read.
+        let mut input = vec![0x81, 0x80 | 127];
+        input.extend_from_slice(&u64::MAX.to_be_bytes());
+        assert_eq!(read_all(input, false), vec!["fail:1009".to_owned()]);
+        // Control frames: at most 125 bytes, never fragmented.
+        let mut input = frame(true, false, 0x9, &[1; 125]);
+        input.extend(frame(true, false, 0x9, &[1; 126]));
+        assert_eq!(read_all(input, false), vec!["ping:125", "fail:1002"]);
+        assert_eq!(
+            read_all(frame(false, false, 0xA, b""), false),
+            vec!["fail:1002".to_owned()]
+        );
+    }
+
+    #[test]
+    fn compressed_message_limits() {
+        // A small compressed message that inflates past the limit.
+        let bomb = deflate_raw(&vec![0u8; MAX_MESSAGE + 1], false);
+        assert!(bomb.len() < 1 << 20);
+        assert_eq!(
+            read_all(frame(true, true, 0x1, &bomb), true),
+            vec!["fail:1009".to_owned()]
+        );
+        // Exactly the limit is fine.
+        let ok = deflate_raw(&vec![b'z'; MAX_MESSAGE], false);
+        assert_eq!(
+            read_all(frame(true, true, 0x1, &ok), true),
+            vec![format!("text:{MAX_MESSAGE}")]
+        );
+        // A deflate stream with its final block set, so the appended
+        // 00 00 ff ff is never consumed: this used to spin forever.
+        let text = b"{\"type\": \"connection_init\"}";
+        let finished = deflate_raw(text, true);
+        let mut input = frame(true, true, 0x1, &finished);
+        input.extend(frame(true, false, 0x1, b"next"));
+        assert_eq!(
+            read_all(input, true),
+            vec![format!("text:{}", text.len()), "text:4".to_owned()]
         );
     }
 

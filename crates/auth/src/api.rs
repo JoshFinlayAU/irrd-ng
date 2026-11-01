@@ -5,7 +5,7 @@
 //! the 400 response body in v4.
 
 use crate::handler::{ChangeObject, Submission};
-use crate::json::{PyJson, py_str_repr};
+use crate::json::{KeyIndex, PyJson, py_str_repr};
 use crate::request::SuspensionType;
 
 /// The pydantic release pinned by v4 4.5.4, which appears in its error URLs.
@@ -24,9 +24,20 @@ pub enum BodyError {
 // json.loads
 // ---------------------------------------------------------------------------
 
+/// How deeply arrays and objects may nest. Python's decoder recurses once
+/// per level and gives up with a `RecursionError` at its recursion limit;
+/// this parser recurses too, and stops well before its stack would run
+/// out.
+pub const MAX_JSON_DEPTH: usize = 512;
+
+/// The `RecursionError` past [`MAX_JSON_DEPTH`], which v4 does not catch.
+pub const JSON_RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string";
+
 struct JsonParser<'a> {
     s: &'a [char],
     pos: usize,
+    depth: usize,
+    too_deep: bool,
 }
 
 type JResult<T> = Result<T, (String, usize)>;
@@ -47,8 +58,20 @@ impl JsonParser<'_> {
                 self.pos += 1;
                 Ok(PyJson::Str(self.string()?))
             }
-            '{' => self.object(),
-            '[' => self.array(),
+            '{' | '[' => {
+                if self.depth >= MAX_JSON_DEPTH {
+                    self.too_deep = true;
+                    return Err((String::new(), self.pos));
+                }
+                self.depth += 1;
+                let v = if c == '{' {
+                    self.object()
+                } else {
+                    self.array()
+                };
+                self.depth -= 1;
+                v
+            }
             'n' if self.lit("null") => Ok(PyJson::Null),
             't' if self.lit("true") => Ok(PyJson::Bool(true)),
             'f' if self.lit("false") => Ok(PyJson::Bool(false)),
@@ -202,6 +225,7 @@ impl JsonParser<'_> {
     fn object(&mut self) -> JResult<PyJson> {
         self.pos += 1;
         let mut out: Vec<(String, PyJson)> = Vec::new();
+        let mut index = KeyIndex::default();
         self.ws();
         if self.s.get(self.pos) == Some(&'}') {
             self.pos += 1;
@@ -223,10 +247,7 @@ impl JsonParser<'_> {
             self.pos += 1;
             self.ws();
             let v = self.value()?;
-            match out.iter_mut().find(|(k, _)| *k == key) {
-                Some(e) => e.1 = v,
-                None => out.push((key, v)),
-            }
+            index.insert(&mut out, key, v);
             self.ws();
             match self.s.get(self.pos) {
                 Some('}') => {
@@ -296,9 +317,18 @@ pub fn json_loads(body: &[u8]) -> Result<PyJson, BodyError> {
             0,
         ));
     }
-    let mut p = JsonParser { s: &chars, pos: 0 };
+    let mut p = JsonParser {
+        s: &chars,
+        pos: 0,
+        depth: 0,
+        too_deep: false,
+    };
     p.ws();
-    let v = p.value().map_err(|(m, pos)| err(m, pos))?;
+    let v = p.value();
+    if p.too_deep {
+        return Err(BodyError::Internal(JSON_RECURSION_ERROR.to_owned()));
+    }
+    let v = v.map_err(|(m, pos)| err(m, pos))?;
     p.ws();
     if p.pos != chars.len() {
         return Err(err("Extra data".into(), p.pos));
@@ -740,6 +770,33 @@ mod tests {
             err("[1,]"),
             "Illegal trailing comma before end of array: line 1 column 3 (char 2)"
         );
+    }
+
+    #[test]
+    fn deep_json_is_a_recursion_error_not_a_crash() {
+        let deep = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+        assert!(json_loads(deep(MAX_JSON_DEPTH).as_bytes()).is_ok());
+        assert_eq!(
+            json_loads(deep(MAX_JSON_DEPTH + 1).as_bytes()),
+            Err(BodyError::Internal(JSON_RECURSION_ERROR.to_owned()))
+        );
+        assert_eq!(
+            json_loads("{\"a\":".repeat(1_000_000).as_bytes()),
+            Err(BodyError::Internal(JSON_RECURSION_ERROR.to_owned()))
+        );
+        // Ordinary errors are unchanged.
+        assert!(matches!(json_loads(b"[1,"), Err(BodyError::BadRequest(_))));
+        // Many keys: insertion order kept, the last repeat winning.
+        let mut text = String::from("{");
+        for i in 0..1000 {
+            text.push_str(&format!("\"k{i}\": {i}, "));
+        }
+        text.push_str("\"k7\": null}");
+        let Ok(PyJson::Dict(d)) = json_loads(text.as_bytes()) else {
+            panic!("not a dict");
+        };
+        assert_eq!(d.len(), 1000);
+        assert_eq!(d[7], ("k7".to_owned(), PyJson::Null));
     }
 
     #[test]

@@ -26,6 +26,10 @@ tokio-postgres-rustls = { version = "0.14.0", default-features = false, features
 rustls = { version = "0.23.37", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1.15.1", default-features = false, features = ["std"] }
 webpki-roots = "1.0.11"
+# TLS for the replication stream, on the same rustls and ring provider.
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+# Test certificates for the replication TLS tests, generated at test time.
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
 p256 = { version = "0.14.0", default-features = false, features = ["arithmetic", "pkcs8", "std"] }
 # Mirroring client: HTTP(S) with rustls (ring provider, Mozilla roots built
 # in, like v4's certifi bundle), FTP, DNS without libc's resolver, gzip and

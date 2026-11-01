@@ -36,6 +36,12 @@ const TAG_VALUE: &str = "tag:yaml.org,2002:value";
 /// Python's default recursion limit, for runaway merges and cycles.
 const RECURSION_LIMIT: usize = 1000;
 
+/// The most values one document may build. PyYAML shares the object an
+/// alias points to, so a few lines of nested aliases cost it nothing;
+/// irrd-ng copies them, and without a bound such a file would exhaust
+/// memory. A real `irrd.yaml` builds a few hundred.
+pub(crate) const MAX_VALUES: usize = 1_000_000;
+
 fn constructor_error(
     context: Option<&str>,
     context_mark: Option<super::Mark>,
@@ -73,6 +79,7 @@ struct Constructor<'a> {
     constructed: HashSet<NodeId>,
     scalars: HashMap<NodeId, Value>,
     state_generators: Vec<NodeId>,
+    built: std::cell::Cell<usize>,
 }
 
 /// `construct_document(node)`.
@@ -82,6 +89,7 @@ pub(crate) fn construct_document(nodes: &mut Vec<Node>, root: NodeId) -> Result<
         constructed: HashSet::new(),
         scalars: HashMap::new(),
         state_generators: Vec::new(),
+        built: std::cell::Cell::new(0),
     };
     c.construct_object(root)?;
     while !c.state_generators.is_empty() {
@@ -362,6 +370,13 @@ impl Constructor<'_> {
 
     /// Build the Python object for a node whose construction succeeded.
     fn build(&self, id: NodeId, stack: &mut Vec<NodeId>) -> Result<Value> {
+        self.built.set(self.built.get() + 1);
+        if self.built.get() > MAX_VALUES {
+            return Err(Error::Crash(PyException::new(
+                "MemoryError",
+                format!("YAML aliases expand to more than {MAX_VALUES} values"),
+            )));
+        }
         if let Some(v) = self.scalars.get(&id) {
             return Ok(v.clone());
         }

@@ -247,3 +247,7 @@ pub const HTTP_MISSING_Q: &str = "Missing required query parameter \"q\"";
 pub fn log_sent_http_answer(client: &str, elapsed: f64, n: usize, query: &str) -> String {
     format!("{client}: sent answer to HTTP query, elapsed {elapsed:.9}s, {n} chars: {query}")
 }
+
+/// The exception logged when a set hierarchy is nested past
+/// `MAX_SET_LEVELS` (v4's `RecursionError`).
+pub const SET_RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";

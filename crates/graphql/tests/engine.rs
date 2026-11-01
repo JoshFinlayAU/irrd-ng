@@ -199,3 +199,50 @@ fn type_map_order_puts_built_in_scalars_after_their_first_use() {
         &["Status", "ASN", "Query", "String", "Int", "Thing", "Obj"]
     );
 }
+
+/// Deeply nested documents end in v4's `RecursionError` (a 500) at a fixed
+/// depth instead of overflowing the stack.
+#[test]
+fn deep_nesting_is_a_recursion_error() {
+    let max = graphql::parser::MAX_NESTING;
+    let crash = format!("crash: {}", graphql::parser::RECURSION_ERROR);
+    let selections = |n: usize| format!("{}{}", "{ a ".repeat(n), "}".repeat(n));
+    // The outermost braces are the operation's own selection set.
+    let ok = q(&selections(max));
+    assert!(
+        ok.contains("Cannot query field 'a' on type 'Query'."),
+        "{ok}"
+    );
+    assert_eq!(q(&selections(max + 1)), crash);
+    let values = |n: usize| {
+        format!(
+            "{{ objects(pk: {}\"x\"{}) {{ pk }} }}",
+            "[".repeat(n),
+            "]".repeat(n)
+        )
+    };
+    assert!(!q(&values(max - 1)).starts_with("crash"));
+    assert_eq!(q(&values(max)), crash);
+    let objects = |n: usize| {
+        format!(
+            "{{ objects(pk: {}1{}) {{ pk }} }}",
+            "{a: ".repeat(n),
+            "}".repeat(n)
+        )
+    };
+    assert!(!q(&objects(max - 1)).starts_with("crash"));
+    assert_eq!(q(&objects(max)), crash);
+    let types = |n: usize| {
+        format!(
+            "query($v: {}String{}) {{ objects(pk: $v) {{ pk }} }}",
+            "[".repeat(n),
+            "]".repeat(n)
+        )
+    };
+    assert!(!q(&types(max)).starts_with("crash"));
+    assert_eq!(q(&types(max + 1)), crash);
+    // Far past the limit, as an attacker would send it.
+    assert_eq!(q(&"[".repeat(100_000)), q("["));
+    assert_eq!(q(&format!("{{ objects(pk: {}", "[".repeat(100_000))), crash);
+    assert_eq!(q(&"{ a ".repeat(100_000)), crash);
+}
