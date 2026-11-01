@@ -9,6 +9,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+auth.workspace = true
 http-body-util.workspace = true
 httpdate.workspace = true
 hyper.workspace = true

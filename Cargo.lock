@@ -402,6 +402,7 @@ name = "cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "auth",
  "config",
  "http 0.0.0",
  "import-v4",
@@ -1406,6 +1407,7 @@ dependencies = [
 name = "http"
 version = "0.0.0"
 dependencies = [
+ "auth",
  "http-body-util",
  "httpdate",
  "hyper",

@@ -24,6 +24,7 @@ mod messages;
 mod mirror_tools;
 mod serving_tools;
 mod settings;
+mod submit_tools;
 mod tools;
 mod whois_server;
 
