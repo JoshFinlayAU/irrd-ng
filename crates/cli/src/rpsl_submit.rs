@@ -598,7 +598,7 @@ mod tests {
         let r = auth::api::json_loads(br#"{"summary":{"objects_found":1,"successful":1,"successful_create":0,"successful_modify":1,"successful_delete":0,"failed":0,"failed_create":0,"failed_modify":0,"failed_delete":0},"objects":[]}"#)
             .unwrap_or(PyJson::Null);
         let t = format_as_text(&r).unwrap_or_default();
-        assert!(t.contains("Number of objects found:                    1\n    "));
+        assert!(t.contains("Number of objects found:                    1\nNumber"));
         assert!(t.contains("    Modify:        1\n"));
     }
 
