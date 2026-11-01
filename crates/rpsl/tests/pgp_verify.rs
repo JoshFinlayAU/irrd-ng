@@ -76,3 +76,19 @@ fn keyring_round_trips_through_entries() {
     let msg = fixture("test_valid_inline_signed_ascii.0.txt");
     assert_eq!(k2.verify_cleartext(msg.as_bytes()).as_deref(), Some(FPR));
 }
+
+#[test]
+fn cleartext_text_is_the_signed_text() {
+    let k = loaded_keyring();
+    let (fpr, text) = k
+        .verify_cleartext_text(fixture("test_valid_inline_signed_ascii.0.txt").as_bytes())
+        .unwrap();
+    assert_eq!(fpr, FPR);
+    assert_eq!(text, b"test\n1\n\n2\n\n3\n");
+    // Text after the first signature block is not part of it.
+    let appended = fixture("signed-person-update.txt")
+        + "\nperson: EVIL\nsource: TEST\n\n-----BEGIN PGP SIGNATURE-----\n";
+    let (_, text) = k.verify_cleartext_text(appended.as_bytes()).unwrap();
+    assert!(text.ends_with(b"source: TEST"));
+    assert!(!String::from_utf8_lossy(&text).contains("EVIL"));
+}

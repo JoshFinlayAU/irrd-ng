@@ -154,6 +154,14 @@ impl Keyring {
     /// [`Keyring::verify_detached`]. Text before the
     /// `-----BEGIN PGP SIGNED MESSAGE-----` line is ignored, as gpg does.
     pub fn verify_cleartext(&self, message: &[u8]) -> Option<String> {
+        self.verify_cleartext_text(message).map(|(fpr, _)| fpr)
+    }
+
+    /// [`Keyring::verify_cleartext`], plus the text the signature covers
+    /// as sequoia reads it from the first signed block: dash-escaping
+    /// removed, without the line break before the
+    /// `-----BEGIN PGP SIGNATURE-----` line.
+    pub fn verify_cleartext_text(&self, message: &[u8]) -> Option<(String, Vec<u8>)> {
         use openpgp::parse::stream::VerifierBuilder;
         let start = find(message, b"-----BEGIN PGP SIGNED MESSAGE-----")?;
         let policy = verify_policy();
@@ -162,11 +170,12 @@ impl Keyring {
             .ok()?
             .with_policy(&policy, None, helper)
             .ok()?;
-        std::io::copy(&mut v, &mut std::io::sink()).ok()?;
+        let mut text = Vec::new();
+        std::io::copy(&mut v, &mut text).ok()?;
         if !v.message_processed() {
             return None;
         }
-        v.into_helper().good
+        Some((v.into_helper().good?, text))
     }
 
     /// The certificates in this keyring with a key matching `handle`.

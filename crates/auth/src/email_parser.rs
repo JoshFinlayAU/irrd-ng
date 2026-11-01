@@ -706,10 +706,16 @@ pub fn validate_pgp_signature(
     }
     if message.matches("BEGIN PGP SIGNED MESSAGE").count() == 1 {
         let data = latin1(message)?;
-        let fpr = keyring.verify_cleartext(&data);
+        let verified = keyring.verify_cleartext_text(&data);
         let normalised = message.replace("\r\n", "\n").replace('\r', "\n");
+        // v4's pattern is greedy (`(?s:.+)`), so it runs to the *last*
+        // `-----BEGIN PGP SIGNATURE-----` line while gpg checks the
+        // signature over the text before the *first*: objects appended
+        // after a genuine signature, followed by a second such line, were
+        // processed as signed (DIV-007). Taking the body up to the first
+        // line is the same text for every message where the two agree.
         let re = Regex::new(
-            r"-----BEGIN PGP SIGNED MESSAGE-----(\n.+)?\n\n((?s:.+))\n-----BEGIN PGP SIGNATURE-----\n",
+            r"-----BEGIN PGP SIGNED MESSAGE-----(\n.+)?\n\n((?s:.+?))\n-----BEGIN PGP SIGNATURE-----\n",
         )
         .map_err(|e| e.to_string())?;
         let Some(m) = re.captures(&normalised) else {
@@ -719,13 +725,43 @@ pub fn validate_pgp_signature(
             );
             return Ok((None, None));
         };
-        log_result(fpr.as_deref());
-        return Ok(match fpr {
-            Some(f) => (Some(format!("{}\n", &m[2])), Some(f)),
-            None => (None, None),
-        });
+        let Some((fpr, text)) = verified else {
+            return Ok((None, None));
+        };
+        // Whatever is processed must be what the signature covers; if the
+        // extracted body is not that text, the message is treated as
+        // unsigned, as v4 treats a message with a bad signature.
+        if !is_signed_text(&m[2], &text) {
+            tracing::info!(
+                target: "irrd.utils.pgp",
+                "message contained an inline PGP signature, but the extracted body is not the signed text, ignoring the signature: {message}"
+            );
+            return Ok((None, None));
+        }
+        log_result(Some(&fpr));
+        return Ok((Some(format!("{}\n", &m[2])), Some(fpr)));
     }
     Ok((None, None))
+}
+
+/// Whether `body`, the text extracted from a cleartext signed message, is
+/// the text the signature covers, `signed` as the verifier read it
+/// (Latin-1 bytes, dash-escaping removed). Line endings and trailing
+/// spaces and tabs, which the signature does not cover (RFC 4880
+/// section 7.1), are not compared.
+fn is_signed_text(body: &str, signed: &[u8]) -> bool {
+    let signed: String = signed.iter().map(|&b| char::from(b)).collect();
+    let signed = signed.replace("\r\n", "\n").replace('\r', "\n");
+    let unescaped = body.split('\n').map(|l| l.strip_prefix("- ").unwrap_or(l));
+    let mut a = unescaped.map(|l| l.trim_end_matches([' ', '\t']));
+    let mut b = signed.split('\n').map(|l| l.trim_end_matches([' ', '\t']));
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return true,
+            (Some(x), Some(y)) if x == y => {}
+            _ => return false,
+        }
+    }
 }
 
 fn log_result(fpr: Option<&str>) {
