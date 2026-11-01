@@ -176,7 +176,7 @@ fn bad_override_on_suspension_repeats_like_v4() {
     let (_d, store, settings) = seeded();
     let mut h = auth::process(
         &store,
-        settings.clone(),
+        settings,
         Submission::Suspension {
             objects: vec![("SEED-MNT".into(), "TEST".into(), SuspensionType::Suspend)],
             override_: Some("wrong".into()),
