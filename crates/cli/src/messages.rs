@@ -277,3 +277,8 @@ pub(crate) const EXPIRE_COMPLETE: &str = "Expiry complete.";
 
 /// `input()` at end of file: Python's `EOFError`.
 pub(crate) const EOF_ERROR: &str = "EOFError: EOF when reading a line";
+
+/// irrd-ng: `run-job` with an unknown job name.
+pub(crate) fn unknown_job(job: &str) -> String {
+    format!("irrd-ng run-job: unknown job {job:?} (roa-import, scopefilter, route-preference)")
+}

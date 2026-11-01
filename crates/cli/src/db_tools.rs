@@ -139,10 +139,14 @@ fn load_config(args: &Args) -> Result<Configuration, ExitCode> {
 fn open_store(cfg: &Configuration, bulk_load: bool) -> Result<Store, ExitCode> {
     let mut options = StoreOptions::new(settings::store_path());
     options.bulk_load = bulk_load;
-    Store::open(&options, settings::store_settings(cfg)).map_err(|e| {
+    let store = Store::open(&options, settings::store_settings(cfg)).map_err(|e| {
         eprintln!("{e}");
         ExitCode::from(1)
-    })
+    })?;
+    // v4's DatabaseHandler re-evaluates route preference before every
+    // commit that touched route objects.
+    store.set_route_preference_hook(Some(rpki::route_preference_hook));
+    Ok(store)
 }
 
 /// v4 refuses to run the loaders on a standby.
@@ -277,6 +281,9 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     };
     let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
     let fail_slot = failure.clone();
+    // v4 logs the report before it commits (and so before route
+    // preference runs at commit): log from inside the transaction, once.
+    let logged = std::sync::atomic::AtomicBool::new(false);
     let result = p.store.write_reserving(reserve, move |tx| {
         let source = &job.import.source;
         let roa = rpki::BulkRouteRoaValidator::from_store(
@@ -292,7 +299,12 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
             scopefilter: &job.scopefilter,
         };
         match file_import::run_file_import(tx, &job.paragraphs, &job.import, &env, serial) {
-            Ok(c) => Ok(c),
+            Ok(c) => {
+                if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    file_import::log_file_import_report(source, &c);
+                }
+                Ok(c)
+            }
             Err(file_import::StreamError::Store(e)) => Err(e),
             Err(file_import::StreamError::Import(e)) => {
                 if let Ok(mut f) = fail_slot.lock() {
@@ -311,10 +323,7 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
         return import_failed(e);
     }
     match result {
-        Ok((counters, _)) => {
-            file_import::log_file_import_report(&p.source, &counters);
-            ExitCode::SUCCESS
-        }
+        Ok(_) => ExitCode::SUCCESS,
         Err(e) => store_err(e),
     }
 }
@@ -369,15 +378,22 @@ pub(crate) fn update_database(args: &[OsString]) -> ExitCode {
         Err(c) => return c,
     };
     let source = p.source.clone();
+    let file = p.file.clone();
+    let counters = parsed.counters.clone();
     let actions = std::sync::Arc::new(parsed.actions);
-    let result = p
-        .store
-        .write(move |tx| file_import::apply_update_import(tx, &source, &actions));
-    match result {
-        Ok(counts) => {
-            file_import::log_update_report(&p.source, &p.file, &parsed.counters, &counts);
-            ExitCode::SUCCESS
+    // v4 logs the report before it commits, and so before the route
+    // preference update that runs at commit; log it from inside the
+    // transaction, once even if the write is retried on a full map.
+    let logged = std::sync::atomic::AtomicBool::new(false);
+    let result = p.store.write(move |tx| {
+        let counts = file_import::apply_update_import(tx, &source, &actions)?;
+        if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            file_import::log_update_report(&source, &file, &counters, &counts);
         }
+        Ok(counts)
+    });
+    match result {
+        Ok(_) => ExitCode::SUCCESS,
         Err(e) => store_err(e),
     }
 }

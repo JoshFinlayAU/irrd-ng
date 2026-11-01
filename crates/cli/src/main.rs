@@ -18,6 +18,7 @@ mod argparse;
 mod daemon;
 mod db_tools;
 mod import;
+mod job_tool;
 mod logging;
 mod messages;
 mod mirror_tools;

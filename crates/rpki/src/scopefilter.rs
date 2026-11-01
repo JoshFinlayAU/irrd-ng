@@ -2,7 +2,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use store::{IpPrefix, ScopeFilterStatus};
+use store::{IpPrefix, ReadView, Result, ScopeFilterStatus, StatusChange};
+
+/// The objects whose scope filter status changes, as v4's
+/// `validate_all_rpsl_objects()` returns them: (now in scope, now out of
+/// scope AS, now out of scope prefix).
+pub type ScopeFilterChanges = (
+    Vec<StatusChange<ScopeFilterStatus>>,
+    Vec<StatusChange<ScopeFilterStatus>>,
+    Vec<StatusChange<ScopeFilterStatus>>,
+);
 
 /// The scope filter configuration (`scopefilter.prefixes`,
 /// `scopefilter.asns`) and per-source `scopefilter_excluded`.
@@ -92,6 +101,49 @@ impl ScopeFilterValidator {
             }
         }
         ScopeFilterStatus::InScope
+    }
+}
+
+impl ScopeFilterValidator {
+    /// `validate_all_rpsl_objects(database_handler)`: every route, route6
+    /// and aut-num object whose status would change, in store order (v4's
+    /// scan is unordered).
+    pub fn validate_all_rpsl_objects(&self, view: &ReadView<'_>) -> Result<ScopeFilterChanges> {
+        let (mut in_scope, mut out_as, mut out_prefix) = (Vec::new(), Vec::new(), Vec::new());
+        for source in view.object_sources()? {
+            for class in ["aut-num", "route", "route6"] {
+                for item in view.objects(Some(&source), Some(class))? {
+                    let (_, o) = item?;
+                    let new = self.validate_rpsl_object(
+                        o.source,
+                        o.object_class,
+                        o.prefix.as_ref(),
+                        o.asn_first,
+                    );
+                    if new == o.scopefilter_status {
+                        continue;
+                    }
+                    let change = StatusChange {
+                        pk: o.pk,
+                        rpsl_pk: o.rpsl_pk.to_owned(),
+                        source: o.source.to_owned(),
+                        object_class: o.object_class.to_owned(),
+                        object_text: o.object_text.to_owned(),
+                        prefix: o.prefix,
+                        old_status: o.scopefilter_status,
+                        rpki_status: o.rpki_status,
+                        scopefilter_status: new,
+                        route_preference_status: o.route_preference_status,
+                    };
+                    match new {
+                        ScopeFilterStatus::InScope => in_scope.push(change),
+                        ScopeFilterStatus::OutScopeAs => out_as.push(change),
+                        ScopeFilterStatus::OutScopePrefix => out_prefix.push(change),
+                    }
+                }
+            }
+        }
+        Ok((in_scope, out_as, out_prefix))
     }
 }
 

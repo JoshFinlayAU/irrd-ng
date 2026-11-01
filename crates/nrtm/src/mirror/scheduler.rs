@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use crate::messages;
 use crate::mirror::runner::{MirrorContext, run_mirror_update};
 use crate::mirror::settings::MirrorSettings;
+use crate::mirror::status_jobs::{self, ScopeFilterFingerprint};
 use crate::serve::export::EXPORT_RUNNER;
 use crate::serve::nrtm4_server::NRTM4_SERVER_RUNNER;
 
@@ -37,6 +38,8 @@ pub struct MirrorScheduler {
     store: Store,
     processes: HashMap<String, JoinHandle<()>>,
     last_started_time: HashMap<String, i64>,
+    /// `previous_scopefilter_*`: `None` until the first check.
+    previous_scopefilter: Option<ScopeFilterFingerprint>,
 }
 
 fn now() -> f64 {
@@ -53,6 +56,7 @@ impl MirrorScheduler {
             store,
             processes: HashMap::new(),
             last_started_time: HashMap::new(),
+            previous_scopefilter: None,
         }
     }
 
@@ -61,9 +65,37 @@ impl MirrorScheduler {
         if settings.readonly_standby {
             return;
         }
-        // ROAImportRunner, RoutePreferenceUpdateRunner and
-        // ScopeFilterUpdateRunner are scheduled here in v4; they arrive
-        // with Phase 5.
+        let jobs = &settings.status_jobs;
+        if jobs.roa_source.is_some() {
+            let (store, s) = (self.store.clone(), settings.clone());
+            self.run_if_relevant(
+                None,
+                status_jobs::ROA_IMPORT_RUNNER,
+                jobs.roa_import_timer,
+                false,
+                move || tokio::spawn(status_jobs::run_roa_import(store, s)),
+            );
+        }
+        if jobs.route_preference_enabled {
+            let store = self.store.clone();
+            self.run_if_relevant(
+                None,
+                status_jobs::ROUTEPREF_RUNNER,
+                jobs.route_preference_update_timer,
+                false,
+                move || {
+                    tokio::task::spawn_blocking(move || {
+                        status_jobs::run_route_preference_update(&store)
+                    })
+                },
+            );
+        }
+        if self.check_scopefilter_change(settings) {
+            let (store, s) = (self.store.clone(), settings.clone());
+            self.run_if_relevant(None, status_jobs::SCOPEFILTER_RUNNER, 0, false, move || {
+                tokio::task::spawn_blocking(move || status_jobs::run_scopefilter_update(&store, &s))
+            });
+        }
         let mut sources_started = 0;
         for src in &settings.sources {
             if sources_started >= MAX_SIMULTANEOUS_RUNS {
@@ -121,6 +153,21 @@ impl MirrorScheduler {
                 sources_started += 1;
             }
         }
+    }
+
+    /// `_check_scopefilter_change()`: whether the scope filter changed since
+    /// the last call; always true on the first call with a scope filter.
+    /// The new state is remembered even if the update then does not start
+    /// (it is still running), as in v4.
+    fn check_scopefilter_change(&mut self, settings: &MirrorSettings) -> bool {
+        let Some(current) = &settings.status_jobs.scopefilter else {
+            return false;
+        };
+        if self.previous_scopefilter.as_ref() != Some(current) {
+            self.previous_scopefilter = Some(current.clone());
+            return true;
+        }
+        false
     }
 
     /// `run_if_relevant()`: start the runner if its timer expired and it
@@ -303,6 +350,87 @@ mod tests {
             ..Default::default()
         });
         s.run(&settings);
+        assert!(s.running().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod status_job_tests {
+    //! v4's `test_scheduler.py` for the ROA import, route preference and
+    //! scope filter runners.
+
+    use super::*;
+    use crate::mirror::status_jobs::StatusJobSettings;
+
+    fn store() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().expect("dir");
+        let s = Store::open(
+            &store::StoreOptions::new(dir.path()),
+            store::StoreSettings::default(),
+        )
+        .expect("store");
+        (dir, s)
+    }
+
+    fn fingerprint(prefixes: &[&str]) -> ScopeFilterFingerprint {
+        ScopeFilterFingerprint {
+            prefixes: prefixes.iter().map(|p| format!("'{p}'")).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn scopefilter_change_detection() {
+        let (_d, st) = store();
+        let mut s = MirrorScheduler::new(st);
+        let mut settings = MirrorSettings::default();
+        // No scope filter at all: never.
+        assert!(!s.check_scopefilter_change(&settings));
+        settings.status_jobs.scopefilter = Some(fingerprint(&["192.0.2.0/24"]));
+        assert!(s.check_scopefilter_change(&settings));
+        assert!(!s.check_scopefilter_change(&settings));
+        settings.status_jobs.scopefilter = Some(fingerprint(&["192.0.2.0/24", "10.0.0.0/8"]));
+        assert!(s.check_scopefilter_change(&settings));
+        let mut f = fingerprint(&["192.0.2.0/24", "10.0.0.0/8"]);
+        f.excluded.insert("TEST".into());
+        settings.status_jobs.scopefilter = Some(f);
+        assert!(s.check_scopefilter_change(&settings));
+        assert!(!s.check_scopefilter_change(&settings));
+    }
+
+    #[tokio::test]
+    async fn starts_status_jobs_on_their_timers() {
+        let (_d, st) = store();
+        let mut s = MirrorScheduler::new(st);
+        let settings = Arc::new(MirrorSettings {
+            status_jobs: StatusJobSettings {
+                // A source that does not exist: the import logs and ends.
+                roa_source: Some("file:///nonexistent/roas.json".into()),
+                roa_import_timer: 3600,
+                route_preference_enabled: true,
+                route_preference_update_timer: 3600,
+                scopefilter: Some(fingerprint(&["192.0.2.0/24"])),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        s.run(&settings);
+        let mut running = s.running();
+        running.sort();
+        assert_eq!(
+            running,
+            [
+                status_jobs::ROA_IMPORT_RUNNER,
+                status_jobs::ROUTEPREF_RUNNER,
+                status_jobs::SCOPEFILTER_RUNNER
+            ]
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        s.update_process_state();
+        // Timers not expired and the scope filter unchanged: nothing new.
+        s.run(&settings);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        s.update_process_state();
         assert!(s.running().is_empty());
     }
 }
