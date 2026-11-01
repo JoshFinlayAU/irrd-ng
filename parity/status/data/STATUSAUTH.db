@@ -1,0 +1,98 @@
+mntner:         TEST-MNT
+descr:          Synthetic maintainer for the status suite
+admin-c:        PERSON-TEST
+tech-c:         ROLE-TEST
+upd-to:         upd@example.com
+mnt-nfy:        nfy@example.com
+auth:           MD5-PW $1$fgW84Y9r$kKEn9MUq8PChNKpQhO6BM.
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+mntner:         OTHER-MNT
+descr:          Second synthetic maintainer
+admin-c:        PERSON-TEST
+upd-to:         upd@example.com
+auth:           MD5-PW $1$fgW84Y9r$kKEn9MUq8PChNKpQhO6BM.
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH
+
+mntner:         QUIET-MNT
+descr:          Maintainer without any contact address
+upd-to:         upd@example.com
+auth:           MD5-PW $1$fgW84Y9r$kKEn9MUq8PChNKpQhO6BM.
+mnt-by:         QUIET-MNT
+source:         STATUSAUTH
+
+person:         Test Person
+address:        Nowhere
+phone:          +31 20 000 0000
+e-mail:         person@example.com
+e-mail:         person2@example.com
+nic-hdl:        PERSON-TEST
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+role:           Test Role
+address:        Nowhere
+e-mail:         role@example.com
+nic-hdl:        ROLE-TEST
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+aut-num:        AS65001
+as-name:        TEST-1
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+aut-num:        AS65003
+as-name:        TEST-3
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH
+
+aut-num:        AS23456
+as-name:        TRANS
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH
+
+route:          192.0.2.0/24
+descr:          Invalid after the first ROA import
+origin:         AS65001
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+route:          198.51.100.0/24
+descr:          Valid, then invalid
+origin:         AS65002
+mnt-by:         TEST-MNT
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH
+
+route:          203.0.113.0/24
+descr:          Invalid, maintained without mnt-nfy
+origin:         AS65003
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH
+
+route:          203.0.113.128/25
+descr:          Invalid, no contacts at all
+origin:         AS65003
+mnt-by:         QUIET-MNT
+source:         STATUSAUTH
+
+route6:         2001:db8::/32
+descr:          Invalid v6
+origin:         AS65001
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+route:          10.0.0.0/8
+descr:          Out of scope by prefix
+origin:         AS65010
+mnt-by:         TEST-MNT
+source:         STATUSAUTH
+
+route:          100.64.0.0/10
+descr:          Out of scope by origin
+origin:         AS23456
+mnt-by:         OTHER-MNT
+source:         STATUSAUTH

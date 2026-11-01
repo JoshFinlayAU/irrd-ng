@@ -1,0 +1,16 @@
+[package]
+name = "mail"
+description = "Outgoing mail as v4's send_email: MIMEText rendering and SMTP delivery."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport"] }
+tracing.workspace = true
+
+[lints]
+workspace = true

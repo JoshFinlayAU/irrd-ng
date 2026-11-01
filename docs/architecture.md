@@ -94,6 +94,22 @@ Signatures on NRTMv4 Update Notification Files are ES256 JWS, verified with the 
 
 There's one place we deliberately don't follow v4 here. v4's NRTMv4 client keeps the file hashes it has seen across sessions, and file names like `snapshot-1` get reused when a server resets its session, so after a reset v4 decides the server is rewriting history and stays stuck on every run until someone edits the database by hand. irrd-ng only compares hashes within one session, so it reloads from the new snapshot and carries on. That's DIV-003, and the mirroring side-by-side checks both halves of it: v4 still gets stuck, and irrd-ng ends up identical to the upstream.
 
+## RPKI, scope filter and route preference
+
+Every route object carries three statuses, as in v4: RPKI (`valid`, `invalid`, `not_found`), scope filter (`in_scope`, `out_scope_as`, `out_scope_prefix`) and route preference (`visible`, `suppressed`). An object that is invalid, out of scope or suppressed is hidden from queries (unless a `!f` override asks for it), from exports and from mirrors. When a status change makes an object appear or disappear, the journal gets an entry for it, with the origin `rpki_status`, `scope_filter` or `route_preference`, so NRTM mirrors follow along.
+
+The three jobs that recompute statuses are v4's runners, started by the mirroring scheduler on v4's terms:
+
+- **ROA import** (`ROAImportRunner`, every `rpki.roa_import_timer` seconds). The ROA JSON and the optional SLURM file are fetched like any mirror file, parsed with v4's rules and error messages, and turned into ROAs and RPKI pseudo-IRR objects. Then, as in v4, two transactions: the first replaces every ROA and every object of the RPKI source (without journal entries), the second re-validates every route and writes the status changes. Only after that does it mail the contacts of route objects in authoritative sources that just became invalid (`rpki.notify_invalid_enabled`), through the `mail` crate, which renders messages byte for byte as Python's `email` package does.
+- **Scope filter** (`ScopeFilterUpdateRunner`), whenever the scope filter settings differ from what the scheduler saw last, which includes the first run after start and any SIGHUP that changed them. Like v4, the update matches rows by RPSL primary key, so every object sharing a key gets the new status.
+- **Route preference** (`RoutePreferenceUpdateRunner`, every `route_object_preference.update_timer` seconds) re-evaluates every route. Besides that, the store calls a hook before committing any transaction that touched route objects, which re-evaluates the routes overlapping the changed prefixes (or everything, past 5,000 prefixes), as v4's `pre_commit()` does. That covers mirror imports, NRTM, the loaders and the status jobs themselves. Instead of v4's radix tree, the prefixes are sorted, which lays them out in containment order, and one pass with a stack finds the highest preference among each prefix's ancestors and descendants.
+
+`irrd-ng run-job roa-import|scopefilter|route-preference` runs one of these once, which is how the parity harness steps both servers through the same changes.
+
+v4 keeps some behaviour here that looks like a bug, and irrd-ng keeps it too. A ROA repeated under a second trust anchor gives the same pseudo-IRR object twice, which fails v4's unique constraint: the whole import is rolled back, an error is logged and the previous ROAs stay until the input changes. The scope filter key match above is another.
+
+v4 processes the routes of a status update in whatever order PostgreSQL's table scan returns them, so within one batch the journal entries can come in any order. irrd-ng uses the store's key order. The serials, operations and contents of the entries are the same.
+
 ## Getting into irrd-ng from v4
 
 `irrd-ng import --from-postgres <dsn>` is a one-shot, read-only migration from a v4 4.5.x database. It checks the alembic revision first and refuses anything that isn't 4.5. It reads inside a read-only, repeatable-read transaction so it sees one consistent snapshot, streams in batches so memory stays bounded, and writes with the same upsert semantics, so running it twice changes nothing.

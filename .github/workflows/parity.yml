@@ -65,6 +65,16 @@ jobs:
         run: cargo nextest run -p rpsl --test oracle --no-capture
       - name: Start v4
         run: parity/up.sh
+      - name: Build irrd-ng
+        run: cargo build -p cli
+      - name: Status suite (RPKI, scope filter, route preference, journals, mails)
+        run: IRRD_NG=$PWD/target/debug/irrd-ng parity/status/run.sh
+      - name: Status suite reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: status-suite
+          path: parity/out/status-*
       - name: Logs on failure
         if: failure()
         run: docker compose -f parity/compose.yaml logs --tail 200

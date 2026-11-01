@@ -12,6 +12,7 @@ publish.workspace = true
 config.workspace = true
 flate2.workspace = true
 hickory-resolver.workspace = true
+mail.workspace = true
 postcard.workspace = true
 num-bigint.workspace = true
 p256 = { workspace = true, features = ["ecdsa", "pem"] }
