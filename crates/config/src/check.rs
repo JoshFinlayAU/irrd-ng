@@ -482,6 +482,42 @@ impl<'a> Checker<'a> {
                 self.push(messages::NG_REPLICATION_ACTIVE_PORT_REQUIRED);
             }
         }
+        self.check_ng_replication_tls()
+    }
+
+    /// irrd-ng only: the TLS sub-keys of `ng_replication`. The files are
+    /// read when the daemon starts, which refuses to start if they are not
+    /// usable.
+    fn check_ng_replication_tls(&mut self) -> Result<()> {
+        let mut present = [false; 3];
+        for (i, key) in ["tls_certificate", "tls_key", "tls_ca"]
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(v) = self.get(&format!("ng_replication.{key}"))? {
+                if !v.as_str().is_some_and(|s| !s.is_empty()) {
+                    self.push(messages::ng_replication_path(key));
+                }
+                present[i] = true;
+            }
+        }
+        let [certificate, key, ca] = present;
+        if certificate != key {
+            self.push(messages::NG_REPLICATION_TLS_PAIR);
+        }
+        if let Some(pin) = self.get("ng_replication.tls_pin")? {
+            if !pin.as_str().is_some_and(valid_tls_pin) {
+                self.push(messages::NG_REPLICATION_TLS_PIN);
+            }
+            if ca {
+                self.push(messages::NG_REPLICATION_TLS_CA_AND_PIN);
+            }
+        }
+        if let Some(name) = self.get("ng_replication.tls_server_name")?
+            && !name.as_str().is_some_and(valid_tls_server_name)
+        {
+            self.push(messages::NG_REPLICATION_TLS_SERVER_NAME);
+        }
         Ok(())
     }
 
@@ -792,4 +828,27 @@ pub(crate) fn check_staging_config(config: &Dict, is_dir: IsDir<'_>) -> Result<V
     };
     checker.run()?;
     Ok(checker.errors)
+}
+
+/// 64 hexadecimal digits, optionally separated by single colons.
+fn valid_tls_pin(s: &str) -> bool {
+    let digits = s.bytes().filter(|b| *b != b':');
+    !s.starts_with(':')
+        && !s.ends_with(':')
+        && !s.contains("::")
+        && digits.clone().count() == 64
+        && digits.into_iter().all(|b| b.is_ascii_hexdigit())
+}
+
+/// An IP address, or a DNS name of ASCII labels.
+fn valid_tls_server_name(s: &str) -> bool {
+    s.parse::<std::net::IpAddr>().is_ok()
+        || (!s.is_empty()
+            && s.len() <= 253
+            && s.trim_end_matches('.').split('.').all(|l| {
+                !l.is_empty()
+                    && l.len() <= 63
+                    && l.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            }))
 }

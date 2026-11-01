@@ -18,7 +18,9 @@
 //!
 //! After that the active only sends: `SNAPSHOT_BEGIN`, `SNAPSHOT_ROWS`,
 //! `SNAPSHOT_END`, `ENTRIES` and `HEARTBEAT`, or `ERROR` before closing.
-//! The data is authenticated, not encrypted.
+//!
+//! The frames are authenticated, and encrypted only when the connection
+//! runs over TLS ([`crate::tls`]), which wraps this whole exchange.
 
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -31,6 +33,17 @@ const MAGIC: &[u8] = b"IRRDNG-REPL";
 const TAG_LEN: usize = 32;
 /// The largest frame either side accepts.
 pub const MAX_FRAME: usize = store::replog::MAX_ENTRY_BYTES + (1 << 20);
+/// The largest frame either side accepts before the handshake has proved
+/// the shared secret. Handshake frames are well under 1 KiB, so an
+/// unauthenticated peer cannot make the other end buffer up to
+/// [`MAX_FRAME`] bytes per connection.
+pub const MAX_HANDSHAKE_FRAME: usize = 4096;
+
+/// A byte stream a connection runs over: plain TCP, or TLS over TCP.
+pub(crate) trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
+/// A boxed [`Io`].
+pub(crate) type Stream = Box<dyn Io>;
 
 /// Frame kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +139,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         }
     }
 
+    /// The underlying stream.
+    pub(crate) fn into_inner(self) -> S {
+        self.stream
+    }
+
     pub(crate) fn set_key(&mut self, key: [u8; 32]) {
         self.key = Some(key);
     }
@@ -168,7 +186,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
         self.stream.read_exact(&mut len).await?;
         let len = u32::from_be_bytes(len) as usize;
         let min = 1 + self.key.map_or(0, |_| TAG_LEN);
-        if !(min..=MAX_FRAME).contains(&len) {
+        let max = if self.key.is_some() {
+            MAX_FRAME
+        } else {
+            MAX_HANDSHAKE_FRAME
+        };
+        if !(min..=max).contains(&len) {
             return Err(Error::Protocol(format!("bad frame length {len}")));
         }
         let mut buf = vec![0u8; len];
@@ -274,6 +297,57 @@ pub(crate) fn hello(schema: u32, cn: &[u8; 32]) -> Vec<u8> {
         .u32(schema)
         .bytes(cn)
         .0
+}
+
+/// `HELLO`: protocol version, schema version and the standby's nonce.
+pub(crate) fn parse_hello(p: &[u8]) -> Result<(u32, u32, [u8; 32]), Error> {
+    let mut r = Reader(p);
+    r.magic()?;
+    Ok((r.u32()?, r.u32()?, r.array32()?))
+}
+
+/// `CHALLENGE`: protocol version, schema version, the active's nonce and
+/// its proof.
+pub(crate) fn parse_challenge(p: &[u8]) -> Result<(u32, u32, [u8; 32], [u8; 32]), Error> {
+    let mut r = Reader(p);
+    Ok((r.u32()?, r.u32()?, r.array32()?, r.array32()?))
+}
+
+/// `AUTH`: the standby's proof, then the log id and sequence it has
+/// applied. The proof is returned on its own so it can be checked before
+/// the rest is looked at.
+pub(crate) fn parse_auth(p: &[u8]) -> Result<([u8; 32], Reader<'_>), Error> {
+    let mut r = Reader(p);
+    Ok((r.array32()?, r))
+}
+
+/// `SNAPSHOT_BEGIN` and `HEARTBEAT`: a log id and a sequence.
+pub(crate) fn parse_position(p: &[u8]) -> Result<(String, u64), Error> {
+    let mut r = Reader(p);
+    Ok((r.str()?, r.u64()?))
+}
+
+/// `SNAPSHOT_END`: the number of rows sent.
+pub(crate) fn parse_snapshot_end(p: &[u8]) -> Result<u64, Error> {
+    Reader(p).u64()
+}
+
+/// Log entries: (sequence, encoded entry).
+pub(crate) type Entries = Vec<(u64, Vec<u8>)>;
+
+/// `ENTRIES`: a log id and a counted list of (sequence, entry blob).
+pub(crate) fn parse_entries(p: &[u8]) -> Result<(String, Entries), Error> {
+    let mut r = Reader(p);
+    let id = r.str()?;
+    let n = r.u32()? as usize;
+    // Each entry takes at least 12 bytes, so the count cannot make this
+    // reserve more than the frame could hold.
+    let mut entries = Vec::with_capacity(n.min(r.0.len() / 12));
+    for _ in 0..n {
+        let seq = r.u64()?;
+        entries.push((seq, r.blob()?.to_vec()));
+    }
+    Ok((id, entries))
 }
 
 #[cfg(test)]

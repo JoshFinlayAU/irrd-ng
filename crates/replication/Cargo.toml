@@ -10,14 +10,17 @@ publish.workspace = true
 
 [dependencies]
 getrandom.workspace = true
+rustls.workspace = true
 sha2.workspace = true
 socket2.workspace = true
 store.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
+tokio-rustls.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 uuid.workspace = true

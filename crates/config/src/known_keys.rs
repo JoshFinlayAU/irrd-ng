@@ -378,6 +378,11 @@ pub const KEY_SPECS: &[KeySpec] = &[
     spec("ng_replication.port", Reload::Restart, RESTART),
     spec("ng_replication.active_host", Reload::Restart, RESTART),
     spec("ng_replication.active_port", Reload::Restart, RESTART),
+    spec("ng_replication.tls_certificate", Reload::Restart, RESTART),
+    spec("ng_replication.tls_key", Reload::Restart, RESTART),
+    spec("ng_replication.tls_ca", Reload::Restart, RESTART),
+    spec("ng_replication.tls_pin", Reload::Restart, RESTART),
+    spec("ng_replication.tls_server_name", Reload::Restart, RESTART),
 ];
 
 /// The irrd-ng-only top-level key for standby replication.

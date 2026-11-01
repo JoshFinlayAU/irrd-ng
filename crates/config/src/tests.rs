@@ -245,6 +245,38 @@ fn staging_errors(text: &str) -> Vec<String> {
 }
 
 #[test]
+fn ng_replication_tls_keys_are_checked() {
+    let pin = vec!["AB"; 32].join(":");
+    let good = VALID.replace(
+        "  sources_default:",
+        &format!(
+            "  ng_replication:\n    secret: sixteen-chars-ok\n    port: 8044\n    tls_certificate: /etc/irrd/cert.pem\n    tls_key: /etc/irrd/key.pem\n    tls_pin: '{pin}'\n    tls_server_name: irrd1.example.net\n  sources_default:"
+        ),
+    );
+    assert_eq!(staging_errors(&good), Vec::<String>::new());
+    assert_eq!(
+        spec_for("ng_replication.tls_ca").map(|s| s.reload),
+        Some(Reload::Restart)
+    );
+    let bad = VALID.replace(
+        "  sources_default:",
+        "  ng_replication:\n    secret: sixteen-chars-ok\n    tls_certificate: 1\n    tls_ca: /etc/irrd/ca.pem\n    tls_pin: 'AB:CD'\n    tls_server_name: 'not a name'\n  sources_default:",
+    );
+    assert_eq!(
+        staging_errors(&bad),
+        vec![
+            "Setting ng_replication.tls_certificate must be the path of a file.".to_owned(),
+            "Settings ng_replication.tls_certificate and ng_replication.tls_key must be set together."
+                .into(),
+            "Setting ng_replication.tls_pin must be a SHA-256 fingerprint: 64 hexadecimal digits, optionally separated by colons."
+                .into(),
+            "Settings ng_replication.tls_ca and ng_replication.tls_pin cannot both be set.".into(),
+            "Setting ng_replication.tls_server_name must be a host name or IP address.".into(),
+        ]
+    );
+}
+
+#[test]
 fn ng_replication_is_accepted_and_checked_after_v4s_checks() {
     // The v4-valid file is unaffected.
     assert!(staging_errors(VALID).is_empty());
@@ -288,7 +320,7 @@ fn ng_replication_is_accepted_and_checked_after_v4s_checks() {
     assert_eq!(
         staging_errors(&scalar),
         vec![
-            "Setting ng_replication must be a mapping of secret, interface, port, active_host and active_port."
+            "Setting ng_replication must be a mapping of secret, interface, port, active_host, active_port and the tls_ settings."
                 .to_owned()
         ]
     );

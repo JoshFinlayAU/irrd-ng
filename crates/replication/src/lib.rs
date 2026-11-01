@@ -3,8 +3,8 @@
 //! v4 runs a standby as a PostgreSQL streaming replica. irrd-ng has no
 //! PostgreSQL, so it replicates its own store: the active keeps a
 //! replication log of every committed change to every table
-//! ([`store::replog`]) and serves it over an authenticated TCP stream
-//! ([`server`]); a standby follows that stream ([`follower`]) and applies
+//! ([`store::replog`]) and serves it over an authenticated TCP stream,
+//! optionally inside TLS ([`server`], [`tls`]); a standby follows that stream ([`follower`]) and applies
 //! each transaction in order, so its store holds the same rows as the
 //! active's. A standby that is new, or too far behind for the kept log,
 //! first loads a snapshot of every table.
@@ -16,11 +16,15 @@
 #![deny(unsafe_code)]
 
 pub mod follower;
+#[doc(hidden)]
+pub mod fuzzing;
 pub mod messages;
 pub mod protocol;
 pub mod server;
+pub mod tls;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Log target for replication messages (irrd-ng's own).
@@ -59,6 +63,8 @@ pub struct ServerSettings {
     pub retention: Duration,
     /// How often an idle stream carries a heartbeat.
     pub heartbeat: Duration,
+    /// TLS: when set, standbys must connect with TLS.
+    pub tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 impl ServerSettings {
@@ -70,6 +76,7 @@ impl ServerSettings {
             secret: secret.into(),
             retention: Duration::from_secs(24 * 3600),
             heartbeat: Duration::from_secs(5),
+            tls: None,
         }
     }
 }
@@ -89,6 +96,9 @@ pub struct FollowerSettings {
     pub idle_timeout: Duration,
     /// The longest wait between reconnection attempts.
     pub max_backoff: Duration,
+    /// TLS: when set, the standby only connects with TLS and checks the
+    /// active's certificate.
+    pub tls: Option<tls::ClientTls>,
 }
 
 impl FollowerSettings {
@@ -106,6 +116,7 @@ impl FollowerSettings {
             spool_dir: spool_dir.into(),
             idle_timeout: Duration::from_secs(30),
             max_backoff: Duration::from_secs(30),
+            tls: None,
         }
     }
 }

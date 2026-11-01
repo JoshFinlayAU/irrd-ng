@@ -278,7 +278,7 @@ pub(crate) fn no_upper(type_name: &str) -> String {
 
 // irrd-ng only: the `ng_replication` key, which v4 does not have.
 
-pub(crate) const NG_REPLICATION_NOT_MAPPING: &str = "Setting ng_replication must be a mapping of secret, interface, port, active_host and active_port.";
+pub(crate) const NG_REPLICATION_NOT_MAPPING: &str = "Setting ng_replication must be a mapping of secret, interface, port, active_host, active_port and the tls_ settings.";
 
 pub(crate) const NG_REPLICATION_SECRET: &str =
     "Setting ng_replication.secret must be a string of at least 16 characters.";
@@ -298,3 +298,18 @@ pub(crate) const NG_REPLICATION_ACTIVE_NEEDS_STANDBY: &str =
 
 pub(crate) const NG_REPLICATION_ACTIVE_PORT_REQUIRED: &str =
     "Setting ng_replication.active_port is required when ng_replication.active_host is set.";
+
+pub(crate) fn ng_replication_path(key: &str) -> String {
+    format!("Setting ng_replication.{key} must be the path of a file.")
+}
+
+pub(crate) const NG_REPLICATION_TLS_PAIR: &str =
+    "Settings ng_replication.tls_certificate and ng_replication.tls_key must be set together.";
+
+pub(crate) const NG_REPLICATION_TLS_PIN: &str = "Setting ng_replication.tls_pin must be a SHA-256 fingerprint: 64 hexadecimal digits, optionally separated by colons.";
+
+pub(crate) const NG_REPLICATION_TLS_CA_AND_PIN: &str =
+    "Settings ng_replication.tls_ca and ng_replication.tls_pin cannot both be set.";
+
+pub(crate) const NG_REPLICATION_TLS_SERVER_NAME: &str =
+    "Setting ng_replication.tls_server_name must be a host name or IP address.";
