@@ -14,6 +14,7 @@
 //!   for the v4 importer (`put_*`).
 //! - [`export`] writes the canonical JSONL export used by the three-way
 //!   load check.
+//! - [`replog`] is the replication log a standby follows.
 //!
 //! This is the only crate permitted to use `unsafe`. Every `unsafe` block
 //! carries a `// SAFETY:` comment, enforced by clippy.
@@ -28,6 +29,7 @@ pub mod model;
 mod query;
 pub mod read;
 pub mod records;
+pub mod replog;
 mod settings;
 mod store;
 pub mod write;
@@ -38,6 +40,7 @@ pub use index::{LOOKUP_FIELD_NAMES, OriginRoute, Space};
 pub use model::*;
 pub use read::{ObjectId, ReadTx, ReadView};
 pub use records::{JournalEntryRef, RpslObjectRef, SetMembers};
+pub use replog::ReplicationState;
 pub use settings::{SourceSettings, StoreSettings};
 pub use store::{BulkLoad, EventListener, Store, StoreInfo, WRITER_THREAD_NAME};
 pub use write::{AuthTable, ChangedObjects, Pruned, RoutePreferenceHook, WriteTx};

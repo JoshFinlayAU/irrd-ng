@@ -51,6 +51,15 @@ impl ReadTx {
         }
     }
 
+    /// Run `f` on the raw transaction and tables.
+    pub(crate) fn with_txn<R>(
+        &self,
+        f: impl FnOnce(&RoTxn<'_>, &Tables) -> Result<R>,
+    ) -> Result<R> {
+        let txn: &RoTxn<'_> = self.txn.as_deref().unwrap_or_else(|| unreachable!());
+        f(txn, &self.inner.tables)
+    }
+
     /// The query surface.
     pub fn view(&self) -> ReadView<'_> {
         // The transaction is only taken out in Drop.
