@@ -35,6 +35,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 parity=$PWD
 work=${PARITY_WORK:-$parity/.work}/tier1
+repo=$(cd .. && pwd)
 
 suite=whois test=ng ref=127.0.0.1:9043 http_ref=127.0.0.1:9080 http_test=
 bindings=$work/bindings.json scale=1 out= extra=()
@@ -104,10 +105,27 @@ run_api_suite() {
   python3 -I tools/http_diff.py --suite "$s" --bindings "$bindings" --ref "$http_ref" --test "$http_test" \
     --out "$o" "$@" || status=1
 }
-graphql_suite() { v4/preload-kick.sh irrd-v4 9080; run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq; }
+graphql_suite() {
+  v4/preload-kick.sh irrd-v4 9080
+  run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq --corpus corpus/graphql/edge.gq
+}
 # One request at a time: v4 stalls when /v1/status/ requests overlap.
 api_suite() { run_api_suite api --corpus corpus/http/api.gq --jobs 1; }
-events_suite() { run_api_suite events --corpus corpus/http/events.gq; }
+events_suite() {
+  run_api_suite events --corpus corpus/http/events.gq
+  # Live: both streams while the same two irrd_update_database runs change
+  # the journaled source on each server. The pause between them is for
+  # irrd-ng, which notices a write by another process within two seconds
+  # (one event per source for everything written in that time).
+  local o=${out:-$parity/out/events-live-$stamp}
+  cp events/EVSTREAM.live events/EVSTREAM.update "$work/"
+  local ng_bin=${IRRD_NG:-$repo/target/release/irrd-ng}
+  local upd="irrd_update_database --source EVSTREAM"
+  python3 -I tools/events_live.py --ref "$http_ref" --test "$http_test" --out "$o" \
+    --v4-cmd "docker compose exec -T irrd-v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.live && sleep 3 && docker compose exec -T irrd-v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.update" \
+    --ng-cmd "IRRD_NG_STORE_PATH=$work/store $ng_bin $upd --config $work/irrd-ng.yaml $work/EVSTREAM.live && sleep 3 && IRRD_NG_STORE_PATH=$work/store $ng_bin $upd --config $work/irrd-ng.yaml $work/EVSTREAM.update" \
+    || status=1
+}
 case $suite in
   whois) run_suite whois "$ref" "$whois_test" ;;
   http) v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;

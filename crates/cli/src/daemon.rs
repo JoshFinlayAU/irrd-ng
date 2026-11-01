@@ -256,6 +256,7 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
     });
     let events = http::Events::new();
     store.set_event_listener(Some(events.store_listener()));
+    events.spawn_watcher(store.clone());
     let http_state = Arc::new(http::HttpState {
         store: store.clone(),
         query: RwLock::new(query_settings),

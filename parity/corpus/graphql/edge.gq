@@ -1,0 +1,174 @@
+# GraphQL suite: rarer validation and execution paths.
+
+@tags overlap
+@gql
+{ rpslObjects(rpslPk: "x") { rpslPk ...A ...B } }
+fragment A on RPSLObject { s: source }
+fragment B on RPSLObject { s: objectClass }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { ... on RPSLRoute { x: prefix } ... on RPSLAutNum { x: asn } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "x") { ... on RPSLRoute { x: rpkiStatus } ... on RPSLRoute6 { x: routePreferenceStatus } } }
+@end
+
+@gql
+{ a: rpslObjects(rpslPk: "x") { rpslPk } a: rpslObjects(rpslPk: "x", sources: ["RADB"]) { rpslPk } }
+@end
+
+@gql
+{ a: rpslObjects(rpslPk: "x") { b: rpslPk } a: rpslObjects(rpslPk: "x") { b: source } }
+@end
+
+@tags variables2
+@gql
+query($u: String) { __typename }
+@end
+
+@gql
+query Q($u: String, $v: Int) { __typename }
+@end
+
+@gql
+query($s: Boolean) { __typename @skip(if: $s) }
+@end
+
+@gql
+query($s: Boolean!) { __typename @include(if: $s) }
+@variables {}
+@end
+
+@gql
+query($l: [String!]!) { rpslObjects(rpslPk: $l) { rpslPk } }
+@variables {"l": ["x", null]}
+@end
+
+@gql
+query($l: [[String]]) { __typename }
+@end
+
+@gql
+query($e: RPKIStatus = bogus) { rpslObjects(objectClass: "route", rpkiStatus: [$e]) { rpslPk } }
+@end
+
+@gql
+query($e: [RPKIStatus!] = [valid]) { rpslObjects(objectClass: "route", rpkiStatus: $e, recordLimit: 0) { rpslPk } }
+@end
+
+@gql
+query($i: Int) { rpslObjects(rpslPk: "x", recordLimit: $i) { rpslPk } }
+@variables {"i": 2147483648}
+@end
+
+@gql
+query($i: Int) { rpslObjects(rpslPk: "x", recordLimit: $i) { rpslPk } }
+@variables {"i": 1.0}
+@end
+
+@gql
+query($b: Boolean) { rpslObjects(rpslPk: "x", sqlTrace: $b) { rpslPk } }
+@variables {"b": "true"}
+@end
+
+@gql
+query($ip: IP!) { rpslObjects(ipExact: $ip) { rpslPk } }
+@variables {"ip": ["192.0.2.0/24"]}
+@end
+
+@gql
+query($ip: IP!) { rpslObjects(ipExact: $ip) { rpslPk } }
+@variables {"ip": 1.5}
+@end
+
+@gql
+query($a: [ASN!]) { rpslObjects(asn: $a) { rpslPk } }
+@variables {"a": "65000"}
+@end
+
+@gql
+query($a: [ASN!]) { rpslObjects(asn: $a) { rpslPk } }
+@variables {"a": [" 65000 ", "6_5000"]}
+@end
+
+@tags unions
+@gql
+{ rpslObjects(rpslPk: "{mntner}") { __typename ... on RPSLMntner { adminCObjs { __typename ... on RPSLContact { rpslPk } } } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{mntner}") { ... on RPSLMntner { adminCObjs { rpslPk } } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{mntner}") { ... on RPSLMntner { adminCObjs { ... on RPSLRoute { prefix } } } } }
+@end
+
+@tags execution2
+@gql
+{ databaseStatus(sources: ["RIRS"]) { source authoritative localJournalKept } }
+@end
+
+@gql
+{ databaseStatus(sources: ["NOPE", "RADB"]) { source source_type } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: ["{aut_num}", "{mntner}"]) { rpslPk journal { rpslPk serialNrtm } } }
+@end
+
+@gql
+{ rpslObjects(textSearch: "Tester") { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}", recordLimit: -1) { rpslPk } }
+@end
+
+@gql
+{ asSetPrefixes(setNames: []) { rpslPk } asnPrefixes(asns: []) { asn } recursiveSetMembers(setNames: []) { rpslPk } }
+@end
+
+@gql
+{ asSetPrefixes(setNames: ["{as_set}"], ipVersion: 0) { rpslPk prefixes } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{as_set|lower}", "{as_set}"], excludeSets: ["{as_set_deep}"]) { rpslPk rootSource members } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{route_set}"], depth: 2, sources: ["RIRS", "RADB"]) { rpslPk rootSource members } }
+@end
+
+@tags cost2
+@gql
+{ a1: rpslObjects(rpslPk: "x") { ...F } a2: rpslObjects(rpslPk: "x") { ...F } a3: rpslObjects(rpslPk: "x") { ...F } a4: rpslObjects(rpslPk: "x") { ...F } a5: rpslObjects(rpslPk: "x") { ...F } a6: rpslObjects(rpslPk: "x") { ...F } a7: rpslObjects(rpslPk: "x") { ...F } a8: rpslObjects(rpslPk: "x") { ...F } }
+fragment F on RPSLObject { ... on RPSLRoute { route origin descr holes memberOf inject aggrBndry aggrMtd exportComps components adminC techC geoidx roaUri remarks notify mntBy changed source ipFirst ipLast prefix prefixLength asn rpkiStatus rpkiMaxLength routePreferenceStatus mntByObjs { rpslPk objectText mntBy mntByObjs { rpslPk objectText mntBy } } } ... on RPSLAutNum { autNum asName descr memberOf import mpImport importVia export mpExport exportVia default mpDefault adminC techC remarks notify mntBy changed source asn } }
+@end
+
+@gql
+{ __schema { types { name } } rpslObjects(rpslPk: "x") { rpslPk } }
+@end
+
+@tags many
+@gql
+{ a { b } c { d } e f g h i j k l m n o p q r s t u v w x y z a1 a2 a3 a4 a5 a6 a7 a8 a9 b1 b2 b3 b4 b5 b6 b7 b8 b9 c1 c2 c3 c4 c5 c6 c7 c8 c9 d1 d2 d3 d4 d5 d6 d7 d8 d9 e1 e2 e3 e4 e5 e6 e7 e8 e9 f1 f2 f3 f4 f5 f6 f7 f8 f9 g1 g2 g3 g4 g5 g6 g7 g8 g9 h1 h2 h3 h4 h5 h6 h7 h8 h9 i1 i2 i3 i4 i5 i6 i7 i8 i9 j1 j2 j3 j4 j5 j6 j7 j8 j9 k1 k2 k3 }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", recordLimit: "long line beyond one hundred and twenty characters") { rpslPk } }
+@end
+
+@gql
+query {
+  rpslObjects(
+    rpslPk: "x"
+    recordLimit: "y"
+  ) {
+    rpslPk
+  }
+}
+@end

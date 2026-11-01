@@ -39,6 +39,8 @@ pub(crate) struct Entry {
 struct Inner {
     log: Mutex<VecDeque<Entry>>,
     notify: Notify,
+    /// Events published since the watcher last looked.
+    published: std::sync::atomic::AtomicU64,
 }
 
 /// The in-process event stream.
@@ -70,7 +72,59 @@ impl Events {
                 log.pop_front();
             }
         }
+        self.inner
+            .published
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.inner.notify.notify_waiters();
+    }
+
+    /// Watch the journal for entries written by other processes (the
+    /// command line tools write the store directly): v4's tools publish
+    /// on Redis, which every process shares. Every two seconds, if the
+    /// journal grew while this process published nothing, publish
+    /// `journal_extended` for each source that grew.
+    pub fn spawn_watcher(&self, store: store::Store) {
+        let me = self.clone();
+        tokio::spawn(async move {
+            let max = |store: &store::Store| -> Option<i64> {
+                store.read().ok()?.view().max_serial_global().ok()?
+            };
+            let mut last = max(&store).unwrap_or(0);
+            let mut published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let st = store.clone();
+                let from = last;
+                let grown = tokio::task::spawn_blocking(move || -> Option<(i64, Vec<String>)> {
+                    let tx = st.read().ok()?;
+                    let view = tx.view();
+                    let now = view.max_serial_global().ok()??;
+                    if now <= from {
+                        return None;
+                    }
+                    let mut sources: Vec<String> = Vec::new();
+                    for e in view.journal_by_serial_global(from + 1).ok()?.flatten() {
+                        if !sources.iter().any(|s| s == e.source) {
+                            sources.push(e.source.to_owned());
+                        }
+                    }
+                    Some((now, sources))
+                })
+                .await
+                .ok()
+                .flatten();
+                let now_published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+                if let Some((now, sources)) = grown {
+                    if now_published == published {
+                        for s in sources {
+                            me.publish(&s, "journal_extended");
+                        }
+                    }
+                    last = now;
+                }
+                published = me.inner.published.load(std::sync::atomic::Ordering::Relaxed);
+            }
+        });
     }
 
     /// A store listener publishing `journal_extended` for each source.

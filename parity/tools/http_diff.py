@@ -363,7 +363,11 @@ def canonical(value, key=None, count_only=False):
     """`count_only`: lists whose order v4 does not fix compare by length
     only (a LIMIT without ORDER BY picks any rows)."""
     if isinstance(value, dict):
-        return {k: canonical(v, k, count_only) for k, v in value.items()}
+        out = {k: canonical(v, k, count_only) for k, v in value.items()}
+        # List indices in an error path follow the row order.
+        if key == "errors" and isinstance(out.get("path"), list):
+            out["path"] = ["#" if isinstance(p, int) else p for p in out["path"]]
+        return out
     if isinstance(value, list):
         if count_only and sortable(key, value):
             return len(value)
