@@ -114,9 +114,11 @@ fn config_value(v: &query::ConfigValue) -> Value {
         query::ConfigValue::Float(f) => Value::Float(*f),
         query::ConfigValue::Str(s) => Value::Str(s.clone()),
         query::ConfigValue::List(l) => Value::List(l.iter().map(config_value).collect()),
-        query::ConfigValue::Dict(d) => {
-            Value::Object(d.iter().map(|(k, v)| (k.clone(), config_value(v))).collect())
-        }
+        query::ConfigValue::Dict(d) => Value::Object(
+            d.iter()
+                .map(|(k, v)| (k.clone(), config_value(v)))
+                .collect(),
+        ),
     }
 }
 
@@ -177,16 +179,23 @@ impl graphql::ScalarParsers for IrrdScalars {
                 Value::Bool(b) => Ok(Value::Int(i128::from(*b))),
                 Value::Float(f) => {
                     if f.is_nan() {
-                        Err(ScalarError::GraphQL(format!("Invalid ASN: {}; must be numeric", py_str(v))))
+                        Err(ScalarError::GraphQL(format!(
+                            "Invalid ASN: {}; must be numeric",
+                            py_str(v)
+                        )))
                     } else if f.is_infinite() {
-                        Err(ScalarError::Other("cannot convert float infinity to integer".into()))
+                        Err(ScalarError::Other(
+                            "cannot convert float infinity to integer".into(),
+                        ))
                     } else {
                         Ok(Value::Int(f.trunc() as i128))
                     }
                 }
                 Value::Str(s) => match py_int_str(s) {
                     Some(i) => Ok(Value::Int(i)),
-                    None => Err(ScalarError::GraphQL(format!("Invalid ASN: {s}; must be numeric"))),
+                    None => Err(ScalarError::GraphQL(format!(
+                        "Invalid ASN: {s}; must be numeric"
+                    ))),
                 },
                 other => Err(ScalarError::Other(format!(
                     "int() argument must be a string, a bytes-like object or a real number, not '{}'",
@@ -255,7 +264,11 @@ fn arg<'a>(args: &'a [(String, Value)], name: &str) -> Option<&'a Value> {
 /// and fails on).
 fn str_list(v: &Value) -> Option<Vec<String>> {
     match v {
-        Value::List(l) => Some(l.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()),
+        Value::List(l) => Some(
+            l.iter()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect(),
+        ),
         _ => None,
     }
 }
@@ -334,11 +347,7 @@ impl<'v, 't> Resolvers<'v, 't> {
     }
 
     /// `_rpsl_db_query_to_graphql_out()`
-    fn objects_out(
-        &self,
-        q: &ObjectQuery,
-        columns: &[&str],
-    ) -> Result<Value, ResolveError> {
+    fn objects_out(&self, q: &ObjectQuery, columns: &[&str]) -> Result<Value, ResolveError> {
         self.trace(crate::sqltrace::object_query(q, columns));
         let found = q.execute(self.view, self.settings).map_err(query_err)?;
         let mut out = Vec::with_capacity(found.len());
@@ -356,15 +365,23 @@ impl<'v, 't> Resolvers<'v, 't> {
                 "rpsl_pk" => Value::str(o.rpsl_pk),
                 "source" => Value::str(o.source),
                 "object_class" => Value::str(o.object_class),
-                "object_text" => Value::Str(rpsl::text::remove_auth_hashes(o.object_text).into_owned()),
+                "object_text" => {
+                    Value::Str(rpsl::text::remove_auth_hashes(o.object_text).into_owned())
+                }
                 "ip_first" => ip_first_text.clone().map_or(Value::Null, Value::Str),
-                "ip_last" => o
-                    .ip_last
-                    .map_or(Value::Null, |ip| Value::Str(store::InetDisplay(&ip).to_string())),
+                "ip_last" => o.ip_last.map_or(Value::Null, |ip| {
+                    Value::Str(store::InetDisplay(&ip).to_string())
+                }),
                 "prefix" => o.prefix.map_or(Value::Null, |p| Value::Str(p.to_string())),
-                "prefix_length" => o.prefix_length.map_or(Value::Null, |l| Value::Int(i128::from(l))),
-                "asn_first" => o.asn_first.map_or(Value::Null, |a| Value::Int(i128::from(a))),
-                "asn_last" => o.asn_last.map_or(Value::Null, |a| Value::Int(i128::from(a))),
+                "prefix_length" => o
+                    .prefix_length
+                    .map_or(Value::Null, |l| Value::Int(i128::from(l))),
+                "asn_first" => o
+                    .asn_first
+                    .map_or(Value::Null, |a| Value::Int(i128::from(a))),
+                "asn_last" => o
+                    .asn_last
+                    .map_or(Value::Null, |a| Value::Int(i128::from(a))),
                 "rpki_status" => Value::str(o.rpki_status.pg_label()),
                 "route_preference_status" => Value::str(o.route_preference_status.pg_label()),
                 "updated" => Value::Str(py_datetime_str(o.updated)),
@@ -399,7 +416,9 @@ impl<'v, 't> Resolvers<'v, 't> {
                         items
                             .iter()
                             .map(|v| match v {
-                                Value::Str(s) => Value::Str(rpsl::text::remove_auth_hashes(s).into_owned()),
+                                Value::Str(s) => {
+                                    Value::Str(rpsl::text::remove_auth_hashes(s).into_owned())
+                                }
                                 other => other.clone(),
                             })
                             .collect(),
@@ -425,8 +444,13 @@ impl<'v, 't> Resolvers<'v, 't> {
         Ok(r)
     }
 
-    fn rpsl_objects(&self, info: &FieldInfo<'_>, args: &[(String, Value)]) -> Result<Value, ResolveError> {
-        let kwargs: Vec<(String, &Value)> = args.iter().map(|(k, v)| (camel_to_snake(k), v)).collect();
+    fn rpsl_objects(
+        &self,
+        info: &FieldInfo<'_>,
+        args: &[(String, Value)],
+    ) -> Result<Value, ResolveError> {
+        let kwargs: Vec<(String, &Value)> =
+            args.iter().map(|(k, v)| (camel_to_snake(k), v)).collect();
         let kw = |n: &str| kwargs.iter().find(|(k, _)| k == n).map(|(_, v)| *v);
         let low_keys = [
             "object_class",
@@ -446,12 +470,9 @@ impl<'v, 't> Resolvers<'v, 't> {
         }
         let columns = columns_for_selection(info);
         let mut q = ObjectQuery::default();
-        if let Some(v) = kw("record_limit") {
-            match v {
-                Value::Int(i) => q.limit = Some(i64::try_from(*i).unwrap_or(i64::MAX)),
-                // LIMIT NULL: no limit.
-                _ => {}
-            }
+        // LIMIT NULL: no limit.
+        if let Some(Value::Int(i)) = kw("record_limit") {
+            q.limit = Some(i64::try_from(*i).unwrap_or(i64::MAX));
         }
         if let Some(v) = kw("rpsl_pk") {
             let Some(l) = str_list(v) else {
@@ -491,15 +512,23 @@ impl<'v, 't> Resolvers<'v, 't> {
         let statuses = |v: Option<&Value>| -> Result<Option<Vec<String>>, ResolveError> {
             match v {
                 None => Ok(None),
-                Some(v) => str_list(v).map(Some).ok_or(ResolveError::Internal("ArgumentError".into())),
+                Some(v) => str_list(v)
+                    .map(Some)
+                    .ok_or(ResolveError::Internal("ArgumentError".into())),
             }
         };
         q.rpki = Some(match statuses(kw("rpki_status"))? {
-            Some(l) => l.iter().filter_map(|s| RpkiStatus::from_pg_label(s)).collect(),
+            Some(l) => l
+                .iter()
+                .filter_map(|s| RpkiStatus::from_pg_label(s))
+                .collect(),
             None => vec![RpkiStatus::NotFound, RpkiStatus::Valid],
         });
         q.scope = Some(match statuses(kw("scope_filter_status"))? {
-            Some(l) => l.iter().filter_map(|s| ScopeFilterStatus::from_pg_label(s)).collect(),
+            Some(l) => l
+                .iter()
+                .filter_map(|s| ScopeFilterStatus::from_pg_label(s))
+                .collect(),
             None => vec![ScopeFilterStatus::InScope],
         });
         q.routepref = Some(match statuses(kw("route_preference_status"))? {
@@ -566,7 +595,10 @@ impl<'v, 't> Resolvers<'v, 't> {
             None | Some(Value::Null) => return Ok(Value::List(Vec::new())),
             Some(Value::List(l)) if l.is_empty() => return Ok(Value::List(Vec::new())),
             Some(Value::Str(s)) if s.is_empty() => return Ok(Value::List(Vec::new())),
-            Some(Value::List(l)) => l.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
+            Some(Value::List(l)) => l
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect(),
             Some(Value::Str(s)) => vec![s.clone()],
             Some(_) => return Ok(Value::List(Vec::new())),
         };
@@ -579,14 +611,22 @@ impl<'v, 't> Resolvers<'v, 't> {
                 .collect(),
         );
         if sticky {
-            let src = parent.get("source").and_then(Value::as_str).unwrap_or_default();
-            q.sources = Some(vec![rpsl::python::strip(&rpsl::python::upper(src)).to_owned()]);
+            let src = parent
+                .get("source")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            q.sources = Some(vec![
+                rpsl::python::strip(&rpsl::python::upper(src)).to_owned(),
+            ]);
         }
         self.objects_out(&q, &columns)
     }
 
     fn referring(parent: &Value, attr: &str) -> Vec<String> {
-        let class = parent.get("objectClass").and_then(Value::as_str).unwrap_or_default();
+        let class = parent
+            .get("objectClass")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         rpsl::class_by_name(class)
             .and_then(|c| c.field(attr))
             .map(|f| f.kind.referring().iter().map(|s| (*s).to_owned()).collect())
@@ -594,7 +634,10 @@ impl<'v, 't> Resolvers<'v, 't> {
     }
 
     fn journal(&self, parent: &Value) -> Result<Value, ResolveError> {
-        let source = parent.get("source").and_then(Value::as_str).unwrap_or_default();
+        let source = parent
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let list = self.settings.source(source).nrtm_access_list.clone();
         let permitted = self
             .settings
@@ -603,7 +646,10 @@ impl<'v, 't> Resolvers<'v, 't> {
         if !permitted {
             return Err(ResolveError::GraphQL(messages::journal_denied(source)));
         }
-        let pk = parent.get("rpslPk").and_then(Value::as_str).unwrap_or_default();
+        let pk = parent
+            .get("rpslPk")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let src = rpsl::python::strip(&rpsl::python::upper(source)).to_owned();
         let pk = rpsl::python::strip(&rpsl::python::upper(pk)).to_owned();
         let mut out = Vec::new();
@@ -621,7 +667,10 @@ impl<'v, 't> Resolvers<'v, 't> {
                 ("rpslPk".into(), Value::str(e.rpsl_pk)),
                 ("source".into(), Value::str(e.source)),
                 ("serialNrtm".into(), Value::Int(i128::from(e.serial_nrtm))),
-                ("serialGlobal".into(), Value::Int(i128::from(e.serial_global))),
+                (
+                    "serialGlobal".into(),
+                    Value::Int(i128::from(e.serial_global)),
+                ),
                 ("operation".into(), Value::str(e.operation.pg_label())),
                 ("objectClass".into(), Value::str(e.object_class)),
                 (
@@ -643,7 +692,9 @@ impl<'v, 't> Resolvers<'v, 't> {
         let rows = self.database_status_rows(sources)?;
         let mut out = Vec::new();
         for (name, data) in rows {
-            let Value::Object(fields) = data else { continue };
+            let Value::Object(fields) = data else {
+                continue;
+            };
             // OrderedDict(data), then source, then camelCase copies.
             let mut o = Value::Object(fields.clone());
             o.set("source", Value::Str(name));
@@ -665,11 +716,12 @@ impl<'v, 't> Resolvers<'v, 't> {
         let invalid: Vec<&String> = sources.iter().filter(|s| !st.is_valid_source(s)).collect();
         let rows = QueryResolver::status_rows(self.view, &sources).map_err(query_err)?;
         let mut results: Vec<(String, Value)> = Vec::new();
-        let set = |results: &mut Vec<(String, Value)>, k: String, v: Value| {
-            match results.iter_mut().find(|(key, _)| *key == k) {
-                Some(e) => e.1 = v,
-                None => results.push((k, v)),
-            }
+        let set = |results: &mut Vec<(String, Value)>, k: String, v: Value| match results
+            .iter_mut()
+            .find(|(key, _)| *key == k)
+        {
+            Some(e) => e.1 = v,
+            None => results.push((k, v)),
         };
         let opt_int = |v: Option<i64>| v.map_or(Value::Null, |i| Value::Int(i128::from(i)));
         let opt_str = |v: Option<String>| v.map_or(Value::Null, Value::Str);
@@ -693,22 +745,40 @@ impl<'v, 't> Resolvers<'v, 't> {
                     "scopefilter_enabled".into(),
                     Value::Bool(st.scopefilter_enabled && !s.scopefilter_excluded),
                 ),
-                ("route_preference".into(), config_value(&s.route_object_preference)),
+                (
+                    "route_preference".into(),
+                    config_value(&s.route_object_preference),
+                ),
                 ("local_journal_kept".into(), config_value(&s.keep_journal)),
-                ("serial_oldest_journal".into(), opt_int(row.serial_oldest_journal)),
-                ("serial_newest_journal".into(), opt_int(row.serial_newest_journal)),
+                (
+                    "serial_oldest_journal".into(),
+                    opt_int(row.serial_oldest_journal),
+                ),
+                (
+                    "serial_newest_journal".into(),
+                    opt_int(row.serial_newest_journal),
+                ),
                 ("serial_last_export".into(), opt_int(row.serial_last_export)),
-                ("serial_newest_mirror".into(), opt_int(row.serial_newest_mirror)),
+                (
+                    "serial_newest_mirror".into(),
+                    opt_int(row.serial_newest_mirror),
+                ),
                 (
                     "nrtm4_client_session_id".into(),
                     opt_str(row.nrtm4_client_session_id.map(|u| u.to_string())),
                 ),
-                ("nrtm4_client_version".into(), opt_int(row.nrtm4_client_version)),
+                (
+                    "nrtm4_client_version".into(),
+                    opt_int(row.nrtm4_client_version),
+                ),
                 (
                     "nrtm4_server_session_id".into(),
                     opt_str(row.nrtm4_server_session_id.map(|u| u.to_string())),
                 ),
-                ("nrtm4_server_version".into(), opt_int(row.nrtm4_server_version)),
+                (
+                    "nrtm4_server_version".into(),
+                    opt_int(row.nrtm4_server_version),
+                ),
                 (
                     "nrtm4_server_last_update_notification_file_update".into(),
                     opt_str(
@@ -724,7 +794,10 @@ impl<'v, 't> Resolvers<'v, 't> {
                     "rpsl_data_updated".into(),
                     Value::Str(query::status::isoformat(row.rpsl_data_updated)),
                 ),
-                ("last_update".into(), Value::Str(query::status::isoformat(row.updated))),
+                (
+                    "last_update".into(),
+                    Value::Str(query::status::isoformat(row.updated)),
+                ),
                 (
                     "synchronised_serials".into(),
                     Value::Bool(query::status::is_serial_synchronised(st, &row)),
@@ -767,20 +840,24 @@ impl<'v, 't> Resolvers<'v, 't> {
         Ok(r)
     }
 
+    /// `ip_version` for `Preloader.routes_for_origins()`: a falsy value
+    /// is no restriction, and anything but 4 or 6 raises a `ValueError`
+    /// there (`Err`).
     fn ip_version(args: &[(String, Value)]) -> Result<Option<u8>, ResolveError> {
         match arg(args, "ipVersion") {
-            None | Some(Value::Null) => Ok(None),
+            None | Some(Value::Null) | Some(Value::Int(0)) => Ok(None),
             Some(Value::Int(4)) => Ok(Some(4)),
             Some(Value::Int(6)) => Ok(Some(6)),
-            // Any other version selects nothing in v4's preload.
-            Some(_) => Ok(Some(0)),
+            Some(v) => Err(ResolveError::Internal(format!(
+                "Invalid IP version: {}",
+                py_str(v)
+            ))),
         }
     }
 
-    fn prefixes(list: Vec<(u8, u128, u8)>, version: Option<u8>) -> Value {
+    fn prefixes(list: Vec<(u8, u128, u8)>) -> Value {
         Value::List(
             list.into_iter()
-                .filter(|(v, _, _)| version != Some(0) || *v == 0)
                 .map(|(v, a, l)| Value::Str(query::resolver::prefix_text(v, a, l)))
                 .collect(),
         )
@@ -788,7 +865,7 @@ impl<'v, 't> Resolvers<'v, 't> {
 
     fn asn_prefixes(&self, args: &[(String, Value)]) -> Result<Value, ResolveError> {
         let r = self.resolver(arg(args, "sources"))?;
-        let version = Self::ip_version(args)?;
+        let version = Self::ip_version(args);
         let asns = match arg(args, "asns") {
             Some(Value::List(l)) => l.clone(),
             _ => Vec::new(),
@@ -800,14 +877,13 @@ impl<'v, 't> Resolvers<'v, 't> {
                 Value::BigInt(s) => format!("AS{s}"),
                 other => format!("AS{}", py_str(other)),
             };
-            let prefixes = if version == Some(0) {
-                Vec::new()
-            } else {
-                r.routes_for_origin(self.view, &text, version).map_err(query_err)?
-            };
+            let version = version.clone()?;
+            let prefixes = r
+                .routes_for_origin(self.view, &text, version)
+                .map_err(query_err)?;
             out.push(Value::Object(vec![
                 ("asn".into(), asn),
-                ("prefixes".into(), Self::prefixes(prefixes, version)),
+                ("prefixes".into(), Self::prefixes(prefixes)),
             ]));
         }
         Ok(Value::List(out))
@@ -831,18 +907,16 @@ impl<'v, 't> Resolvers<'v, 't> {
         let names = Self::upper_set(arg(args, "setNames"));
         let exclude = Self::upper_set(arg(args, "excludeSets"));
         let r = self.resolver(arg(args, "sources"))?;
-        let version = Self::ip_version(args)?;
+        let version = Self::ip_version(args);
         let mut out = Vec::new();
         for name in names {
-            let prefixes = if version == Some(0) {
-                Vec::new()
-            } else {
-                r.routes_for_as_set(self.view, &name, version, &exclude)
-                    .map_err(query_err)?
-            };
+            let version = version.clone()?;
+            let prefixes = r
+                .routes_for_as_set(self.view, &name, version, &exclude)
+                .map_err(query_err)?;
             out.push(Value::Object(vec![
                 ("rpslPk".into(), Value::Str(name)),
-                ("prefixes".into(), Self::prefixes(prefixes, version)),
+                ("prefixes".into(), Self::prefixes(prefixes)),
             ]));
         }
         if trace {
@@ -859,7 +933,11 @@ impl<'v, 't> Resolvers<'v, 't> {
             None => 0,
             Some(Value::Int(i)) => i64::try_from(*i).unwrap_or(i64::MAX),
             // depth=None: `None -= 1` raises a TypeError.
-            Some(_) => return internal("TypeError: unsupported operand type(s) for -=: 'NoneType' and 'int'"),
+            Some(_) => {
+                return internal(
+                    "TypeError: unsupported operand type(s) for -=: 'NoneType' and 'int'",
+                );
+            }
         };
         let mut r = self.resolver(arg(args, "sources"))?;
         let mut trace_entries = Vec::new();
@@ -875,7 +953,10 @@ impl<'v, 't> Resolvers<'v, 't> {
                 out.push(Value::Object(vec![
                     ("rpslPk".into(), Value::Str(name.clone())),
                     ("rootSource".into(), Value::Str(source)),
-                    ("members".into(), Value::List(members.into_iter().map(Value::Str).collect())),
+                    (
+                        "members".into(),
+                        Value::List(members.into_iter().map(Value::Str).collect()),
+                    ),
                 ]));
             }
         }
@@ -905,9 +986,13 @@ impl graphql::Resolvers for Resolvers<'_, '_> {
             });
         }
         let is_rpsl_type = info.parent_type.starts_with("RPSL")
-            && schema
-                .type_id(info.parent_type)
-                .is_some_and(|t| schema.t(t).interfaces.iter().any(|i| schema.t(*i).name == "RPSLObject"));
+            && schema.type_id(info.parent_type).is_some_and(|t| {
+                schema
+                    .t(t)
+                    .interfaces
+                    .iter()
+                    .any(|i| schema.t(*i).name == "RPSLObject")
+            });
         if !is_rpsl_type {
             return None;
         }
@@ -919,12 +1004,20 @@ impl graphql::Resolvers for Resolvers<'_, '_> {
         Some(match info.field_name {
             "mntByObjs" => self.subquery(info, parent, vec!["mntner".into()], "mntBy", true),
             "journal" => self.journal(parent),
-            "adminCObjs" if has_field("adminCObjs") => {
-                self.subquery(info, parent, vec!["role".into(), "person".into()], "adminC", true)
-            }
-            "techCObjs" if has_field("techCObjs") => {
-                self.subquery(info, parent, vec!["role".into(), "person".into()], "techC", true)
-            }
+            "adminCObjs" if has_field("adminCObjs") => self.subquery(
+                info,
+                parent,
+                vec!["role".into(), "person".into()],
+                "adminC",
+                true,
+            ),
+            "techCObjs" if has_field("techCObjs") => self.subquery(
+                info,
+                parent,
+                vec!["role".into(), "person".into()],
+                "techC",
+                true,
+            ),
             "mbrsByRefObjs" if has_field("mbrsByRefObjs") => {
                 self.subquery(info, parent, vec!["mntner".into()], "mbrsByRef", true)
             }
@@ -943,7 +1036,11 @@ impl graphql::Resolvers for Resolvers<'_, '_> {
         })
     }
 
-    fn resolve_type(&self, _abstract_type: &str, value: &Value) -> Result<Option<String>, ResolveError> {
+    fn resolve_type(
+        &self,
+        _abstract_type: &str,
+        value: &Value,
+    ) -> Result<Option<String>, ResolveError> {
         let class = value
             .get("objectClass")
             .or_else(|| value.get("object_class"))

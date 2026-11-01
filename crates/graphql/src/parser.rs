@@ -483,7 +483,9 @@ impl<'a> Lexer<'a> {
             let c = self.at(position + size);
             size += 1;
             if c == Some('}') {
-                if size < 5 || !((0..=0xd7ff).contains(&point) || (0xe000..=0x10ffff).contains(&point)) {
+                if size < 5
+                    || !((0..=0xd7ff).contains(&point) || (0xe000..=0x10ffff).contains(&point))
+                {
                     break;
                 }
                 if let Some(ch) = char::from_u32(point as u32) {
@@ -507,7 +509,12 @@ impl<'a> Lexer<'a> {
     }
 
     fn hex16(&self, p: usize) -> i64 {
-        let d = [hex(self.at(p)), hex(self.at(p + 1)), hex(self.at(p + 2)), hex(self.at(p + 3))];
+        let d = [
+            hex(self.at(p)),
+            hex(self.at(p + 1)),
+            hex(self.at(p + 2)),
+            hex(self.at(p + 3)),
+        ];
         if self.body.len() < p + 4 {
             return -1;
         }
@@ -517,10 +524,10 @@ impl<'a> Lexer<'a> {
 
     fn escaped_unicode_fixed(&self, position: usize) -> PResult<(char, usize)> {
         let code = self.hex16(position + 2);
-        if (0..=0xd7ff).contains(&code) || (0xe000..=0x10ffff).contains(&code) {
-            if let Some(ch) = char::from_u32(code as u32) {
-                return Ok((ch, 6));
-            }
+        if ((0..=0xd7ff).contains(&code) || (0xe000..=0x10ffff).contains(&code))
+            && let Some(ch) = char::from_u32(code as u32)
+        {
+            return Ok((ch, 6));
         }
         if (0xd800..=0xdbff).contains(&code)
             && self.at(position + 6) == Some('\\')
@@ -1212,8 +1219,11 @@ impl Parser<'_> {
             TypeSystemKind::SchemaDefinition => {
                 self.expect_keyword("schema")?;
                 d.directives = self.parse_directives(true)?;
-                d.operation_types =
-                    self.many(Kind::BraceL, Self::parse_operation_type_definition, Kind::BraceR)?;
+                d.operation_types = self.many(
+                    Kind::BraceL,
+                    Self::parse_operation_type_definition,
+                    Kind::BraceR,
+                )?;
             }
             TypeSystemKind::ScalarTypeDefinition => {
                 self.expect_keyword("scalar")?;
@@ -1400,7 +1410,11 @@ impl Parser<'_> {
         self.unexpected(Some(&keyword))
     }
 
-    fn parse_extension(&mut self, kind: TypeSystemKind, kw: String) -> PResult<TypeSystemDefinition> {
+    fn parse_extension(
+        &mut self,
+        kind: TypeSystemKind,
+        kw: String,
+    ) -> PResult<TypeSystemDefinition> {
         let start = self.pos();
         let mut d = self.blank(start, kind);
         self.expect_keyword("extend")?;
@@ -1478,7 +1492,10 @@ mod tests {
     fn syntax_errors_like_graphql_core() {
         assert_eq!(err("{"), ("Expected Name, found <EOF>.".into(), (1, 2)));
         assert_eq!(err("{ a(b: ) }"), ("Unexpected ')'.".into(), (1, 8)));
-        assert_eq!(err("query { a"), ("Expected Name, found <EOF>.".into(), (1, 10)));
+        assert_eq!(
+            err("query { a"),
+            ("Expected Name, found <EOF>.".into(), (1, 10))
+        );
         assert_eq!(err("foo"), ("Unexpected Name 'foo'.".into(), (1, 1)));
         assert_eq!(
             err("{ a(x: \"abc) }"),
@@ -1492,7 +1509,13 @@ mod tests {
                 (1, 8)
             )
         );
-        assert_eq!(err("{ a(x: 01) }"), ("Invalid number, unexpected digit after 0: '1'.".into(), (1, 9)));
+        assert_eq!(
+            err("{ a(x: 01) }"),
+            (
+                "Invalid number, unexpected digit after 0: '1'.".into(),
+                (1, 9)
+            )
+        );
         assert_eq!(err("\n\n?"), ("Unexpected character: '?'.".into(), (2, 1)));
         assert_eq!(err("{ a }\n}"), ("Unexpected '}'.".into(), (1, 6)));
     }
@@ -1506,7 +1529,9 @@ mod tests {
 
     #[test]
     fn block_strings_dedent() {
-        let chars: Vec<char> = "{ a(x: \"\"\"\n    hello\n      world\n  \"\"\") }".chars().collect();
+        let chars: Vec<char> = "{ a(x: \"\"\"\n    hello\n      world\n  \"\"\") }"
+            .chars()
+            .collect();
         let d = parse(&chars).expect("parse");
         let Definition::Operation(op) = &d.definitions[0] else {
             panic!()

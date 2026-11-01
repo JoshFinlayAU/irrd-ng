@@ -277,7 +277,10 @@ fn stream_initial(
     let max_serial = view.max_serial_global()?;
     let max_ts = view.max_journal_timestamp()?;
     let header = V::Object(vec![
-        ("data_type".into(), V::str("irrd_event_stream_initial_download")),
+        (
+            "data_type".into(),
+            V::str("irrd_event_stream_initial_download"),
+        ),
         (
             "sources_filter".into(),
             V::List(sources.iter().map(|s| V::Str(s.clone())).collect()),
@@ -297,7 +300,10 @@ fn stream_initial(
         ("generated_at".into(), V::Str(utcnow_isoformat())),
         ("generated_on".into(), V::str(hostname)),
     ]);
-    if tx.blocking_send(Bytes::from(ujson(&header) + "\n")).is_err() {
+    if tx
+        .blocking_send(Bytes::from(ujson(&header) + "\n"))
+        .is_err()
+    {
         return Ok(());
     }
     let upper_sources: Vec<String> = sources
@@ -337,7 +343,8 @@ fn stream_initial(
             }
         }
         let row = V::Object(vec![
-            ("pk".into(), V::Str(o.pk.to_string())),
+            // `pk` is the first selected column, `rpsl_pk`.
+            ("pk".into(), V::str(o.rpsl_pk)),
             ("object_class".into(), V::str(o.object_class)),
             (
                 "object_text".into(),
@@ -349,10 +356,12 @@ fn stream_initial(
         ]);
         chunk.push_str(&ujson(&row));
         chunk.push('\n');
-        if chunk.len() >= 64 * 1024 {
-            if tx.blocking_send(Bytes::from(std::mem::take(&mut chunk))).is_err() {
-                return Ok(());
-            }
+        if chunk.len() >= 64 * 1024
+            && tx
+                .blocking_send(Bytes::from(std::mem::take(&mut chunk)))
+                .is_err()
+        {
+            return Ok(());
         }
     }
     if !chunk.is_empty() {
@@ -446,7 +455,7 @@ pub(crate) fn subscribe(state: &HttpState, data: &str) -> Subscribe {
             "model_type",
             vec![],
             "Input should be an object",
-            parsed.clone(),
+            parsed,
             Some(V::Object(vec![(
                 "class_name".into(),
                 V::str("EventStreamSubscriptionRequest"),
@@ -573,12 +582,19 @@ async fn send_journal(state: &Arc<HttpState>, after: &mut i64, out: &Outbox) -> 
         let view = rtx.view();
         let settings = rpsl::RpslSettings::default();
         let keyring = rpsl::Keyring::new();
-        let mut out = Vec::new();
+        // RPSLDatabaseJournalQuery orders by source, serial_nrtm and
+        // rpsl_pk, not by serial_global.
+        let mut entries = Vec::new();
         for e in view.journal_by_serial_global(from)? {
-            let e = e?;
-            out.push((e.serial_global, journal_message(&e, &settings, &keyring)));
+            entries.push(e?);
         }
-        Ok(out)
+        entries.sort_by(|a, b| {
+            (a.source, a.serial_nrtm, a.rpsl_pk).cmp(&(b.source, b.serial_nrtm, b.rpsl_pk))
+        });
+        Ok(entries
+            .iter()
+            .map(|e| (e.serial_global, journal_message(e, &settings, &keyring)))
+            .collect())
     })
     .await
     .map_err(|_| ())?

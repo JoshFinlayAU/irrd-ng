@@ -67,6 +67,8 @@ def fill(text, bindings, k):
 
 HOST_HEADER = "localhost"
 DATE_RE = re.compile(rb"(?im)^(date:)[^\r\n]*")
+# A static file's modification time is a property of the installation.
+STATIC_RE = re.compile(rb"(?im)^(last-modified:|etag:)[^\r\n]*")
 
 
 # ---------------------------------------------------------------- corpus
@@ -293,7 +295,8 @@ def run_ws(addr, item, timeout):
                     m = ws.recv(1.5)
                     if m is None:
                         break
-                    segs.append((m[0], m[1].encode()))
+                    text = EVENT_ID_RE.sub(b'"event_id":"<masked>"', m[1].encode())
+                    segs.append((m[0], text))
                     if m[0] in ("close", "eof"):
                         return segs
     finally:
@@ -322,14 +325,16 @@ def run_item(addr, item, suite, timeout):
         return [("http", f"<<HTTP FAILED: {e.__class__.__name__}>>".encode())]
     head, sep, body = raw.partition(b"\r\n\r\n")
     head = DATE_RE.sub(rb"\1 <masked>", head + sep)
+    if path.startswith("/static/"):
+        head = STATIC_RE.sub(rb"\1 <masked>", head)
     if b"transfer-encoding: chunked" in head.lower():
         body = dechunk(body)
     masked = body
-    masked = EXEC_RE.sub(b'"execution":<t>', masked)
+    masked = EXEC_RE.sub(b'"execution":0', masked)
     masked = METRIC_TIME_RE.sub(rb"\1 <t>", masked)
     masked = LISTEN_RE.sub(b"Listening on <masked>", masked)
-    masked = GEN_RE.sub(rb'"generated_\1":<masked>', masked)
-    if masked != body:
+    masked = GEN_RE.sub(rb'"generated_\1":"<masked>"', masked)
+    if masked != body or path.startswith(("/v1/status", "/metrics")):
         head = CL_RE.sub(rb"\1 <masked>", head)
     return [("head", head), ("body", masked)]
 
@@ -354,11 +359,15 @@ def sortable(key, value):
 SELECT_RE = re.compile(r"^(RPSLDatabaseQuery: SELECT )(.*?)( \nFROM )", re.S)
 
 
-def canonical(value, key=None):
+def canonical(value, key=None, count_only=False):
+    """`count_only`: lists whose order v4 does not fix compare by length
+    only (a LIMIT without ORDER BY picks any rows)."""
     if isinstance(value, dict):
-        return {k: canonical(v, k) for k, v in value.items()}
+        return {k: canonical(v, k, count_only) for k, v in value.items()}
     if isinstance(value, list):
-        items = [canonical(v, key) for v in value]
+        if count_only and sortable(key, value):
+            return len(value)
+        items = [canonical(v, key, count_only) for v in value]
         if sortable(key, value):
             items.sort(key=lambda x: json.dumps(x, sort_keys=True))
         return items
@@ -370,11 +379,11 @@ def canonical(value, key=None):
     return value
 
 
-def equivalent(ref, test):
+def equivalent(ref, test, count_only=False):
     """Same JSON (or JSON lines) up to the orders v4 does not fix."""
     try:
-        if ref[:1] in (b"{", b"["):
-            return canonical(json.loads(ref)) == canonical(json.loads(test))
+        if ref[:1] in (b"{", b"[") and b"}\n{" not in ref:
+            return canonical(json.loads(ref), None, count_only) == canonical(json.loads(test), None, count_only)
         rl, tl = ref.split(b"\n"), test.split(b"\n")
         if len(rl) != len(tl) or not rl or rl[0] != tl[0]:
             return False
@@ -383,7 +392,7 @@ def equivalent(ref, test):
         return False
 
 
-def compare(ref, test, strict):
+def compare(ref, test, strict, count_only=False):
     if ref == test:
         return "same"
     if strict or len(ref) != len(test) or [k for k, _ in ref] != [k for k, _ in test]:
@@ -393,7 +402,7 @@ def compare(ref, test, strict):
             continue
         if k == "head":
             return "differ"
-        if not equivalent(r, t):
+        if not equivalent(r, t, count_only):
             return "differ"
     return "equivalent"
 
@@ -430,7 +439,7 @@ def main():
             fr = ex.submit(run_item, args.ref, item, args.suite, args.timeout)
             ft = ex.submit(run_item, args.test, item, args.suite, args.timeout)
             ref, test = fr.result(), ft.result()
-        return item, ref, test, compare(ref, test, args.strict)
+        return item, ref, test, compare(ref, test, args.strict, "limit-unordered" in item.tags)
 
     counts = {"same": 0, "equivalent": 0, "differ": 0}
     start = time.monotonic()

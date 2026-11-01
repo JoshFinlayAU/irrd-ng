@@ -253,9 +253,14 @@ query($ip: IP) { rpslObjects(ipExact: $ip) { rpslPk } }
 @variables {"ip": "{route4.prefix}"}
 @end
 
+# recordLimit below the number of matches: v4 returns whichever rows
+# PostgreSQL finds first (no ORDER BY), so only the count compares.
+@tags variables,limit-unordered
 @gql
 query($n: Int = 2, $t: Boolean = false) { rpslObjects(mntBy: "{mntner_busy}", recordLimit: $n, sqlTrace: $t) { rpslPk } }
 @end
+
+@tags variables
 
 @gql
 query($n: Int) { rpslObjects(mntBy: "{mntner_busy}", recordLimit: $n) { rpslPk } }

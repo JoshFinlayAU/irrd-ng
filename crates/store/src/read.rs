@@ -197,7 +197,10 @@ impl<'a> ReadView<'a> {
             let (class, _) =
                 crate::keys::take_str(rest).ok_or(StoreError::Corrupt("object key"))?;
             match out.last_mut() {
-                Some(l) if l.0.as_bytes() == source.as_slice() && l.1.as_bytes() == class.as_slice() => {
+                Some(l)
+                    if l.0.as_bytes() == source.as_slice()
+                        && l.1.as_bytes() == class.as_slice() =>
+                {
                     l.2 += 1;
                 }
                 _ => out.push((

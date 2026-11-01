@@ -97,7 +97,10 @@ impl ObjectQuery {
         settings: &QuerySettings,
     ) -> QResult<Vec<Found<'t>>> {
         let prefix_ok = self.prefix_permitted(settings);
-        let one_level = self.ip.iter().position(|(f, _)| *f == IpFilter::LessSpecificOneLevel);
+        let one_level = self
+            .ip
+            .iter()
+            .position(|(f, _)| *f == IpFilter::LessSpecificOneLevel);
         if one_level.is_some_and(|i| i + 1 < self.ip.len()) {
             // ip_less_specific_one_level() freezes the query.
             return Err(QueryError::Internal(
@@ -156,9 +159,7 @@ impl ObjectQuery {
                 return false;
             }
             if let Some(asns) = &self.asns_first
-                && !o
-                    .asn_first
-                    .is_some_and(|a| asns.contains(&i128::from(a)))
+                && !o.asn_first.is_some_and(|a| asns.contains(&i128::from(a)))
             {
                 return false;
             }
@@ -306,7 +307,9 @@ impl ObjectQuery {
     ) -> QResult<HashSet<u64>> {
         let mut out = HashSet::new();
         if let Ok((_, asn)) = rpsl::parse_as_number(value, false, true, settings.asdot_queries) {
-            for (id, _, _) in view.range_less_specific(store::Space::Asn, u128::from(asn), u128::from(asn))? {
+            for (id, _, _) in
+                view.range_less_specific(store::Space::Asn, u128::from(asn), u128::from(asn))?
+            {
                 if let Some(o) = view.object_by_id(id)?
                     && matches!(o.object_class, "as-block" | "as-set" | "aut-num")
                 {

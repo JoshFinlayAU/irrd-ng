@@ -166,7 +166,11 @@ pub(crate) fn did_you_mean_with(suggestions: &[String], sub: Option<&str>) -> St
         msg.push_str(s);
         msg.push(' ');
     }
-    let quoted: Vec<String> = suggestions.iter().take(5).map(|s| format!("'{s}'")).collect();
+    let quoted: Vec<String> = suggestions
+        .iter()
+        .take(5)
+        .map(|s| format!("'{s}'"))
+        .collect();
     msg.push_str(&or_list(&quoted));
     msg.push('?');
     msg
@@ -179,7 +183,10 @@ mod tests {
     #[test]
     fn suggestions_like_graphql_core() {
         assert_eq!(
-            suggestion_list("rpslObject", &["rpslObjects", "databaseStatus", "asnPrefixes"]),
+            suggestion_list(
+                "rpslObject",
+                &["rpslObjects", "databaseStatus", "asnPrefixes"]
+            ),
             vec!["rpslObjects"]
         );
         assert_eq!(

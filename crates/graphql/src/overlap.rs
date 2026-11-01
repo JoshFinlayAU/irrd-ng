@@ -94,8 +94,10 @@ fn same_arguments(a1: &[Argument], a2: &[Argument]) -> bool {
     if a2.is_empty() || a1.len() != a2.len() {
         return false;
     }
-    let values2: HashMap<&str, &ValueNode> =
-        a2.iter().map(|a| (a.name.value.as_str(), &a.value)).collect();
+    let values2: HashMap<&str, &ValueNode> = a2
+        .iter()
+        .map(|a| (a.name.value.as_str(), &a.value))
+        .collect();
     a1.iter().all(|a| match values2.get(a.name.value.as_str()) {
         None => false,
         Some(v2) => stringify(&a.value) == stringify(v2),
@@ -302,7 +304,9 @@ impl<'a> OverlappingFields<'a> {
             if fields.len() > 1 {
                 for i in 0..fields.len() {
                     for j in i + 1..fields.len() {
-                        if let Some(c) = self.find_conflict(cx, false, name, &fields[i], &fields[j])? {
+                        if let Some(c) =
+                            self.find_conflict(cx, false, name, &fields[i], &fields[j])?
+                        {
                             conflicts.push(c);
                         }
                     }
@@ -353,7 +357,11 @@ impl<'a> OverlappingFields<'a> {
         let is_obj = |p: &Option<TypeId>| p.is_some_and(|t| s.t(t).kind == Kind::Object);
         let excl = parent_excl || (p1 != p2 && is_obj(p1) && is_obj(p2));
         let reason = |m: String| -> Option<Conflict> {
-            Some(((name.to_owned(), ReasonMsg::Text(m)), vec![n1.pos], vec![n2.pos]))
+            Some((
+                (name.to_owned(), ReasonMsg::Text(m)),
+                vec![n1.pos],
+                vec![n2.pos],
+            ))
         };
         if !excl {
             if n1.name.value != n2.name.value {

@@ -78,7 +78,9 @@ fn negotiate(offers: &str) -> Option<Deflate> {
         let mut resp = vec!["permessage-deflate".to_owned()];
         let mut ok = true;
         for p in parts {
-            let (k, v) = p.split_once('=').map_or((p, None), |(k, v)| (k.trim(), Some(v.trim().trim_matches('"'))));
+            let (k, v) = p.split_once('=').map_or((p, None), |(k, v)| {
+                (k.trim(), Some(v.trim().trim_matches('"')))
+            });
             match k {
                 "server_no_context_takeover" if v.is_none() => {
                     d.server_no_context_takeover = true;
@@ -122,26 +124,15 @@ pub(crate) fn accept(
     on_upgrade: Option<hyper::upgrade::OnUpgrade>,
     settings: &HttpSettings,
 ) -> Reply {
-    let key = header(headers, "sec-websocket-key");
-    let version = header(headers, "sec-websocket-version");
-    let key_ok = base64_decode(key.trim()).is_some_and(|k| k.len() == 16);
-    if !key_ok || version.trim() != "13" {
+    let Some(up) = handshake(headers) else {
         let mut r = Reply::text(
             StatusCode::BAD_REQUEST,
             "Failed to open a WebSocket connection: invalid Sec-WebSocket-Key header.\n",
         );
         r.secured = false;
         return r;
-    }
-    let mut h = Sha1::new();
-    h.update(key.trim().as_bytes());
-    h.update(GUID.as_bytes());
-    let accept = base64_encode(&h.finalize());
-    let deflate = negotiate(&header(headers, "sec-websocket-extensions"));
-    let up = Upgrade {
-        accept,
-        deflate: deflate.clone(),
     };
+    let deflate = up.deflate.clone();
     if let Some(on) = on_upgrade {
         let host = host.to_owned();
         let settings = settings.clone();
@@ -155,6 +146,94 @@ pub(crate) fn accept(
     let mut r = Reply::empty(StatusCode::SWITCHING_PROTOCOLS);
     r.upgrade = Some(up);
     r
+}
+
+/// The 101 response as uvicorn writes it, header case included (hyper
+/// would lower-case the names).
+fn raw_response(up: &Upgrade, settings: &HttpSettings) -> String {
+    let mut s = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n",
+        up.accept
+    );
+    if let Some(d) = &up.deflate {
+        s.push_str(&format!("Sec-WebSocket-Extensions: {}\r\n", d.response));
+    }
+    s.push_str(&format!(
+        "date: {}\r\nserver: {}\r\n\r\n",
+        httpdate::fmt_http_date(std::time::SystemTime::now()),
+        settings.server_header
+    ));
+    s
+}
+
+/// A WebSocket handshake on a fresh connection, before hyper sees it:
+/// `head` is the request head as read. `Err` hands the connection to
+/// hyper (anything that is not a valid upgrade to the event stream).
+pub(crate) async fn raw_handshake(
+    state: Arc<HttpState>,
+    mut stream: tokio::net::TcpStream,
+    peer: std::net::SocketAddr,
+    head: &[u8],
+) -> Result<(), tokio::net::TcpStream> {
+    let text: String = head.iter().map(|&b| b as char).collect();
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next().unwrap_or_default();
+    if request_line != "GET /v1/event-stream/ HTTP/1.1" {
+        return Err(stream);
+    }
+    let mut headers = HeaderMap::new();
+    for l in lines {
+        if l.is_empty() {
+            break;
+        }
+        let Some((k, v)) = l.split_once(':') else {
+            return Err(stream);
+        };
+        match (
+            HeaderName::try_from(k.trim()),
+            HeaderValue::try_from(v.trim()),
+        ) {
+            (Ok(k), Ok(v)) => {
+                headers.append(k, v);
+            }
+            _ => return Err(stream),
+        }
+    }
+    let settings = state.http.read().map(|s| s.clone()).unwrap_or_default();
+    if !is_upgrade(&headers) || !crate::host_allowed(&headers, settings.allowed_host.as_deref()) {
+        return Err(stream);
+    }
+    let Some(up) = handshake(&headers) else {
+        return Err(stream);
+    };
+    let (host, _) = crate::client_of(peer, &headers, &settings);
+    if stream
+        .write_all(raw_response(&up, &settings).as_bytes())
+        .await
+        .is_err()
+    {
+        return Ok(());
+    }
+    session(state, stream, up.deflate, host, (*settings).clone()).await;
+    Ok(())
+}
+
+/// The accept key and negotiated compression, or `None` for a request
+/// the server rejects.
+fn handshake(headers: &HeaderMap) -> Option<Upgrade> {
+    let key = header(headers, "sec-websocket-key");
+    let version = header(headers, "sec-websocket-version");
+    let key_ok = base64_decode(key.trim()).is_some_and(|k| k.len() == 16);
+    if !key_ok || version.trim() != "13" {
+        return None;
+    }
+    let mut h = Sha1::new();
+    h.update(key.trim().as_bytes());
+    h.update(GUID.as_bytes());
+    Some(Upgrade {
+        accept: base64_encode(&h.finalize()),
+        deflate: negotiate(&header(headers, "sec-websocket-extensions")),
+    })
 }
 
 /// The 101 response, headers in uvicorn's order.
@@ -173,7 +252,10 @@ pub(crate) fn response(up: Upgrade, settings: &HttpSettings) -> Response<ReplyBo
     if let Some(d) = &up.deflate {
         put("sec-websocket-extensions", &d.response);
     }
-    put("date", &httpdate::fmt_http_date(std::time::SystemTime::now()));
+    put(
+        "date",
+        &httpdate::fmt_http_date(std::time::SystemTime::now()),
+    );
     put("server", &settings.server_header);
     resp
 }
@@ -308,12 +390,13 @@ impl<IO: AsyncRead + Unpin> Conn<IO> {
             }
             match opcode {
                 0x8 => {
-                    let code = (payload.len() >= 2).then(|| u16::from_be_bytes([payload[0], payload[1]]));
+                    let code =
+                        (payload.len() >= 2).then(|| u16::from_be_bytes([payload[0], payload[1]]));
                     return Ok(Frame::Close(code));
                 }
                 0x9 => return Ok(Frame::Ping(payload)),
                 0xA => return Ok(Frame::Pong),
-                0x0 | 0x1 | 0x2 => {
+                0x0..=0x2 => {
                     if opcode != 0 {
                         opcode0 = Some(opcode);
                         compressed = rsv1;
@@ -382,10 +465,11 @@ async fn session<IO>(
         let _ = writer.close(CLOSE_POLICY).await;
         return;
     }
-    let header = match tokio::task::block_in_place(|| event_stream::stream_status(&state, &settings)) {
-        Ok(h) => h,
-        Err(_) => return,
-    };
+    let header =
+        match tokio::task::block_in_place(|| event_stream::stream_status(&state, &settings)) {
+            Ok(h) => h,
+            Err(_) => return,
+        };
     if writer.send_text(&header).await.is_err() {
         return;
     }
@@ -452,7 +536,10 @@ async fn session<IO>(
                     }
                     _ if started => {
                         let msg = graphql::value::json_dumps(&graphql::Value::Object(vec![
-                            ("message_type".into(), graphql::Value::str("invalid_request")),
+                            (
+                                "message_type".into(),
+                                graphql::Value::str("invalid_request"),
+                            ),
                             (
                                 "errors".into(),
                                 graphql::Value::List(vec![graphql::Value::Object(vec![(
@@ -509,18 +596,30 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 fn base64_encode(data: &[u8]) -> String {
     let mut out = String::new();
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { B64[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { B64[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            B64[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
 
 fn base64_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 4 != 0 {
+    if !s.len().is_multiple_of(4) {
         return None;
     }
     let val = |c: u8| B64.iter().position(|&x| x == c).map(|p| p as u32);
@@ -557,7 +656,10 @@ mod tests {
         h.update(b"dGhlIHNhbXBsZSBub25jZQ==");
         h.update(GUID.as_bytes());
         assert_eq!(base64_encode(&h.finalize()), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
-        assert_eq!(base64_decode("dGhlIHNhbXBsZSBub25jZQ==").map(|v| v.len()), Some(16));
+        assert_eq!(
+            base64_decode("dGhlIHNhbXBsZSBub25jZQ==").map(|v| v.len()),
+            Some(16)
+        );
     }
 
     #[test]

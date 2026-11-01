@@ -56,7 +56,6 @@ pub fn graphql(
     data: &Value,
     elapsed: &dyn Fn() -> f64,
 ) -> Outcome {
-    let body_chars: Vec<char>;
     let finish = |mut response: Vec<(String, Value)>| -> Vec<(String, Value)> {
         let mut ext: Vec<(String, Value)> = vec![("execution".into(), Value::Float(elapsed()))];
         if let Some(q) = extensions.sql_queries() {
@@ -104,13 +103,16 @@ pub fn graphql(
         Some(Value::Str(s)) => Some(s.clone()),
         Some(other) => {
             return errors_only(vec![
-                GraphQLError::plain(format!("\"{}\" is not a valid operation name.", py_str(other)))
-                    .formatted(&[]),
+                GraphQLError::plain(format!(
+                    "\"{}\" is not a valid operation name.",
+                    py_str(other)
+                ))
+                .formatted(&[]),
             ]);
         }
     };
 
-    body_chars = query.chars().collect();
+    let body_chars: Vec<char> = query.chars().collect();
     let doc = match parser::parse(&body_chars) {
         Ok(d) => d,
         Err(e) => {
@@ -122,7 +124,9 @@ pub fn graphql(
     let errors = validation::validate(schema, scalars, &doc, &body_chars, Some(MAX_QUERY_COST));
     let errors = match errors {
         Ok(e) => e,
-        Err(()) => return Outcome::Crash("RecursionError: maximum recursion depth exceeded".into()),
+        Err(()) => {
+            return Outcome::Crash("RecursionError: maximum recursion depth exceeded".into());
+        }
     };
     if !errors.is_empty() {
         return errors_only(errors.iter().map(|e| e.formatted(&body_chars)).collect());
@@ -176,7 +180,13 @@ pub fn graphql(
     if !result.errors.is_empty() {
         response.push((
             "errors".into(),
-            Value::List(result.errors.iter().map(|e| e.formatted(&body_chars)).collect()),
+            Value::List(
+                result
+                    .errors
+                    .iter()
+                    .map(|e| e.formatted(&body_chars))
+                    .collect(),
+            ),
         ));
     }
     Outcome::Result(success, Value::Object(finish(response)))
@@ -192,10 +202,7 @@ fn py_str(v: &Value) -> String {
         Value::Bool(true) => "True".into(),
         Value::Bool(false) => "False".into(),
         Value::Null => "None".into(),
-        Value::List(l) => format!(
-            "[{}]",
-            l.iter().map(py_repr).collect::<Vec<_>>().join(", ")
-        ),
+        Value::List(l) => format!("[{}]", l.iter().map(py_repr).collect::<Vec<_>>().join(", ")),
         Value::Object(o) => format!(
             "{{{}}}",
             o.iter()

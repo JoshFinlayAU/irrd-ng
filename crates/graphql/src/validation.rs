@@ -151,7 +151,10 @@ impl TypeInfo {
             N::Argument(a) => {
                 let (def, from_directive): (Option<&crate::schema::InputValue>, bool) =
                     if let Some(d) = self.directive {
-                        (s.directives[d].args.iter().find(|x| x.name == a.name.value), true)
+                        (
+                            s.directives[d].args.iter().find(|x| x.name == a.name.value),
+                            true,
+                        )
                     } else if let Some(fd) = self.get_field_def() {
                         (
                             s.field_def(fd).args.iter().find(|x| x.name == a.name.value),
@@ -162,11 +165,13 @@ impl TypeInfo {
                     };
                 let idx = def.and_then(|d| {
                     if from_directive {
-                        self.directive
-                            .and_then(|di| s.directives[di].args.iter().position(|x| x.name == d.name))
+                        self.directive.and_then(|di| {
+                            s.directives[di].args.iter().position(|x| x.name == d.name)
+                        })
                     } else {
-                        self.get_field_def()
-                            .and_then(|fd| s.field_def(fd).args.iter().position(|x| x.name == d.name))
+                        self.get_field_def().and_then(|fd| {
+                            s.field_def(fd).args.iter().position(|x| x.name == d.name)
+                        })
                     }
                 });
                 self.argument = idx.map(|i| (from_directive, i));
@@ -718,7 +723,8 @@ impl<'a> Walker<'a, '_> {
             }
             let loc = if matches!(
                 t.kind,
-                TypeSystemKind::InputObjectTypeDefinition | TypeSystemKind::InputObjectTypeExtension
+                TypeSystemKind::InputObjectTypeDefinition
+                    | TypeSystemKind::InputObjectTypeExtension
             ) {
                 "INPUT_FIELD_DEFINITION"
             } else {
@@ -938,13 +944,11 @@ impl<'a> Rule<'a> for LoneAnonymousOperation {
                     .filter(|x| matches!(x, Definition::Operation(_)))
                     .count();
             }
-            N::Operation(o) => {
-                if o.name.is_none() && self.count > 1 {
-                    cx.report(GraphQLError::new(
-                        "This anonymous operation must be the only defined operation.",
-                        vec![o.pos],
-                    ));
-                }
+            N::Operation(o) if o.name.is_none() && self.count > 1 => {
+                cx.report(GraphQLError::new(
+                    "This anonymous operation must be the only defined operation.",
+                    vec![o.pos],
+                ));
             }
             _ => {}
         }
@@ -1507,8 +1511,10 @@ impl<'a> Rule<'a> for KnownDirectives {
                     Applied::Sdl(l) => l,
                 };
                 if !locs.iter().any(|l| l == loc) {
+                    // DirectiveLocation.value: lower case words.
+                    let shown = loc.to_lowercase().replace('_', " ");
                     cx.report(GraphQLError::new(
-                        format!("Directive '@{name}' may not be used on {loc}."),
+                        format!("Directive '@{name}' may not be used on {shown}."),
                         vec![d.pos],
                     ));
                 }
@@ -1652,8 +1658,12 @@ impl DeferStreamOnValidOperations {
             }
             for d in dirs {
                 let msg = match d.name.value.as_str() {
-                    "defer" => "Defer directive not supported on subscription operations. Disable `@defer` by setting the `if` argument to `false`.",
-                    "stream" => "Stream directive not supported on subscription operations. Disable `@stream` by setting the `if` argument to `false`.",
+                    "defer" => {
+                        "Defer directive not supported on subscription operations. Disable `@defer` by setting the `if` argument to `false`."
+                    }
+                    "stream" => {
+                        "Stream directive not supported on subscription operations. Disable `@stream` by setting the `if` argument to `false`."
+                    }
                     _ => continue,
                 };
                 let can_be_false = match Self::if_arg(d) {
@@ -1685,7 +1695,9 @@ impl DeferStreamOnValidOperations {
                         Self::forbid(cx, ss, parents, visited);
                     }
                 }
-                Selection::InlineFragment(i) => Self::forbid(cx, &i.selection_set, parents, visited),
+                Selection::InlineFragment(i) => {
+                    Self::forbid(cx, &i.selection_set, parents, visited)
+                }
             }
         }
     }
@@ -1757,11 +1769,13 @@ impl<'a> Rule<'a> for StreamOnListField {
             return Flow::Continue;
         };
         let def = cx.schema.field_def(fd);
-        let is_list = def.type_.is_list()
-            || matches!(&def.type_, TypeRef::NonNull(i) if i.is_list());
+        let is_list =
+            def.type_.is_list() || matches!(&def.type_, TypeRef::NonNull(i) if i.is_list());
         if !is_list {
             let field_name = match fd {
-                FieldRef::Field(t, i) if t == parent => format!(" '{}'", cx.schema.t(t).fields[i].name),
+                FieldRef::Field(t, i) if t == parent => {
+                    format!(" '{}'", cx.schema.t(t).fields[i].name)
+                }
                 _ => String::new(),
             };
             cx.report(GraphQLError::new(
@@ -1784,7 +1798,12 @@ impl KnownArgumentNames {
         let mut directive_args: HashMap<String, Vec<String>> = s
             .directives
             .iter()
-            .map(|d| (d.name.clone(), d.args.iter().map(|a| a.name.clone()).collect()))
+            .map(|d| {
+                (
+                    d.name.clone(),
+                    d.args.iter().map(|a| a.name.clone()).collect(),
+                )
+            })
             .collect();
         for d in &doc.definitions {
             if let Definition::TypeSystem(t) = d
@@ -1823,7 +1842,8 @@ impl<'a> Rule<'a> for KnownArgumentNames {
             }
             N::Argument(a) => {
                 if cx.ti.argument.is_none()
-                    && let (Some(fd), Some(parent)) = (cx.ti.get_field_def(), cx.ti.get_parent_type())
+                    && let (Some(fd), Some(parent)) =
+                        (cx.ti.get_field_def(), cx.ti.get_parent_type())
                 {
                     let def = cx.schema.field_def(fd);
                     let opts: Vec<&str> = def.args.iter().map(|x| x.name.as_str()).collect();
@@ -1901,10 +1921,11 @@ impl<'a> Rule<'a> for ValuesOfCorrectType {
         if let Some(t) = t {
             let mut errs: Vec<GraphQLError> = Vec::new();
             let mut path = Vec::new();
-            cx.coercer.validate_input_literal(v, &t, None, &mut path, &mut |e, _| {
-                errs.push(e);
-                true
-            });
+            cx.coercer
+                .validate_input_literal(v, &t, None, &mut path, &mut |e, _| {
+                    errs.push(e);
+                    true
+                });
             for e in errs {
                 cx.report(e);
             }
@@ -1940,7 +1961,9 @@ impl ProvidedRequiredArguments {
                     t.name.as_ref().map(|n| n.value.clone()).unwrap_or_default(),
                     t.arguments
                         .iter()
-                        .filter(|a| matches!(a.type_, Type::NonNull(_, _)) && a.default_value.is_none())
+                        .filter(|a| {
+                            matches!(a.type_, Type::NonNull(_, _)) && a.default_value.is_none()
+                        })
                         .map(|a| (a.name.value.clone(), print_type(&a.type_)))
                         .collect(),
                 );
@@ -2029,8 +2052,10 @@ impl<'a> Rule<'a> for VariablesInAllowedPosition<'a> {
                 continue;
             };
             let allowed = if loc_t.is_non_null() && !var_t.is_non_null() {
-                let has_var_default =
-                    vd.default_value.as_ref().is_some_and(|d| !matches!(d, ValueNode::Null(_)));
+                let has_var_default = vd
+                    .default_value
+                    .as_ref()
+                    .is_some_and(|d| !matches!(d, ValueNode::Null(_)));
                 if !has_var_default && !u.has_default {
                     false
                 } else {
@@ -2191,16 +2216,22 @@ pub(crate) fn get_argument_values(
             None => {
                 let mut raised: Option<GraphQLError> = None;
                 let mut path = Vec::new();
-                coercer.validate_input_literal(&arg.value, &def.type_, vars, &mut path, &mut |mut e, p| {
-                    e.message = format!(
-                        "Argument '{}' has invalid value{}: {}",
-                        def.name,
-                        print_path_list(p),
-                        e.message
-                    );
-                    raised = Some(e);
-                    false
-                });
+                coercer.validate_input_literal(
+                    &arg.value,
+                    &def.type_,
+                    vars,
+                    &mut path,
+                    &mut |mut e, p| {
+                        e.message = format!(
+                            "Argument '{}' has invalid value{}: {}",
+                            def.name,
+                            print_path_list(p),
+                            e.message
+                        );
+                        raised = Some(e);
+                        false
+                    },
+                );
                 return Err(raised.unwrap_or_else(|| {
                     GraphQLError::new("Invalid argument", vec![arg.value.pos()])
                 }));

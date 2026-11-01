@@ -12,8 +12,8 @@
 mod event_stream;
 pub use event_stream::Events;
 mod gql;
-mod pydantic;
 pub mod messages;
+mod pydantic;
 mod sqltrace;
 mod static_files;
 mod status;
@@ -464,13 +464,7 @@ fn slash_redirect(headers: &HeaderMap, path: &str, raw_query: Option<&str>) -> R
 }
 
 /// The mounts of v4's app, by path prefix (matched with a slash added).
-const MOUNTS: &[&str] = &[
-    "/v1/status",
-    "/v1/whois",
-    "/graphql",
-    "/static",
-    "/metrics",
-];
+const MOUNTS: &[&str] = &["/v1/status", "/v1/whois", "/graphql", "/static", "/metrics"];
 
 /// An access-listed endpoint's check (`is_client_permitted(host, ...)`).
 fn permitted(state: &HttpState, host: &str, list: Option<&str>) -> bool {
@@ -610,12 +604,18 @@ fn graphql_endpoint(state: &HttpState, r: &Req<'_>, body: &[u8]) -> Reply {
         Method::POST => {}
         Method::OPTIONS => {
             let mut rep = Reply::empty(StatusCode::OK);
-            rep.headers = vec![("allow", allow.to_owned()), ("content-length", "0".to_owned())];
+            rep.headers = vec![
+                ("allow", allow.to_owned()),
+                ("content-length", "0".to_owned()),
+            ];
             return rep;
         }
         _ => {
             let mut rep = Reply::empty(StatusCode::METHOD_NOT_ALLOWED);
-            rep.headers = vec![("allow", allow.to_owned()), ("content-length", "0".to_owned())];
+            rep.headers = vec![
+                ("allow", allow.to_owned()),
+                ("content-length", "0".to_owned()),
+            ];
             return rep;
         }
     }
@@ -664,12 +664,20 @@ fn graphql_endpoint(state: &HttpState, r: &Req<'_>, body: &[u8]) -> Reply {
     match outcome {
         Ok(::graphql::Outcome::Result(success, result)) => {
             log_graphql_query(r.host, &data, &result);
-            let status = if success || result.get("data").is_some_and(|d| *d != ::graphql::Value::Null) {
+            let status = if success
+                || result
+                    .get("data")
+                    .is_some_and(|d| *d != ::graphql::Value::Null)
+            {
                 StatusCode::OK
             } else {
                 StatusCode::BAD_REQUEST
             };
-            Reply::with_type(status, "application/json", ::graphql::value::json_dumps(&result))
+            Reply::with_type(
+                status,
+                "application/json",
+                ::graphql::value::json_dumps(&result),
+            )
         }
         Ok(::graphql::Outcome::Crash(e)) => internal_server_error(&e),
         Err(e) => internal_server_error(&e.to_string()),
@@ -789,13 +797,97 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
         };
         let state = state.clone();
         tokio::spawn(async move {
-            let io = hyper_util::rt::TokioIo::new(stream);
+            // A WebSocket upgrade to the event stream is answered here, so
+            // the 101 keeps uvicorn's header case; everything else, and
+            // what was read so far, goes to hyper.
+            let mut stream = stream;
+            let mut head: Vec<u8> = Vec::new();
+            const PREFIX: &[u8] = b"GET /v1/event-stream/ ";
+            loop {
+                let candidate = if head.len() < PREFIX.len() {
+                    PREFIX.starts_with(&head)
+                } else {
+                    head.starts_with(PREFIX)
+                };
+                if !candidate || head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() > 65536 {
+                    break;
+                }
+                let mut chunk = [0u8; 4096];
+                match tokio::io::AsyncReadExt::read(&mut stream, &mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(&chunk[..n]),
+                }
+            }
+            if head.starts_with(PREFIX)
+                && let Some(end) = head.windows(4).position(|w| w == b"\r\n\r\n")
+            {
+                match websocket::raw_handshake(state.clone(), stream, peer, &head[..end + 2]).await
+                {
+                    Ok(()) => return,
+                    Err(s) => stream = s,
+                }
+            }
+            let io = hyper_util::rt::TokioIo::new(Rewind::new(head, stream));
             let service = hyper::service::service_fn(move |req| handle(state.clone(), peer, req));
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
                 .with_upgrades()
                 .await;
         });
+    }
+}
+
+/// A stream that first replays bytes already read from it.
+struct Rewind<T> {
+    pre: Vec<u8>,
+    pos: usize,
+    inner: T,
+}
+
+impl<T> Rewind<T> {
+    fn new(pre: Vec<u8>, inner: T) -> Self {
+        Rewind { pre, pos: 0, inner }
+    }
+}
+
+impl<T: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Rewind<T> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let me = self.get_mut();
+        if me.pos < me.pre.len() {
+            let n = (me.pre.len() - me.pos).min(buf.remaining());
+            buf.put_slice(&me.pre[me.pos..me.pos + n]);
+            me.pos += n;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut me.inner).poll_read(cx, buf)
+    }
+}
+
+impl<T: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Rewind<T> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 }
 

@@ -94,7 +94,10 @@ impl GraphQLError {
         let mut out = self.message.clone();
         for p in &self.positions {
             out.push_str("\n\n");
-            out.push_str(&print_source_location(body, crate::parser::location(body, *p)));
+            out.push_str(&print_source_location(
+                body,
+                crate::parser::location(body, *p),
+            ));
         }
         out
     }
@@ -141,7 +144,11 @@ pub fn print_source_location(body: &[char], (line, column): (usize, usize)) -> S
             .into_iter()
             .filter_map(|(p, l)| l.map(|l| (p, l)))
             .collect();
-        let pad = existing.iter().map(|(p, _)| p.chars().count()).max().unwrap_or(0);
+        let pad = existing
+            .iter()
+            .map(|(p, _)| p.chars().count())
+            .max()
+            .unwrap_or(0);
         existing
             .iter()
             .map(|(p, l)| {

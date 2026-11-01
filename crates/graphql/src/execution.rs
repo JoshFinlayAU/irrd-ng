@@ -42,7 +42,11 @@ pub trait Resolvers {
     ) -> Option<Result<Value, ResolveError>>;
 
     /// `resolve_type` for an abstract type.
-    fn resolve_type(&self, abstract_type: &str, value: &Value) -> Result<Option<String>, ResolveError>;
+    fn resolve_type(
+        &self,
+        abstract_type: &str,
+        value: &Value,
+    ) -> Result<Option<String>, ResolveError>;
 }
 
 /// A source object: a resolver value or an introspection object.
@@ -316,8 +320,10 @@ impl<'a> Executor<'a> {
         let nulled = |p: &Option<Vec<PathSeg>>| -> bool {
             match p {
                 None => self.nulled.iter().any(Option::is_none),
-                Some(p) => (0..=p.len()).any(|n| self.nulled.iter().any(|x| x.as_deref() == Some(&p[..n])))
-                    || self.nulled.iter().any(Option::is_none),
+                Some(p) => {
+                    (0..=p.len()).any(|n| self.nulled.iter().any(|x| x.as_deref() == Some(&p[..n])))
+                        || self.nulled.iter().any(Option::is_none)
+                }
             }
         };
         if nulled(&path) {
@@ -336,8 +342,13 @@ impl<'a> Executor<'a> {
             let Some(def) = self.schema.directive(name) else {
                 continue;
             };
-            let Ok(args) = get_argument_values(&self.coercer, &def.args, &d.arguments, d.pos, Some(&self.vars))
-            else {
+            let Ok(args) = get_argument_values(
+                &self.coercer,
+                &def.args,
+                &d.arguments,
+                d.pos,
+                Some(&self.vars),
+            ) else {
                 continue;
             };
             let v = args
@@ -831,7 +842,11 @@ impl<'a> Executor<'a> {
             {
                 return Ok(v.clone());
             }
-            return g(format!("Enum '{}' cannot represent value: {}", t.name, inspect(v)));
+            return g(format!(
+                "Enum '{}' cannot represent value: {}",
+                t.name,
+                inspect(v)
+            ));
         }
         match t.name.as_str() {
             "String" => match v {
@@ -865,9 +880,15 @@ impl<'a> Executor<'a> {
                         "Int cannot represent non 32-bit signed integer value: {}",
                         inspect(v)
                     )),
-                    Err(_) => g(format!("Int cannot represent non-integer value: {}", inspect(v))),
+                    Err(_) => g(format!(
+                        "Int cannot represent non-integer value: {}",
+                        inspect(v)
+                    )),
                 },
-                _ => g(format!("Int cannot represent non-integer value: {}", inspect(v))),
+                _ => g(format!(
+                    "Int cannot represent non-integer value: {}",
+                    inspect(v)
+                )),
             },
             "Boolean" => match v {
                 Value::Bool(_) => Ok(v.clone()),
@@ -882,7 +903,10 @@ impl<'a> Executor<'a> {
                 Value::Bool(b) => Ok(Value::Int(i128::from(*b))),
                 Value::Float(f) if f.is_finite() => Ok(v.clone()),
                 Value::Int(i) => Ok(Value::Float(*i as f64)),
-                _ => g(format!("Float cannot represent non numeric value: {}", inspect(v))),
+                _ => g(format!(
+                    "Float cannot represent non numeric value: {}",
+                    inspect(v)
+                )),
             },
             "ID" => match v {
                 Value::Str(_) => Ok(v.clone()),

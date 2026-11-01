@@ -43,7 +43,14 @@ struct Row([String; 6]);
 /// above and below the header, the source column left aligned and the
 /// rest right aligned.
 fn table(rows: &[Row]) -> String {
-    let headers = ["source", "total obj", "rt obj", "aut-num obj", "serial", "last export"];
+    let headers = [
+        "source",
+        "total obj",
+        "rt obj",
+        "aut-num obj",
+        "serial",
+        "last export",
+    ];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
     for r in rows {
         for (i, c) in r.0.iter().enumerate() {
@@ -78,7 +85,11 @@ fn table(rows: &[Row]) -> String {
 
 /// `whois_query_source_status()`: the remote `!j` answer, or the text v4
 /// reports when it fails.
-fn remote_status(host: &str, port: i64, source: &str) -> Result<(Option<bool>, i64, i64, Option<i64>), bool> {
+fn remote_status(
+    host: &str,
+    port: i64,
+    source: &str,
+) -> Result<(Option<bool>, i64, i64, Option<i64>), bool> {
     // Err(true): an OSError (unreachable); Err(false): a ValueError.
     let addr = (host, u16::try_from(port).map_err(|_| true)?)
         .to_socket_addrs()
@@ -87,7 +98,8 @@ fn remote_status(host: &str, port: i64, source: &str) -> Result<(Option<bool>, i
         .ok_or(true)?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|_| true)?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
-    s.write_all(format!("!j{source}\n").as_bytes()).map_err(|_| true)?;
+    s.write_all(format!("!j{source}\n").as_bytes())
+        .map_err(|_| true)?;
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 1024];
     let mut expected: Option<usize> = None;
@@ -306,7 +318,11 @@ pub(crate) fn status_text(
 }
 
 /// `MetricsGenerator.generate()`
-pub(crate) fn metrics_text(view: &ReadView<'_>, q: &QuerySettings, startup: i64) -> store::Result<String> {
+pub(crate) fn metrics_text(
+    view: &ReadView<'_>,
+    q: &QuerySettings,
+    startup: i64,
+) -> store::Result<String> {
     let now = Timestamp::now();
     let stats = statistics(view)?;
     let mut rows = view.database_statuses()?;
@@ -326,12 +342,16 @@ pub(crate) fn metrics_text(view: &ReadView<'_>, q: &QuerySettings, startup: i64)
         now.unix_seconds() - startup
     ));
     // Sorted by f"{source}-{object_class}".
-    let mut st: Vec<(String, &(String, String), &u64)> =
-        stats.iter().map(|(k, v)| (format!("{}-{}", k.0, k.1), k, v)).collect();
+    let mut st: Vec<(String, &(String, String), &u64)> = stats
+        .iter()
+        .map(|(k, v)| (format!("{}-{}", k.0, k.1), k, v))
+        .collect();
     st.sort_by(|a, b| a.0.cmp(&b.0));
     let lines: Vec<String> = st
         .iter()
-        .map(|(_, (s, c), n)| format!("irrd_object_class_total{{source=\"{s}\", object_class=\"{c}\"}} {n}"))
+        .map(|(_, (s, c), n)| {
+            format!("irrd_object_class_total{{source=\"{s}\", object_class=\"{c}\"}} {n}")
+        })
         .collect();
     sections.push(format!(
         "# HELP irrd_object_class_total Number of objects per class per source\n# TYPE irrd_object_class_total gauge\n{}\n",
@@ -349,7 +369,11 @@ pub(crate) fn metrics_text(view: &ReadView<'_>, q: &QuerySettings, startup: i64)
         ];
         for r in &rows {
             if let Some(t) = get(r) {
-                l.push(format!("{name}_seconds{{source=\"{}\"}} {}", r.source, secs(t)));
+                l.push(format!(
+                    "{name}_seconds{{source=\"{}\"}} {}",
+                    r.source,
+                    secs(t)
+                ));
             }
         }
         l.push(String::new());
@@ -384,20 +408,21 @@ pub(crate) fn metrics_text(view: &ReadView<'_>, q: &QuerySettings, startup: i64)
         "Timestamp of the last mirroring error in seconds since UNIX epoch",
         &|r| r.last_error_timestamp,
     ));
-    let field = |metric: &str, help: &str, get: &dyn Fn(&DatabaseStatus) -> Option<i64>| -> String {
-        let lines: Vec<String> = rows
-            .iter()
-            .filter_map(|r| {
-                get(r)
-                    .filter(|v| *v != 0)
-                    .map(|v| format!("{metric}{{source=\"{}\"}} {v}", r.source))
-            })
-            .collect();
-        format!(
-            "# HELP {metric} {help}\n# TYPE {metric} gauge\n{}\n",
-            lines.join("\n")
-        )
-    };
+    let field =
+        |metric: &str, help: &str, get: &dyn Fn(&DatabaseStatus) -> Option<i64>| -> String {
+            let lines: Vec<String> = rows
+                .iter()
+                .filter_map(|r| {
+                    get(r)
+                        .filter(|v| *v != 0)
+                        .map(|v| format!("{metric}{{source=\"{}\"}} {v}", r.source))
+                })
+                .collect();
+            format!(
+                "# HELP {metric} {help}\n# TYPE {metric} gauge\n{}\n",
+                lines.join("\n")
+            )
+        };
     sections.push(field(
         "irrd_nrtm4_client_version",
         "Newest NRTMv4 version mirrored from upstream",

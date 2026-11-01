@@ -83,7 +83,10 @@ irrd:
     EDGE96:
       keep_journal: false
     # Synthetic, journaled: the event stream suite (corpus/http/events.gq).
-    # load.sh applies events/EVSTREAM.update with irrd_update_database, so
-    # its journal has additions, changes and a deletion.
+    # load.sh loads events/EVSTREAM.db and then applies EVSTREAM.update
+    # with irrd_update_database, so its journal has additions, changes and
+    # a deletion. v4 only keeps a journal for authoritative sources and
+    # NRTM mirrors.
     EVSTREAM:
+      authoritative: true
       keep_journal: true

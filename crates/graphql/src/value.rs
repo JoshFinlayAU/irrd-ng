@@ -489,8 +489,7 @@ fn is_printable(c: char) -> bool {
     if (0x80..0xa0).contains(&n) || n == 0xad {
         return false;
     }
-    if matches!(n, 0x2028 | 0x2029 | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0xfeff)
-    {
+    if matches!(n, 0x2028 | 0x2029 | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0xfeff) {
         return false;
     }
     if (0xe000..=0xf8ff).contains(&n) || (0xd800..=0xdfff).contains(&n) {
@@ -610,7 +609,7 @@ mod tests {
         let Some(v) = v else { panic!("parse") };
         assert_eq!(
             json_dumps(&v),
-            "{\"a\":2,\"b\":[1.0,\"x\u{e9}\"],\"c\":nan}".replace("nan", "nan")
+            "{\"a\":2,\"b\":[1.0,\"x\u{e9}\"],\"c\":nan}"
         );
         assert!(json_loads_str("{\"a\":1,}").is_none());
         assert!(json_loads_str("01").is_none());

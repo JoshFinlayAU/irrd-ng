@@ -35,7 +35,12 @@ impl CostValidator {
         }
     }
 
-    fn node_cost<'a>(&mut self, cx: &mut Ctx<'a>, set: Option<&'a SelectionSet>, t: Option<TypeId>) -> i64 {
+    fn node_cost<'a>(
+        &mut self,
+        cx: &mut Ctx<'a>,
+        set: Option<&'a SelectionSet>,
+        t: Option<TypeId>,
+    ) -> i64 {
         let Some(set) = set else { return 0 };
         let s = cx.schema;
         let fields_of = |t: Option<TypeId>| -> Option<TypeId> {
@@ -128,8 +133,14 @@ impl<'a> Rule<'a> for CostValidator {
             e.extensions = Some(Value::Object(vec![(
                 "cost".into(),
                 Value::Object(vec![
-                    ("requestedQueryCost".into(), Value::Int(i128::from(self.cost))),
-                    ("maximumAvailable".into(), Value::Int(i128::from(self.maximum))),
+                    (
+                        "requestedQueryCost".into(),
+                        Value::Int(i128::from(self.cost)),
+                    ),
+                    (
+                        "maximumAvailable".into(),
+                        Value::Int(i128::from(self.maximum)),
+                    ),
                 ]),
             )]));
             cx.report_pub(e);

@@ -1019,8 +1019,14 @@ impl QueryResolver {
             if out.iter().any(|(s, _)| *s == source) {
                 continue;
             }
-            let members =
-                self.members_for_set(view, parameter, exclude_sets, depth, recursive, Some(&source))?;
+            let members = self.members_for_set(
+                view,
+                parameter,
+                exclude_sets,
+                depth,
+                recursive,
+                Some(&source),
+            )?;
             out.push((source, members));
         }
         Ok(out)
@@ -1030,10 +1036,7 @@ impl QueryResolver {
 
     /// `DatabaseStatusQuery().sources(sources)`: rows of the listed sources
     /// that exist, ordered by first position in the list.
-    pub fn status_rows(
-        view: &ReadView<'_>,
-        sources: &[String],
-    ) -> QResult<Vec<DatabaseStatus>> {
+    pub fn status_rows(view: &ReadView<'_>, sources: &[String]) -> QResult<Vec<DatabaseStatus>> {
         let wanted: Vec<String> = sources
             .iter()
             .map(|s| rpsl::python::upper(s).into_owned())

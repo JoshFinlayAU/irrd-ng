@@ -105,7 +105,8 @@ run_api_suite() {
     --out "$o" "$@" || status=1
 }
 graphql_suite() { v4/preload-kick.sh irrd-v4 9080; run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq; }
-api_suite() { run_api_suite api --corpus corpus/http/api.gq; }
+# One request at a time: v4 stalls when /v1/status/ requests overlap.
+api_suite() { run_api_suite api --corpus corpus/http/api.gq --jobs 1; }
 events_suite() { run_api_suite events --corpus corpus/http/events.gq; }
 case $suite in
   whois) run_suite whois "$ref" "$whois_test" ;;

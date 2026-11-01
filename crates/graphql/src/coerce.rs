@@ -51,7 +51,10 @@ fn builtin_input_value(name: &str, v: &Value) -> Result<Value, LeafError> {
             )),
             Value::Float(f) => {
                 if !f.is_finite() || f.trunc() != *f {
-                    gerr(format!("Int cannot represent non-integer value: {}", inspect(v)))
+                    gerr(format!(
+                        "Int cannot represent non-integer value: {}",
+                        inspect(v)
+                    ))
                 } else if (MIN_INT as f64..=MAX_INT as f64).contains(f) {
                     Ok(Value::Int(*f as i128))
                 } else {
@@ -61,7 +64,10 @@ fn builtin_input_value(name: &str, v: &Value) -> Result<Value, LeafError> {
                     ))
                 }
             }
-            _ => gerr(format!("Int cannot represent non-integer value: {}", inspect(v))),
+            _ => gerr(format!(
+                "Int cannot represent non-integer value: {}",
+                inspect(v)
+            )),
         },
         "Float" => match v {
             Value::Float(f) if f.is_finite() => Ok(Value::Float(*f)),
@@ -80,7 +86,10 @@ fn builtin_input_value(name: &str, v: &Value) -> Result<Value, LeafError> {
                 "Float cannot represent non numeric value: {} (value would lose precision)",
                 inspect(v)
             )),
-            _ => gerr(format!("Float cannot represent non numeric value: {}", inspect(v))),
+            _ => gerr(format!(
+                "Float cannot represent non numeric value: {}",
+                inspect(v)
+            )),
         },
         "String" => match v {
             Value::Str(s) => Ok(Value::Str(s.clone())),
@@ -111,7 +120,7 @@ fn builtin_input_value(name: &str, v: &Value) -> Result<Value, LeafError> {
 
 /// A built-in scalar's `coerce_input_literal()`.
 fn builtin_input_literal(name: &str, node: &ValueNode) -> Result<Value, LeafError> {
-    let gerr = |m: String| Err(LeafError::GraphQL(m, Some(node.pos())));
+    let gerr = |m: String| Err(LeafError::GraphQL(m, literal_pos(node)));
     match name {
         "Int" => match node {
             ValueNode::Int(_, s) => match crate::value::int_value(s) {
@@ -157,6 +166,16 @@ fn builtin_input_literal(name: &str, node: &ValueNode) -> Result<Value, LeafErro
             )),
         },
         _ => Ok(Value::Null),
+    }
+}
+
+/// Where a leaf coercion error points: `replace_variables()` rebuilds
+/// object and list literals without a location, so errors about those
+/// have none.
+fn literal_pos(node: &ValueNode) -> Option<usize> {
+    match node {
+        ValueNode::Object(..) | ValueNode::List(..) => None,
+        n => Some(n.pos()),
     }
 }
 
@@ -284,7 +303,7 @@ impl<'a> Coercer<'a> {
                                 t.name,
                                 self.did_you_mean_enum(id, &vs)
                             ),
-                            Some(node.pos()),
+                            literal_pos(&node),
                         ))
                     }
                 }
@@ -296,7 +315,7 @@ impl<'a> Coercer<'a> {
                             t.name,
                             self.did_you_mean_enum(id, &vs)
                         ),
-                        Some(node.pos()),
+                        literal_pos(&node),
                     ))
                 }
             };
@@ -346,7 +365,9 @@ impl<'a> Coercer<'a> {
     fn input_object_value(&self, id: TypeId, v: &Value) -> Option<Value> {
         let Value::Object(o) = v else { return None };
         let t = self.schema.t(id);
-        if o.iter().any(|(k, _)| !t.input_fields.iter().any(|f| f.name == *k)) {
+        if o.iter()
+            .any(|(k, _)| !t.input_fields.iter().any(|f| f.name == *k))
+        {
             return None;
         }
         let mut out: Vec<(String, Value)> = Vec::new();
@@ -464,7 +485,10 @@ impl<'a> Coercer<'a> {
                                 out.push((d.name.clone(), dv));
                             }
                         } else if let Some(f) = fnode {
-                            out.push((d.name.clone(), self.input_literal(&f.value, &d.type_, vars)?));
+                            out.push((
+                                d.name.clone(),
+                                self.input_literal(&f.value, &d.type_, vars)?,
+                            ));
                         }
                     }
                     return Some(Value::Object(out));
@@ -483,25 +507,23 @@ impl<'a> Coercer<'a> {
         on_error: &mut dyn FnMut(GraphQLError, &[PathSeg]),
     ) {
         match t {
-            TypeRef::NonNull(inner) => {
-                match v {
-                    None => on_error(
-                        GraphQLError::plain(format!(
-                            "Expected a value of non-null type '{}' to be provided.",
-                            self.schema.type_str(t)
-                        )),
-                        path,
-                    ),
-                    Some(Value::Null) => on_error(
-                        GraphQLError::plain(format!(
-                            "Expected value of non-null type '{}' not to be None.",
-                            self.schema.type_str(t)
-                        )),
-                        path,
-                    ),
-                    _ => self.validate_input_value(v, inner, path, on_error),
-                }
-            }
+            TypeRef::NonNull(inner) => match v {
+                None => on_error(
+                    GraphQLError::plain(format!(
+                        "Expected a value of non-null type '{}' to be provided.",
+                        self.schema.type_str(t)
+                    )),
+                    path,
+                ),
+                Some(Value::Null) => on_error(
+                    GraphQLError::plain(format!(
+                        "Expected value of non-null type '{}' not to be None.",
+                        self.schema.type_str(t)
+                    )),
+                    path,
+                ),
+                _ => self.validate_input_value(v, inner, path, on_error),
+            },
             _ if matches!(v, None | Some(Value::Null)) => {}
             TypeRef::List(item) => match v {
                 Some(Value::List(items)) => {
@@ -641,7 +663,10 @@ impl<'a> Coercer<'a> {
                 if let ValueNode::Null(p) = node {
                     return on_error(
                         GraphQLError::new(
-                            format!("Expected value of non-null type '{}' not to be None.", ts(t)),
+                            format!(
+                                "Expected value of non-null type '{}' not to be None.",
+                                ts(t)
+                            ),
                             vec![*p],
                         ),
                         path,
@@ -708,8 +733,9 @@ impl<'a> Coercer<'a> {
                                     continue;
                                 }
                                 path.push(PathSeg::Key(d.name.clone()));
-                                let go =
-                                    self.validate_input_literal(&f.value, &d.type_, vars, path, on_error);
+                                let go = self.validate_input_literal(
+                                    &f.value, &d.type_, vars, path, on_error,
+                                );
                                 path.pop();
                                 if !go {
                                     return false;
@@ -721,7 +747,8 @@ impl<'a> Coercer<'a> {
                         if !ty.input_fields.iter().any(|d| d.name == f.name.value) {
                             let names: Vec<&str> =
                                 ty.input_fields.iter().map(|f| f.name.as_str()).collect();
-                            let s = did_you_mean_with(&suggestion_list(&f.name.value, &names), None);
+                            let s =
+                                did_you_mean_with(&suggestion_list(&f.name.value, &names), None);
                             if !on_error(
                                 GraphQLError::new(
                                     format!(
@@ -750,17 +777,20 @@ impl<'a> Coercer<'a> {
                     Err(LeafError::GraphQL(m, pos)) => {
                         on_error(GraphQLError::new(m, pos.into_iter().collect()), path)
                     }
-                    Err(LeafError::Other(e)) => on_error(
-                        GraphQLError::new(
+                    Err(LeafError::Other(e)) => {
+                        // original_error is the exception: IRRd's
+                        // formatter hides the message.
+                        let mut err = GraphQLError::new(
                             format!(
                                 "Expected value of type '{}', but encountered error '{e}'; found: {}.",
                                 ty.name,
                                 print_value(node)
                             ),
                             vec![node.pos()],
-                        ),
-                        path,
-                    ),
+                        );
+                        err.internal = true;
+                        on_error(err, path)
+                    }
                 }
             }
         }
@@ -776,9 +806,10 @@ fn replace_variables(node: &ValueNode, vars: Option<&Variables>) -> ValueNode {
             Some(val) => value_to_literal(val, v.pos),
             None => ValueNode::Null(v.pos),
         },
-        ValueNode::List(p, items) => {
-            ValueNode::List(*p, items.iter().map(|i| replace_variables(i, vars)).collect())
-        }
+        ValueNode::List(p, items) => ValueNode::List(
+            *p,
+            items.iter().map(|i| replace_variables(i, vars)).collect(),
+        ),
         ValueNode::Object(p, fields) => ValueNode::Object(
             *p,
             fields
@@ -802,7 +833,9 @@ fn value_to_literal(v: &Value, pos: usize) -> ValueNode {
         Value::BigInt(s) => ValueNode::Int(pos, s.clone()),
         Value::Float(f) => ValueNode::Float(pos, float_repr(*f)),
         Value::Str(s) => ValueNode::String(pos, s.clone(), false),
-        Value::List(l) => ValueNode::List(pos, l.iter().map(|x| value_to_literal(x, pos)).collect()),
+        Value::List(l) => {
+            ValueNode::List(pos, l.iter().map(|x| value_to_literal(x, pos)).collect())
+        }
         Value::Object(o) => ValueNode::Object(
             pos,
             o.iter()

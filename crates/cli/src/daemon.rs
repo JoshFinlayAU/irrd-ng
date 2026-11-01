@@ -88,7 +88,10 @@ fn http_settings(cfg: &Configuration) -> http::HttpSettings {
             .unwrap_or_else(|| "::0".into()),
         whois_port: settings::int_setting(cfg, "server.whois.port").unwrap_or(43),
         status_access_list: settings::str_setting(cfg, "server.http.status_access_list"),
-        event_stream_access_list: settings::str_setting(cfg, "server.http.event_stream_access_list"),
+        event_stream_access_list: settings::str_setting(
+            cfg,
+            "server.http.event_stream_access_list",
+        ),
         status_sources,
         journaled_sources,
         hostname: hostname(),

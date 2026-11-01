@@ -123,7 +123,8 @@ impl Compiler {
                 let e = self.cmp("ip_version", "=", P::Int(ver));
                 let x = self.cmp("ip_first", "=", P::Str(net));
                 let y = self.cmp("ip_last", "=", P::Str(bcast));
-                self.clauses.extend([a, b, c, d, e, format!("NOT ({x} AND {y})")]);
+                self.clauses
+                    .extend([a, b, c, d, e, format!("NOT ({x} AND {y})")]);
             }
             IpFilter::LessSpecificOneLevel => {
                 let a = self.cmp("ip_first", "<=", P::Str(net.clone()));
@@ -152,9 +153,8 @@ impl Compiler {
                 let e = self.cmp("ip_last", "<=", P::Str(bcast));
                 let f2 = self.cmp("ip_last", ">=", P::Str(net));
                 let v = self.cmp("ip_version", "=", P::Int(ver));
-                self.clauses.push(format!(
-                    "({a} AND {b} OR {c} AND {d} AND {e} AND {f2})"
-                ));
+                self.clauses
+                    .push(format!("({a} AND {b} OR {c} AND {d} AND {e} AND {f2})"));
                 self.clauses.push(v);
             }
         }
@@ -211,19 +211,28 @@ pub(crate) fn object_query(q: &ObjectQuery, columns: &[&str]) -> String {
     }
     if let Some(t) = &q.text_search {
         if let Some(asn) = q.text_asn {
-            c.in_("object_class", P::Strs(vec!["as-block".into(), "as-set".into(), "aut-num".into()]));
+            c.in_(
+                "object_class",
+                P::Strs(vec!["as-block".into(), "as-set".into(), "aut-num".into()]),
+            );
             let a = c.cmp("asn_first", "<=", P::Int(i128::from(asn)));
             let b = c.cmp("asn_last", ">=", P::Int(i128::from(asn)));
             c.clauses.extend([a, b]);
         } else if let Ok(ip) = rpsl::Ip::parse(t, 0) {
-            let prefix_ok = q.classes.last().is_some_and(|l| !l.is_empty() && !l.iter().any(|x| x == "inetnum"));
+            let prefix_ok = q
+                .classes
+                .last()
+                .is_some_and(|l| !l.is_empty() && !l.iter().any(|x| x == "inetnum"));
             c.ip_filter(IpFilter::LessSpecific, &ip, prefix_ok);
         } else {
             let n = c.lookup_counter;
             c.lookup_counter += 1;
             let pk = c.cmp("rpsl_pk", "=", P::Str(rpsl::python::upper(t).into_owned()));
             let o1 = c.cmp("object_class", "=", P::Str("person".into()));
-            let ts = c.named(format!("lookup_attr_text_search{n}"), P::Str(format!("%{t}%")));
+            let ts = c.named(
+                format!("lookup_attr_text_search{n}"),
+                P::Str(format!("%{t}%")),
+            );
             let o2 = c.cmp("object_class", "=", P::Str("role".into()));
             c.clauses.push(format!(
                 "({pk} OR {o1} AND parsed_data->>'person' ILIKE :{ts} OR {o2} AND parsed_data->>'role' ILIKE :{ts})"
@@ -231,7 +240,10 @@ pub(crate) fn object_query(q: &ObjectQuery, columns: &[&str]) -> String {
         }
     }
     if let Some(r) = &q.rpki {
-        c.in_("rpki_status", statuses("RPKIStatus", r, |s| s.pg_label(), |s| s.py_value()));
+        c.in_(
+            "rpki_status",
+            statuses("RPKIStatus", r, |s| s.pg_label(), |s| s.py_value()),
+        );
     }
     if let Some(r) = &q.scope {
         c.in_(
@@ -242,7 +254,12 @@ pub(crate) fn object_query(q: &ObjectQuery, columns: &[&str]) -> String {
     if let Some(r) = &q.routepref {
         c.in_(
             "route_preference_status",
-            statuses("RoutePreferenceStatus", r, |s| s.pg_label(), |s| s.py_value()),
+            statuses(
+                "RoutePreferenceStatus",
+                r,
+                |s| s.pg_label(),
+                |s| s.py_value(),
+            ),
         );
     }
     if let Some(s) = &q.sources {
@@ -301,13 +318,22 @@ pub(crate) fn set_sources_query(r: &QueryResolver, name: &str) -> String {
     );
     c.in_(
         "scopefilter_status",
-        P::Enums("ScopeFilterStatus", vec![("in_scope".into(), "IN_SCOPE".into())]),
+        P::Enums(
+            "ScopeFilterStatus",
+            vec![("in_scope".into(), "IN_SCOPE".into())],
+        ),
     );
     c.in_(
         "route_preference_status",
-        P::Enums("RoutePreferenceStatus", vec![("visible".into(), "VISIBLE".into())]),
+        P::Enums(
+            "RoutePreferenceStatus",
+            vec![("visible".into(), "VISIBLE".into())],
+        ),
     );
-    c.in_("object_class", P::Strs(vec!["as-set".into(), "route-set".into()]));
+    c.in_(
+        "object_class",
+        P::Strs(vec!["as-set".into(), "route-set".into()]),
+    );
     c.in_(
         "rpsl_pk",
         P::Strs(vec![

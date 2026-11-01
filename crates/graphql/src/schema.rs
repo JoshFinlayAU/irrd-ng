@@ -243,7 +243,16 @@ impl Schema {
         let index: HashMap<String, usize> = defs
             .iter()
             .enumerate()
-            .map(|(i, p)| (p.def.name.as_ref().map(|n| n.value.clone()).unwrap_or_default(), i))
+            .map(|(i, p)| {
+                (
+                    p.def
+                        .name
+                        .as_ref()
+                        .map(|n| n.value.clone())
+                        .unwrap_or_default(),
+                    i,
+                )
+            })
             .collect();
 
         // graphql-core's TypeSet: every document type is removed and
@@ -339,16 +348,22 @@ impl Schema {
         // Ids follow the final order.
         let mut by_name: HashMap<String, TypeId> = HashMap::new();
         for (id, &i) in order.iter().enumerate() {
-            let name = defs[i].def.name.as_ref().map(|n| n.value.clone()).unwrap_or_default();
+            let name = defs[i]
+                .def
+                .name
+                .as_ref()
+                .map(|n| n.value.clone())
+                .unwrap_or_default();
             by_name.insert(name, id);
         }
         let resolve = |t: &ast::Type| -> TypeRef {
             fn go(t: &ast::Type, by_name: &HashMap<String, TypeId>) -> TypeRef {
                 match t {
                     ast::Type::Named(n) => TypeRef::Named(
-                        by_name.get(&n.name.value).copied().unwrap_or_else(|| {
-                            panic!("unknown type {} in SDL", n.name.value)
-                        }),
+                        by_name
+                            .get(&n.name.value)
+                            .copied()
+                            .unwrap_or_else(|| panic!("unknown type {} in SDL", n.name.value)),
                     ),
                     ast::Type::List(_, i) => TypeRef::List(Box::new(go(i, by_name))),
                     ast::Type::NonNull(_, i) => TypeRef::NonNull(Box::new(go(i, by_name))),
