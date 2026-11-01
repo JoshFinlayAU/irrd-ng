@@ -187,6 +187,12 @@ both 09-update-hook \
 step_config "{\"roas\": \"roas1.json\", $SF2, $P2}"
 both 10-roa-with-filters 'v4job ROAImportRunner' 'ngjob roa-import'
 
+# The same scope filter again. v4 updates statuses by RPSL key, so an
+# object in an excluded source that shares its key with an out of scope
+# one is reported, and journalled, as newly in scope on every run while
+# its status stays out of scope.
+both 11-scopefilter-again 'v4job ScopeFilterUpdateRunner' 'ngjob scopefilter'
+
 echo "results in $out"
 if [[ $queries == 1 ]]; then
   echo "== whois and /v1/whois/ suites on the final state"
