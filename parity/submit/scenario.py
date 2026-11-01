@@ -767,7 +767,9 @@ def export():
     dc("exec", "-T", "v4", "sh", "-c", "rm -rf /out/v4-export && /opt/irrd/bin/python /tools/export_v4.py "
        "'postgresql://irrd:irrd@postgres/irrd' /out/v4-export")
     dc("exec", "-T", "ng", "sh", "-c", "rm -rf /out/ng-export && mkdir /out/ng-export && /ng/irrd-ng export-jsonl "
-       "--config /etc/irrd/irrd.yaml --table all --output-dir /out/ng-export")
+       "--config /etc/irrd/irrd.yaml --table all --output-dir /out/ng-export"
+       # export-jsonl writes its files 0600 (password hashes, API tokens).
+       " && chmod -R a+rX /out/ng-export")
     for side in SIDES:
         whois = SIDES[side]["whois"]
         out = whois_query(whois, "-g TEST:3:1-LAST")

@@ -610,7 +610,7 @@ pub(crate) fn export_jsonl(args: &[OsString]) -> ExitCode {
         let res = match out_dir {
             Some(d) => {
                 let path = std::path::Path::new(d).join(format!("{t}.jsonl"));
-                match std::fs::File::create(&path) {
+                match create_private(&path) {
                     Ok(f) => {
                         let mut w = std::io::BufWriter::new(f);
                         store::export::export_table(&view, t, &mut w).and_then(|_| {
@@ -635,6 +635,22 @@ pub(crate) fn export_jsonl(args: &[OsString]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Create (or truncate) `path` readable and writable by its owner only:
+/// an `export-jsonl` file holds the store as it is, with password hashes
+/// in `rpsl_objects` and the web UI's credentials and API tokens in the
+/// `auth_*` tables. A file that already exists gets the same mode.
+fn create_private(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(f)
 }
 
 /// `irrd-ng store-info`: schema version, map size and per-table sizes.
@@ -684,5 +700,31 @@ mod tests {
             "alembic.util.exc.CommandError: Relative revision +1 didn't produce 1 migrations"
         ));
         assert!(resolve_revision("-1", false).is_ok());
+    }
+
+    /// `export-jsonl --output-dir` files are private whatever the umask,
+    /// including ones that already existed with a wider mode.
+    #[test]
+    fn export_files_are_owner_only() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let new = dir.path().join("auth_api_token.jsonl");
+        create_private(&new)
+            .expect("create")
+            .write_all(b"{}\n")
+            .expect("write");
+        let old = dir.path().join("auth_user.jsonl");
+        std::fs::write(&old, "previous export, longer than the new one\n").expect("old");
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        create_private(&old)
+            .expect("reopen")
+            .write_all(b"{}\n")
+            .expect("write");
+        for p in [&new, &old] {
+            let meta = std::fs::metadata(p).expect("metadata");
+            assert_eq!(meta.permissions().mode() & 0o777, 0o600, "{}", p.display());
+            assert_eq!(std::fs::read(p).expect("read"), b"{}\n");
+        }
     }
 }

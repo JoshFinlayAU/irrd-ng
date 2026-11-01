@@ -309,6 +309,9 @@ compare() {
   # The two upstreams.
   v4_export upstream "$out/up4"
   ngup export-jsonl --config /etc/irrd/irrd.yaml --table all --output-dir "/out/$step"
+  # export-jsonl writes its files 0600 (they hold password hashes and API
+  # tokens), as root here; let the host read them. The image has no shell.
+  docker run --rm --user root --entrypoint chmod -v "$WORK/ng-out:/out" "$V4_IMAGE" -R a+rX "/out/$step"
   cp -r "$WORK/ng-out/$step/." "$out/upng/"
   check "$step" "upstream objects, journal and status" "$out/upstreams.txt" \
     python3 "$ROOT/parity/tools/compare_exports.py" "$out/up4" "$out/upng" \
