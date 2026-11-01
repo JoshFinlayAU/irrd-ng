@@ -1,0 +1,497 @@
+# GraphQL suite: the other ways in. GraphQL over a WebSocket on the
+# /graphql mount (ariadne's GraphQLWSHandler, the legacy graphql-ws
+# protocol) and multipart/form-data requests (the GraphQL multipart
+# request spec).
+#
+# v4 4.5.4 answers neither with a result: QueryMetadataExtension.format()
+# reads request._json, which a WebSocket and a request read with form()
+# do not have. A query or mutation over a WebSocket drops the connection
+# without a close frame (eof); a multipart request that gets as far as
+# execution is a 500. What can differ is everything before that.
+
+@tags ws
+@ws path=/graphql/
+send {"type":"connection_init"}
+wait
+@end
+
+@ws path=/graphql/ protocol=graphql-transport-ws
+send {"type":"connection_init","payload":{"a":1}}
+send {"type":"connection_init"}
+wait
+@end
+
+@ws path=/graphql/ protocol=graphql-ws permessage-deflate; client_max_window_bits
+send {"type":"connection_init"}
+send {"type":"start","id":"1","payload":{"query":"subscription { a }"}}
+wait
+@end
+
+@ws path=/graphql/x?y=1
+send {"type":"connection_init"}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":"1","payload":{"query":"{ __typename }"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":"q","payload":{"query":"query Q { rpslObjects(rpslPk: \"x\") { rpslPk } }","operationName":"Q"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":"m","payload":{"query":"mutation { a }"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":"1","payload":{"query":"subscription { x }"}}
+send {"type":"start","id":"2","payload":{"query":"subscription S { a b } subscription { c }"}}
+send {"type":"start","id":"3","payload":{"query":"query A { a } subscription B { b }","operationName":"B"}}
+send {"type":"start","id":"4","payload":{"query":"subscription($v: Nope) { a }","variables":{"v":1}}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":"1","payload":{"query":"{"}}
+send {"type":"start","id":1.5e400,"payload":{"query":"{ é"}}
+send {"type":"start","payload":{"query":"x"}}
+send {"type":"start","id":[1,{"a":null}],"payload":{"query":"\n\n  {\n a(b: \"\u0001\") }"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"start","id":"1","payload":{"query":"{ __typename }"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"foo"}
+send {"id":1}
+send {"type":"stop","id":"1"}
+send {"type":1}
+send {"type":"connection_terminate"}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"stop","id":"1"}
+send {"type":"connection_terminate"}
+wait
+@end
+
+@ws path=/graphql/
+send notjson
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+sendbin 7b7d
+wait
+@end
+
+@ws path=/graphql/
+send []
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2,"payload":{"query":"{ a }","variables":1}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2,"payload":{"query":"subscription { a }","operationName":"Nope"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2,"payload":{"query":"fragment F on Query { a } subscription F { a }","operationName":"F"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2,"payload":{"query":"schema { query: Query } subscription S { a }","operationName":"S"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+send {"type":"start","id":2,"payload":{"query":"fragment F on Query { a }"}}
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+close 4000
+wait
+@end
+
+@ws path=/graphql/
+send {"type":"connection_init"}
+close
+wait
+@end
+
+@tags ws-routes
+@ws path=/graphql
+@end
+
+@ws path=/nope
+@end
+
+@ws path=/
+@end
+
+@ws path=/v1/status/
+@end
+
+@ws path=/static/x
+@end
+
+@ws path=/v1/event-stream/initial/
+@end
+
+@ws path=/graph%71l/
+send {"type":"connection_init"}
+wait
+@end
+
+@tags multipart
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"{ __typename }"}
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX--
+
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"query($f: Upload) { __typename }","variables":{"f":null}}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"0":["variables.f"]}
+--XX
+Content-Disposition: form-data; name="0"; filename="a.txt"
+Content-Type: text/plain
+
+hello
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=YY
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Type: text/plain
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition : form-data; name="operations"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"{ a }"}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"0":
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+1
+--XX
+Content-Disposition: form-data; name="map"
+
+[]
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX
+Content-Disposition: form-data; name="map"
+
+[]
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+[{}]
+--XX
+Content-Disposition: form-data; name="map"
+
+{"a":[],"b":"x"}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"a":["x",2]}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"a":["x"]}
+--XX
+Content-Disposition: form-data; name="a"
+
+not a file
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX; charset=latin-1
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"é":["x"]}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX; charset=nope
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"é":["x"]}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"; filename="ops.json"
+
+{"query":"{ a }"}
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary="XX"
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"{ a }"}
+--XX
+Content-Disposition: form-data; name="operations"
+
+{
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+[1]
+--XX
+Content-Disposition: form-data; name*=utf-8''map
+
+{}
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"{ a }"}
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX
+Content-Disposition: form-data; name="tail"
+
+no closing boundary
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query":"{ a }"}
+--XX
+Content-Disposition: form-data; name="map"
+
+{}
+--XX
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data;boundary=XX
+
+--XXjunk
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data ; boundary=XX
+
+--XX--
+@end
+
+@request POST /graphql/ crlf
+Content-Type: multipart/form-data; boundary=XX
+
+--XX
+Content-Disposition: form-data; name="operations"
+
+{"query": "{ a }", "variables": {"f": [null, {"g": null}]}}
+--XX
+Content-Disposition: form-data; name="map"
+
+{"1": ["variables.f.0"], "2": ["variables.f.1.g"]}
+--XX
+Content-Disposition: form-data; name="1"; filename="x"
+
+a
+--XX
+Content-Disposition: form-data; name="2"; filename=""
+
+b
+--XX--
+@end

@@ -336,11 +336,20 @@ pub fn int_value(text: &str) -> Value {
 /// ensure_ascii=False, allow_nan=False, indent=None, separators=(",", ":"))`.
 pub fn json_dumps(v: &Value) -> String {
     let mut out = String::with_capacity(256);
-    dump(v, &mut out);
+    dump(v, &mut out, false);
     out
 }
 
-fn dump(v: &Value, out: &mut String) {
+/// Starlette's `WebSocket.send_json()`: `json.dumps(data,
+/// separators=(",", ":"), ensure_ascii=False)`, which writes non-finite
+/// floats as `NaN`, `Infinity` and `-Infinity`.
+pub fn json_dumps_allow_nan(v: &Value) -> String {
+    let mut out = String::with_capacity(256);
+    dump(v, &mut out, true);
+    out
+}
+
+fn dump(v: &Value, out: &mut String, allow_nan: bool) {
     match v {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
@@ -349,6 +358,10 @@ fn dump(v: &Value, out: &mut String) {
             let _ = write!(out, "{i}");
         }
         Value::BigInt(s) => out.push_str(s),
+        Value::Float(f) if allow_nan && f.is_nan() => out.push_str("NaN"),
+        Value::Float(f) if allow_nan && f.is_infinite() => {
+            out.push_str(if *f > 0.0 { "Infinity" } else { "-Infinity" })
+        }
         Value::Float(f) => out.push_str(&float_repr(*f)),
         Value::Str(s) => dump_str(s, out),
         Value::List(l) => {
@@ -357,7 +370,7 @@ fn dump(v: &Value, out: &mut String) {
                 if i > 0 {
                     out.push(',');
                 }
-                dump(x, out);
+                dump(x, out, allow_nan);
             }
             out.push(']');
         }
@@ -369,7 +382,7 @@ fn dump(v: &Value, out: &mut String) {
                 }
                 dump_str(k, out);
                 out.push(':');
-                dump(x, out);
+                dump(x, out, allow_nan);
             }
             out.push('}');
         }

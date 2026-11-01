@@ -14,10 +14,15 @@ Corpus syntax (parity/corpus/graphql/README.md has the full description):
   @limit N               at most N expansions per templated item
   @gql [OperationName]   a GraphQL request: the query follows, then
                          optionally `@variables <JSON>`; ends with @end
-  @request METHOD PATH   a raw request: header lines, a blank line, the
-                         body; ends with @end
-  @ws [extensions]       a WebSocket session to /v1/event-stream/: lines
-                         `send <text>` and `wait`; ends with @end
+  @request METHOD PATH [crlf]
+                         a raw request: header lines, a blank line, the
+                         body (lines joined with CRLF if `crlf` is given);
+                         ends with @end
+  @ws [path=P] [protocol=P] [extensions]
+                         a WebSocket session to P (default
+                         /v1/event-stream/): lines `send <text>`,
+                         `sendbin <hex>`, `close [code]` and `wait`; ends
+                         with @end
 
 `{name}` placeholders take values from the bindings, as in the whois
 corpus (tools/corpus_expand.py).
@@ -186,7 +191,8 @@ def gql_request(item):
 
 
 def raw_request(item):
-    method, _, path = item.head.partition(" ")
+    method, _, rest = item.head.partition(" ")
+    path, *flags = rest.split(" ")
     headers, body_lines, in_body = [], [], False
     for ln in item.lines:
         if in_body:
@@ -195,7 +201,8 @@ def raw_request(item):
             in_body = True
         else:
             headers.append(ln)
-    body = "\n".join(body_lines).encode() if in_body else None
+    sep = "\r\n" if "crlf" in flags else "\n"
+    body = sep.join(body_lines).encode() if in_body else None
     return method, path, headers, body
 
 
@@ -205,11 +212,13 @@ def raw_request(item):
 class WS:
     """A minimal RFC 6455 client: text frames, close, permessage-deflate."""
 
-    def __init__(self, addr, extensions, timeout):
+    def __init__(self, addr, extensions, timeout, path="/v1/event-stream/", protocol=None):
         self.s = socket.create_connection(addr, timeout=timeout)
         key = base64.b64encode(b"irrd-ng-parity!!").decode()
-        req = (f"GET /v1/event-stream/ HTTP/1.1\r\nHost: {HOST_HEADER}\r\nUpgrade: websocket\r\n"
+        req = (f"GET {path} HTTP/1.1\r\nHost: {HOST_HEADER}\r\nUpgrade: websocket\r\n"
                f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n")
+        if protocol:
+            req += f"Sec-WebSocket-Protocol: {protocol}\r\n"
         if extensions:
             req += f"Sec-WebSocket-Extensions: {extensions}\r\n"
         self.s.sendall((req + "\r\n").encode())
@@ -279,16 +288,46 @@ class WS:
             pass
 
 
+def ws_options(head):
+    """`path=`, `protocol=` and the extensions from an @ws line."""
+    opts, rest = {}, head.strip()
+    while rest.startswith(("path=", "protocol=")):
+        tok, _, rest = rest.partition(" ")
+        k, _, v = tok.partition("=")
+        opts[k] = v
+        rest = rest.strip()
+    return opts.get("path", "/v1/event-stream/"), opts.get("protocol"), rest
+
+
 def run_ws(addr, item, timeout):
     segs = []
+    path, protocol, extensions = ws_options(item.head)
     try:
-        ws = WS(addr, item.head.strip(), timeout)
+        ws = WS(addr, extensions, timeout, path, protocol)
     except OSError as e:
         return [("ws", f"<<CONNECT FAILED {e.__class__.__name__}>>".encode())]
     segs.append(("head", DATE_RE.sub(rb"\1 <masked>", ws.head)))
+    if not ws.head.startswith(b"HTTP/1.1 101 "):
+        # Refused: the rest is the response body.
+        body = ws.buf
+        try:
+            while True:
+                chunk = ws.s.recv(65536)
+                if not chunk:
+                    break
+                body += chunk
+        except OSError:
+            pass
+        ws.close()
+        return segs + [("body", body)]
     try:
         for ln in item.lines:
-            if ln.startswith("send "):
+            if ln.startswith("sendbin "):
+                ws.send_frame(0x2, bytes.fromhex(ln[8:].strip()))
+            elif ln.startswith("close"):
+                code = ln[5:].strip()
+                ws.send_frame(0x8, struct.pack(">H", int(code)) if code else b"")
+            elif ln.startswith("send "):
                 ws.send_frame(0x1, ln[5:].encode())
             elif ln.strip() == "wait":
                 while True:
