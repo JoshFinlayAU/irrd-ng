@@ -36,6 +36,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod auth;
 pub mod classes;
 pub mod fields;
 pub mod ipy;

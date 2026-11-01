@@ -583,7 +583,7 @@ impl RpslObject {
 
     /// `_update_attribute_value`: replace every occurrence of `attribute`
     /// with `new_values`, inserted from the second line of the object.
-    fn update_attribute_value(
+    pub(crate) fn update_attribute_value(
         &mut self,
         attribute: &'static str,
         new_values: Vec<String>,
