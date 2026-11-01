@@ -523,7 +523,8 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
             // bytes.replace(str, bytes), which raises before any request
             // is made whenever the input has a password: line.
             return Err(Failure::X(
-                "Some other error: TypeError • a bytes-like object is required, not 'str'".to_owned(),
+                "Some other error: TypeError • a bytes-like object is required, not 'str'"
+                    .to_owned(),
                 EXIT_GENERAL,
             ));
         }
@@ -561,5 +562,43 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
         ExitCode::from(EXIT_REJECTED)
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_body_like_v4() {
+        let Ok((body, delete, n, pw)) = create_request_body(
+            "person: A\ndelete: first\noverride: o\n\nroute: x\ndelete: gone\n",
+        ) else {
+            panic!("body");
+        };
+        assert!(delete);
+        assert_eq!(n, 2);
+        assert!(pw.is_empty());
+        assert_eq!(
+            body,
+            "{\"objects\": [{\"object_text\": \"person: A\\n\"}, {\"object_text\": \"route: x\\n\"}], \"passwords\": [], \"override\": \"o\", \"delete_reason\": \"gone\"}"
+        );
+    }
+
+    #[test]
+    fn json_escapes_like_python() {
+        assert_eq!(
+            py_json_ascii("é\u{1F308}\""),
+            "\"\\u00e9\\ud83c\\udf08\\\"\""
+        );
+    }
+
+    #[test]
+    fn metadata_pairs() {
+        assert_eq!(
+            parse_metadata("a=b,c=d=e"),
+            Some(vec![("a".into(), "b".into()), ("c".into(), "d=e".into())])
+        );
+        assert_eq!(parse_metadata("bad"), None);
     }
 }
