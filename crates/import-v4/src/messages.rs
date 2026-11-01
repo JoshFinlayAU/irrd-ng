@@ -18,6 +18,26 @@ pub fn root_cert(path: &str, err: &str) -> String {
     format!("Unable to load sslrootcert {path}: {err}")
 }
 
+/// libpq's (16 and later) error when `verify-ca` or `verify-full` finds no
+/// root certificate file.
+pub fn root_cert_missing(path: &str) -> String {
+    format!(
+        "root certificate file \"{path}\" does not exist\n\
+         Either provide the file, use the system's trusted roots with sslrootcert=system, \
+         or change sslmode to disable server certificate verification."
+    )
+}
+
+/// libpq's error when there is no home directory to find `root.crt` in.
+pub const NO_HOME_FOR_ROOT_CERT: &str = "could not get home directory to locate root certificate file\n\
+     Either provide the file, use the system's trusted roots with sslrootcert=system, \
+     or change sslmode to disable server certificate verification.";
+
+/// libpq's error for `sslrootcert=system` with a weaker `sslmode`.
+pub fn weak_sslmode(mode: &str) -> String {
+    format!("weak sslmode \"{mode}\" may not be used with sslrootcert=system (use \"verify-full\")")
+}
+
 pub fn no_schema() -> String {
     "The source database has no alembic_version table; it is not an IRRd v4 database".to_owned()
 }
