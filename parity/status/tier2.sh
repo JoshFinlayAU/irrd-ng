@@ -108,7 +108,8 @@ scenario() { # name, v4 job, irrd-ng job, v4 args...
     echo "== $name (v4 $((t1 - t0))s, irrd-ng $((t2 - t1))s)"
     for side in v4 ng; do
       printf '  %s: %s lines;' "$side" "$(wc -l < "$d/$side.tsv")"
-      cut -f1,3,4 "$d/$side.tsv" | sort | uniq -c | awk '{printf " %s %s/%s/%s", $1, $2, $3, $4}'
+      awk -F'\t' '{print ($1 == "pseudo") ? "pseudo" : $1 "/" $3 "/" $4}' "$d/$side.tsv" | sort | uniq -c \
+        | awk '{printf " %s %s", $1, $2}'
       echo
     done
     if cmp -s "$d/v4.tsv" "$d/ng.tsv"; then
