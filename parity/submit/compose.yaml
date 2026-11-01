@@ -57,6 +57,9 @@ services:
     command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
     environment:
       IRRD_NG_STORE_PATH: /store
+      # Runs as root without user/group, which irrd refuses as v4 does
+      # unless CI is set (v4's own exception).
+      CI: "1"
     volumes:
       - ${WORK}/ng:/etc/irrd
       - ${WORK}/data:/data
