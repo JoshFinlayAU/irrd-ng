@@ -414,11 +414,9 @@ impl Handler {
         })
     }
 
-    fn emit(&self, r: &Record<'_>) {
-        if r.levelno < self.level {
-            return;
-        }
-        let msg = self.formatter.format(r);
+    /// Write one formatted record. `levelno` picks the syslog severity and
+    /// `raw` (the record's message) goes into the error report.
+    fn write(&self, msg: &str, levelno: u8, raw: &str) {
         let result = match &self.sink {
             Sink::Null => Ok(()),
             Sink::Stderr => writeln!(std::io::stderr().lock(), "{msg}"),
@@ -450,7 +448,7 @@ impl Handler {
                 }
             }
             Sink::Syslog { facility, target } => {
-                let packet = format!("<{}>{msg}\0", (facility << 3) | syslog_severity(r.levelno));
+                let packet = format!("<{}>{msg}\0", (facility << 3) | syslog_severity(levelno));
                 match target {
                     SyslogTarget::Unix { path, sock } => {
                         let mut s = sock.lock().unwrap_or_else(|e| e.into_inner());
@@ -487,9 +485,110 @@ impl Handler {
             let _ = writeln!(
                 std::io::stderr().lock(),
                 "--- Logging error ---\n{e}\nMessage: {}",
-                config::str_repr(r.message)
+                config::str_repr(raw)
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Background writer
+// ---------------------------------------------------------------------
+
+/// One write for the background writer.
+enum Out {
+    /// A formatted record for handler `idx` of `model`.
+    Line {
+        model: Arc<Model>,
+        idx: usize,
+        msg: String,
+        levelno: u8,
+        raw: String,
+    },
+    /// `logging.lastResort`: a bare message on stderr.
+    Stderr(String),
+    /// Acknowledge once everything queued before has been written.
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+/// The daemon's background log writer, once started.
+static WRITER: OnceLock<std::sync::mpsc::SyncSender<Out>> = OnceLock::new();
+
+/// Records queued for the background writer before callers wait: at
+/// about 250 bytes a record, up to some 64 MiB, which is several seconds
+/// of logging at the highest query rates the load bench reaches (a busy
+/// disk held writes for over 6 s there). The queue only fills while the
+/// log cannot be written.
+const WRITER_QUEUE: usize = 1 << 18;
+
+/// Hand `out` to the background writer, or give it back when there is
+/// none (the command line tools write directly).
+fn enqueue(out: Out) -> Result<(), Out> {
+    match WRITER.get() {
+        Some(tx) => tx.send(out).map_err(|e| e.0),
+        None => Err(out),
+    }
+}
+
+/// Write log records on a thread of their own, in the order they were
+/// logged. v4 logs from many processes, each writing its own records, so
+/// a slow log file or a busy journal holds up one worker; irrd-ng is one
+/// process, and with direct writes one write held up by the disk stopped
+/// every thread that logged meanwhile, which is every query (the load
+/// bench saw whole-server stalls of about a second). The records, their
+/// text and their order are unchanged. Only the daemon uses this; call
+/// [`flush`] before the process exits.
+pub(crate) fn start_background_writer() {
+    WRITER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Out>(WRITER_QUEUE);
+        let spawned = std::thread::Builder::new()
+            .name("log-writer".into())
+            .spawn(move || {
+                while let Ok(out) = rx.recv() {
+                    match out {
+                        Out::Line {
+                            model,
+                            idx,
+                            msg,
+                            levelno,
+                            raw,
+                        } => {
+                            if let Some(h) = model.handlers.get(idx) {
+                                h.write(&msg, levelno, &raw);
+                            }
+                        }
+                        Out::Stderr(line) => {
+                            let _ = writeln!(std::io::stderr().lock(), "{line}");
+                        }
+                        Out::Flush(ack) => {
+                            let _ = ack.send(());
+                        }
+                    }
+                }
+            });
+        if spawned.is_err() {
+            // No thread: a sender whose receiver is gone, so every record
+            // is written directly.
+            return std::sync::mpsc::sync_channel::<Out>(0).0;
+        }
+        tx
+    });
+}
+
+/// Calls [`flush`] when dropped.
+pub(crate) struct FlushOnDrop;
+
+impl Drop for FlushOnDrop {
+    fn drop(&mut self) {
+        flush();
+    }
+}
+
+/// Wait until the background writer has written everything logged so far.
+pub(crate) fn flush() {
+    let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+    if enqueue(Out::Flush(ack_tx)).is_ok() {
+        let _ = ack_rx.recv();
     }
 }
 
@@ -528,7 +627,7 @@ impl Model {
 
     /// `Logger.handle()`: the logger's handlers, then its ancestors' while
     /// propagation allows, then the root's.
-    fn handle(&self, r: &Record<'_>, root: u8) {
+    fn handle(self: &Arc<Self>, r: &Record<'_>, root: u8) {
         if r.levelno < self.effective_level(r.name, root) {
             return;
         }
@@ -538,9 +637,7 @@ impl Model {
             if let Some(l) = self.loggers.get(name) {
                 for h in &l.handlers {
                     found += 1;
-                    if let Some(h) = self.handlers.get(*h) {
-                        h.emit(r);
-                    }
+                    self.emit(*h, r);
                 }
                 if !l.propagate {
                     return;
@@ -550,13 +647,40 @@ impl Model {
         }
         for h in &self.root.handlers {
             found += 1;
-            if let Some(h) = self.handlers.get(*h) {
-                h.emit(r);
-            }
+            self.emit(*h, r);
         }
         if found == 0 && r.levelno >= 30 {
             // logging.lastResort
-            let _ = writeln!(std::io::stderr().lock(), "{}", r.message);
+            let line = r.message.to_owned();
+            if let Err(Out::Stderr(line)) = enqueue(Out::Stderr(line)) {
+                let _ = writeln!(std::io::stderr().lock(), "{line}");
+            }
+        }
+    }
+
+    /// `Handler.handle()`: format the record and write it, through the
+    /// background writer when there is one.
+    fn emit(self: &Arc<Self>, idx: usize, r: &Record<'_>) {
+        let Some(h) = self.handlers.get(idx) else {
+            return;
+        };
+        if r.levelno < h.level || matches!(h.sink, Sink::Null) {
+            return;
+        }
+        let msg = h.formatter.format(r);
+        let out = Out::Line {
+            model: self.clone(),
+            idx,
+            msg,
+            levelno: r.levelno,
+            raw: if WRITER.get().is_some() {
+                r.message.to_owned()
+            } else {
+                String::new()
+            },
+        };
+        if let Err(Out::Line { msg, .. }) = enqueue(out) {
+            h.write(&msg, r.levelno, r.message);
         }
     }
 }
@@ -871,7 +995,7 @@ mod tests {
             )],
             notices: Vec::new(),
         };
-        let m = build(&c).expect("build");
+        let m = Arc::new(build(&c).expect("build"));
         // The root level is v4's log.level, INFO here; irrd.mirroring
         // keeps its own DEBUG.
         assert_eq!(m.min_level(20), 10);
@@ -920,7 +1044,8 @@ mod tests {
             datefmt: None,
         })
         .expect("open");
-        h.emit(&record(30));
+        let r = record(30);
+        h.write(&h.formatter.format(&r), r.levelno, r.message);
         let mut buf = [0u8; 256];
         let n = server.recv(&mut buf).expect("recv");
         // LOG_LOCAL0 (16) << 3 | warning (4) = 132

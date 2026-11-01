@@ -2889,6 +2889,7 @@ dependencies = [
 name = "query"
 version = "0.0.0"
 dependencies = [
+ "foldhash 0.2.0",
  "nrtm",
  "rpki",
  "rpsl",

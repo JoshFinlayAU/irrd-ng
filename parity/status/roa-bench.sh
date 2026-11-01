@@ -4,6 +4,9 @@
 #
 #   parity/status/roa-bench.sh [N]     # N synthetic ROAs, default 1,000,000
 #
+# irrd-ng's figure is reported twice: maxrss (as v4's) and the peak of its
+# anonymous memory, without the store's page cache.
+#
 # Runs after parity/status/run.sh, on the state it left: the Tier 1
 # fixtures plus the status suite's sources, about 37,000 objects, in v4's
 # database and in irrd-ng's store. The ROAs are invented (consecutive /24s
@@ -53,11 +56,23 @@ print(f'BENCH seconds {time.time() - t:.1f} maxrss_kb {resource.getrusage(resour
 "
 }
 ngjob() {
+  # maxrss counts the pages of the memory-mapped store the job touched
+  # (page cache, reclaimable), which v4's figure leaves out: its database
+  # is in another process. So irrd-ng's anonymous memory is sampled too.
   python3 -I -c '
 import resource, subprocess, sys, time
 t = time.time()
-subprocess.run(sys.argv[1:])
-print(f"BENCH seconds {time.time() - t:.1f} maxrss_kb {resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss}")
+p = subprocess.Popen(sys.argv[1:])
+anon = 0
+while p.poll() is None:
+    try:
+        for line in open(f"/proc/{p.pid}/status"):
+            if line.startswith("RssAnon:"):
+                anon = max(anon, int(line.split()[1]))
+    except OSError:
+        pass
+    time.sleep(0.1)
+print(f"BENCH seconds {time.time() - t:.1f} maxrss_kb {resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss} anon_peak_kb {anon}")
 ' "$IRRD_NG" run-job --config "$work/irrd-ng.yaml" roa-import
 }
 for round in 1 2; do

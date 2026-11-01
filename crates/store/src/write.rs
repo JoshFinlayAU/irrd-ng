@@ -42,6 +42,9 @@ const DH_LOG_TARGET: &str = "irrd.storage.database_handler";
 /// v4's `MAX_RECORDS_BUFFER_BEFORE_INSERT`.
 pub const MAX_RECORDS_BUFFER_BEFORE_INSERT: usize = 15000;
 
+/// Buffered ROAs written before the end of the transaction.
+const ROA_BUFFER_FLUSH: usize = 16384;
+
 /// v4's `PROTECTED_NAME_OBJECT_CLASSES`.
 pub const PROTECTED_NAME_OBJECT_CLASSES: &[&str] = &["person", "role", "mntner"];
 
@@ -404,7 +407,11 @@ impl<'t, 'e> WriteTx<'t, 'e> {
     }
 
     /// `insert_roa_object(ip_version, prefix_str, asn, max_length,
-    /// trust_anchor)`: buffered until commit, as v4's COPY is.
+    /// trust_anchor)`: buffered, as v4 buffers for its COPY at commit, and
+    /// written at commit or every 16,384 rows. Reads in the
+    /// same transaction may so see some of the new ROAs before commit,
+    /// where v4's would see none; the only writer of ROAs, the ROA import,
+    /// reads none before it commits.
     pub fn insert_roa_object(
         &mut self,
         ip_version: u8,
@@ -423,6 +430,13 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             ip_version,
             created: self.txn_now,
         });
+        // v4 writes the ROAs with COPY when the transaction flushes; a
+        // large buffer is written in batches instead, which ends in the
+        // same rows and raises the same conflict for a repeated ROA, but
+        // keeps a million-ROA import from holding every row in memory.
+        if self.roa_buffer.len() >= ROA_BUFFER_FLUSH {
+            self.flush_roa_writing_buffer()?;
+        }
         Ok(())
     }
 

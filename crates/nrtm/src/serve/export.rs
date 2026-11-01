@@ -153,7 +153,7 @@ fn write_export(
     let source = settings.name.as_str();
     let path_str = path.to_string_lossy().into_owned();
     let io = |e: std::io::Error| os_error_text(&e, Some(&path_str));
-    let txn = store.read().map_err(|e| e.to_string())?;
+    let txn = store.read_long().map_err(|e| e.to_string())?;
     let view = txn.view();
     let serial = view
         .database_status(source)

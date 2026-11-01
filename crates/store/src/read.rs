@@ -28,6 +28,8 @@ pub type ObjectId = u64;
 pub struct ReadTx {
     inner: Arc<Inner>,
     txn: Option<RoTxn<'static, WithoutTls>>,
+    /// Registered as a long reader (see `ReaderGate`).
+    long: bool,
 }
 
 impl std::fmt::Debug for ReadTx {
@@ -37,15 +39,16 @@ impl std::fmt::Debug for ReadTx {
 }
 
 impl ReadTx {
-    pub(crate) fn begin(inner: Arc<Inner>) -> Result<Self> {
-        inner.gate.enter();
+    pub(crate) fn begin(inner: Arc<Inner>, long: bool) -> Result<Self> {
+        inner.gate.enter(long);
         match inner.env.clone().static_read_txn() {
             Ok(txn) => Ok(ReadTx {
                 inner,
                 txn: Some(txn),
+                long,
             }),
             Err(e) => {
-                inner.gate.leave();
+                inner.gate.leave(long);
                 Err(e.into())
             }
         }
@@ -71,7 +74,7 @@ impl ReadTx {
 impl Drop for ReadTx {
     fn drop(&mut self) {
         drop(self.txn.take());
-        self.inner.gate.leave();
+        self.inner.gate.leave(self.long);
     }
 }
 
@@ -297,6 +300,18 @@ impl<'a> ReadView<'a> {
         ip_version: Option<u8>,
     ) -> Result<Vec<OriginRoute>> {
         index::routes_for_origin(&self.t, self.txn, source, asn, ip_version)
+    }
+
+    /// [`ReadView::routes_for_origin`], handing each route to `f` in the
+    /// same order instead of collecting them.
+    pub fn for_each_route_for_origin(
+        &self,
+        source: &str,
+        asn: u32,
+        ip_version: Option<u8>,
+        f: impl FnMut(OriginRoute),
+    ) -> Result<()> {
+        index::for_each_route_for_origin(&self.t, self.txn, source, asn, ip_version, f)
     }
 
     // ---- journal ----

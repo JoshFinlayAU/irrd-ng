@@ -127,6 +127,9 @@ fn bind(interface: &str, port: u16, backlog: i32) -> std::io::Result<tokio::net:
     tokio::net::TcpListener::from_std(socket.into())
 }
 
+/// The whois listener's accept queue (see `run_irrd`).
+const WHOIS_BACKLOG: i32 = 1024;
+
 /// Log panics with a backtrace instead of printing them. A panic in a
 /// connection or request is contained by the caller; one in the store's
 /// single writer thread leaves the daemon unable to write, so it stops.
@@ -138,6 +141,7 @@ pub(crate) fn install_panic_hook() {
         tracing::error!(target: LOG_TARGET, "{}", messages::panicked(&name, &info.to_string(), &backtrace.to_string()));
         if name == store::WRITER_THREAD_NAME {
             tracing::error!(target: LOG_TARGET, critical = true, "{}", messages::WRITER_PANICKED);
+            crate::logging::flush();
             std::process::exit(1);
         }
     }));
@@ -444,6 +448,9 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
         eprintln!("{}", e.0);
         return ExitCode::from(1);
     }
+    logging::start_background_writer();
+    // Every return from here on writes out what was logged first.
+    let _flush = logging::FlushOnDrop;
     install_panic_hook();
 
     let owner = match configured_owner(
@@ -504,8 +511,13 @@ fn run_irrd(cfg: &mut Configuration, store_path: &std::path::Path, owner: Owner)
         "{}",
         query::messages::log_starting_whois(&whois_interface, whois_port)
     );
-    // socketserver.TCPServer.request_queue_size
-    let whois_listener = match bind_std(&whois_interface, whois_port, 50) {
+    // v4 sets socketserver.TCPServer.request_queue_size to 50. That queue
+    // is not visible to clients until it overflows, and then the kernel
+    // drops new connections and clients retry after a second or more: the
+    // load bench saw exactly that with 64 clients asking one query per
+    // connection. irrd-ng accepts from one loop for every connection, so
+    // it keeps a deeper queue (the kernel caps it at net.core.somaxconn).
+    let whois_listener = match bind_std(&whois_interface, whois_port, WHOIS_BACKLOG) {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(target: LOG_TARGET, critical = true, "{}", messages::bind_failed("whois", &whois_interface, whois_port, &e));

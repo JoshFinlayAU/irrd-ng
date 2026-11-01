@@ -282,6 +282,15 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
 
 /// Readers register here so the writer can resize the map, which LMDB
 /// only allows while no transaction is open in this process.
+///
+/// Readers come in two kinds. Short ones (a query, a journal poll) are
+/// held back while a resize runs and the resize waits for them to finish,
+/// which takes milliseconds. Long ones (a standby snapshot, an export) can
+/// last minutes, so a resize that needs one to finish waits for it
+/// without holding back short readers in the meantime: queries keep being
+/// answered and only the write that needed the space waits. A long reader
+/// that arrives while a resize is waiting waits for the resize, so a
+/// stream of long readers cannot hold it off for ever.
 #[derive(Debug, Default)]
 pub(crate) struct ReaderGate {
     state: Mutex<GateState>,
@@ -291,30 +300,50 @@ pub(crate) struct ReaderGate {
 #[derive(Debug, Default)]
 struct GateState {
     readers: usize,
+    long_readers: usize,
+    /// A resize is waiting for the long readers to finish.
+    waiting: bool,
+    /// A resize is waiting for the short readers, or running.
     resizing: bool,
 }
 
 impl ReaderGate {
-    pub(crate) fn enter(&self) {
+    pub(crate) fn enter(&self, long: bool) {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        while s.resizing {
+        while s.resizing || (long && s.waiting) {
             s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
         }
         s.readers += 1;
+        if long {
+            s.long_readers += 1;
+        }
     }
 
-    pub(crate) fn leave(&self) {
+    pub(crate) fn leave(&self, long: bool) {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         s.readers = s.readers.saturating_sub(1);
-        self.cv.notify_all();
+        if long {
+            s.long_readers = s.long_readers.saturating_sub(1);
+        }
+        // Only a resize waits for readers to leave; readers wait for the
+        // resize, which wakes them itself. Without one there is nobody to
+        // wake, and the wake-up is a system call on every query.
+        if s.waiting || s.resizing {
+            self.cv.notify_all();
+        }
     }
 
     /// Run `f` with no read transaction open in this process.
     pub(crate) fn exclusive<R>(&self, f: impl FnOnce() -> R) -> R {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        while s.resizing {
+        while s.resizing || s.waiting {
             s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
         }
+        s.waiting = true;
+        while s.long_readers > 0 {
+            s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
+        }
+        s.waiting = false;
         s.resizing = true;
         while s.readers > 0 {
             s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());

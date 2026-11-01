@@ -14,7 +14,6 @@
 //! always apply default suppression.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -163,6 +162,12 @@ impl SetClass {
         }
     }
 }
+
+/// The sets of names set resolution builds. They are only looked up and
+/// iterated into results that are sorted afterwards, so the hasher does
+/// not show in any answer; foldhash is much cheaper than SipHash on these
+/// short keys, and set expansion spends a good part of its time hashing.
+type HashSet<T> = std::collections::HashSet<T, foldhash::fast::RandomState>;
 
 /// A set of member or set names.
 type Names<'t> = HashSet<Cow<'t, str>>;
@@ -709,19 +714,19 @@ impl QueryResolver {
         asns.dedup();
         for source in sources {
             for &asn in &asns {
-                for r in view.routes_for_origin(source, asn, ip_version)? {
+                view.for_each_route_for_origin(source, asn, ip_version, |r| {
                     if !(matches!(r.rpki_status, RpkiStatus::NotFound | RpkiStatus::Valid)
                         && r.scopefilter_status == ScopeFilterStatus::InScope
                         && r.route_preference_status == RoutePreferenceStatus::Visible)
                     {
-                        continue;
+                        return;
                     }
                     let (v, a) = match r.ip_first {
                         IpAddr::V4(x) => (4, u128::from(u32::from(x))),
                         IpAddr::V6(x) => (6, u128::from(x)),
                     };
                     out.push((v, a, r.prefix_length));
-                }
+                })?;
             }
         }
         Ok(())
@@ -754,8 +759,8 @@ impl QueryResolver {
             excluded: exclude_sets.iter().cloned().collect(),
             max_depth: 0,
         };
-        let mut seen = HashSet::new();
-        let start: HashSet<Cow<'_, str>> = [Cow::Owned(set_name.to_owned())].into();
+        let mut seen = HashSet::default();
+        let start: HashSet<Cow<'_, str>> = HashSet::from_iter([Cow::Owned(set_name.to_owned())]);
         let members = self.recursive_set_resolve(view, &mut st, start, &mut seen, None)?;
         let mut out = Vec::new();
         self.routes_for_origins(
@@ -784,13 +789,13 @@ impl QueryResolver {
             excluded: exclude_sets.iter().cloned().collect(),
             max_depth: depth,
         };
-        let start: HashSet<Cow<'_, str>> = [Cow::Owned(parameter.to_owned())].into();
+        let start: HashSet<Cow<'_, str>> = HashSet::from_iter([Cow::Owned(parameter.to_owned())]);
         let mut members: HashSet<Cow<'_, str>> = if !recursive {
             let (mut members, leaf) = self.find_set_members(view, &mut st, &start, root_source)?;
             members.extend(leaf);
             members
         } else {
-            let mut seen = HashSet::new();
+            let mut seen = HashSet::default();
             self.recursive_set_resolve(view, &mut st, start, &mut seen, root_source)?
         };
         members.remove(parameter);
@@ -818,7 +823,7 @@ impl QueryResolver {
         sets_seen: &mut HashSet<Cow<'t, str>>,
         root_source: Option<&str>,
     ) -> QResult<HashSet<Cow<'t, str>>> {
-        let mut result: HashSet<Cow<'t, str>> = HashSet::new();
+        let mut result: HashSet<Cow<'t, str>> = HashSet::default();
         let mut members = members;
         let mut root_source = root_source;
         for _ in 0..MAX_SET_LEVELS {
@@ -827,8 +832,8 @@ impl QueryResolver {
             }
             sets_seen.extend(members.iter().cloned());
 
-            let mut set_members: HashSet<Cow<'t, str>> = HashSet::new();
-            let mut resolved_as_members: HashSet<Cow<'t, str>> = HashSet::new();
+            let mut set_members: HashSet<Cow<'t, str>> = HashSet::default();
+            let mut resolved_as_members: HashSet<Cow<'t, str>> = HashSet::default();
             let (sub_members, leaf_members) =
                 self.find_set_members(view, st, &members, root_source)?;
 
@@ -893,8 +898,8 @@ impl QueryResolver {
         set_names: &HashSet<Cow<'t, str>>,
         limit_source: Option<&str>,
     ) -> QResult<(Names<'t>, Names<'t>)> {
-        let mut members = HashSet::new();
-        let mut leaf = HashSet::new();
+        let mut members = HashSet::default();
+        let mut leaf = HashSet::default();
         let limited;
         let sources: &[String] = match limit_source {
             Some(s) => {
