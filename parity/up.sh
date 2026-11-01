@@ -3,6 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p "${PARITY_CACHE:-.cache}"
+# Create the bind-mounted work directory as this user; left to Docker it is
+# created as root, and later steps (status/run.sh) cannot write beside it.
+mkdir -p "${PARITY_TIER1_WORK:-.work/tier1}"
 docker compose up -d --build --wait postgres redis mailpit
 docker compose up -d irrd-v4
 for _ in $(seq 1 90); do
