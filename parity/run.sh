@@ -111,7 +111,7 @@ run_api_suite() {
 }
 graphql_suite() {
   v4/preload-kick.sh irrd-v4 9080
-  run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq --corpus corpus/graphql/edge.gq
+  run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq --corpus corpus/graphql/edge.gq --corpus corpus/graphql/transport.gq
 }
 # One request at a time: v4 stalls when /v1/status/ requests overlap.
 api_suite() { run_api_suite api --corpus corpus/http/api.gq --jobs 1; }
