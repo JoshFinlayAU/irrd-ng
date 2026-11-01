@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,17 +36,16 @@ def mask(text):
     return text
 
 
-def collect(ws, seconds):
-    out = []
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+def reader(ws, out, stop):
+    """Read continuously (answering pings, which uvicorn expects within
+    60 seconds) until told to stop or the server closes."""
+    while not stop.is_set():
         m = ws.recv(0.5)
         if m is None:
             continue
         out.append(m)
         if m[0] in ("close", "eof"):
             break
-    return out
 
 
 def main():
@@ -57,20 +57,25 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    streams = {}
+    streams, stop = {}, threading.Event()
     for name, addr in (("v4", args.ref), ("ng", args.test)):
         ws = http_diff.WS(addr, "", 30)
-        header = ws.recv(5)
+        ws.recv(5)
         ws.send_frame(0x1, json.dumps({"message_type": "subscribe"}).encode())
-        streams[name] = (ws, header)
+        msgs = []
+        t = threading.Thread(target=reader, args=(ws, msgs, stop), daemon=True)
+        t.start()
+        streams[name] = (ws, msgs, t)
     time.sleep(1)
     for cmd in (args.v4_cmd, args.ng_cmd):
         subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
+    # v4 publishes within the commit; irrd-ng's watcher picks up a write
+    # from another process within two seconds.
+    time.sleep(8)
+    stop.set()
     got = {}
-    for name, (ws, header) in streams.items():
-        # v4 publishes within the commit; irrd-ng's watcher picks up a
-        # write from another process within two seconds.
-        msgs = collect(ws, 8)
+    for name, (ws, msgs, t) in streams.items():
+        t.join(5)
         got[name] = [mask(m[1]) for m in msgs if m[0] == "text"]
         ws.close()
     same = got["v4"] == got["ng"]
