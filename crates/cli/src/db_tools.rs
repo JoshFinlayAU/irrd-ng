@@ -214,7 +214,7 @@ fn parse_file(p: &Prepared, keep_plain_text: bool) -> Result<file_import::Parsed
         eprintln!("{e}");
         ExitCode::from(1)
     })?;
-    let keyring = rpsl::Keyring::new();
+    let keyring = nrtm::keyring::StoreKeyring::load(&p.store);
     let roa = {
         let r = p.store.read().map_err(store_err)?;
         rpki::BulkRouteRoaValidator::from_store(&r.view(), settings::rpki_excluded_sources(&p.cfg))
@@ -268,7 +268,7 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
         paragraphs,
         import: import_settings(&p, false),
         rpsl_settings,
-        keyring: rpsl::Keyring::new(),
+        keyring: nrtm::keyring::load_keyring(&p.store),
         scopefilter: rpki::ScopeFilterValidator::new(settings::scopefilter_config(&p.cfg)),
         rpki_excluded: settings::rpki_excluded_sources(&p.cfg),
     });
@@ -281,6 +281,7 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     };
     let failure: std::sync::Arc<std::sync::Mutex<Option<ImportError>>> = Default::default();
     let fail_slot = failure.clone();
+    let keyring_job = job.clone();
     // v4 logs the report before it commits (and so before route
     // preference runs at commit): log from inside the transaction, once.
     let logged = std::sync::atomic::AtomicBool::new(false);
@@ -319,6 +320,8 @@ pub(crate) fn load_database(args: &[OsString]) -> ExitCode {
     if let Err(e) = bulk.finish() {
         return store_err(e);
     }
+    // Like v4's GnuPG keyring, imported keys stay whatever the outcome.
+    nrtm::keyring::save_keyring(&p.store, &keyring_job.keyring);
     if let Some(e) = failure.lock().ok().and_then(|mut f| f.take()) {
         return import_failed(e);
     }

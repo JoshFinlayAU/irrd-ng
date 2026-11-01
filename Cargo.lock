@@ -2936,8 +2936,10 @@ name = "rpsl"
 version = "0.0.0"
 dependencies = [
  "num-bigint",
+ "postcard",
  "pwhash",
  "sequoia-openpgp",
+ "serde",
  "serde_json",
  "thiserror",
 ]

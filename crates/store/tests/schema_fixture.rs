@@ -135,6 +135,7 @@ fn populate(store: &Store) {
                 created: ts(),
                 last_used: ts(),
             })?;
+            tx.put_pgp_key("0123456789ABCDEF0123456789ABCDEF01234567", b"test key")?;
             tx.put_change_log(&ChangeLogRow {
                 pk: uuid(10),
                 auth_by_user_id: Some(uuid(3)),
@@ -254,6 +255,14 @@ fn every_committed_schema_version_opens() {
             v.change_logs().expect("c")[0].rpsl_target_request_type,
             Some(UpdateRequestType::Create)
         );
+        // The keyring arrived in version 4; older stores start empty.
+        let keys = v.pgp_keyring().expect("keyring");
+        if version >= 4 {
+            assert_eq!(keys.len(), 1);
+            assert_eq!(keys[0].1, b"test key");
+        } else {
+            assert!(keys.is_empty());
+        }
     }
 }
 

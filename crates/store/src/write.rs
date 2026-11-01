@@ -1341,6 +1341,16 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         Ok(())
     }
 
+    /// Store one PGP keyring entry (see [`crate::ReadView::pgp_keyring`]).
+    /// The keyring is not part of any v4 table and is never journaled.
+    pub fn put_pgp_key(&mut self, fingerprint: &str, encoded: &[u8]) -> Result<()> {
+        self.check_write_permitted()?;
+        self.t
+            .pgp_keyring
+            .put(self.txn, fingerprint.as_bytes(), encoded)?;
+        Ok(())
+    }
+
     pub(crate) fn set_meta(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         self.t.meta.put(self.txn, key, value)?;
         Ok(())

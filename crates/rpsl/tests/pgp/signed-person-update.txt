@@ -1,0 +1,29 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+person: Test person changed by PGP signed update
+address: DashCare BV
+address: Amsterdam
+address: The Netherlands
+phone: +31 20 000 0000
+nic-hdl: PERSON-TEST
+mnt-by: TEST-MNT
+e-mail: email@example.com
+changed: changed@example.com 20190701 # comment
+source: TEST
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCAAdFiEEhiYdjb69pPVGktZNqDg7p4DyOMYFAl0jNUQACgkQqDg7p4Dy
+OMabkBAAq5gCcytpw9UwXMOkLXS2Fd0QfgVRpnc6l0aBmi7uWU6xWe72GU+LaNcC
+1vi/OQqT38hXKtDmPMeItPhy5MHanagZZL+ZtVK3SGUaG3rV560Mna2sEnNTeJcb
+OvMEg8JXDUP3O4T3kNudTCnBj2d1JhQUNfm7CivWMFe9dxfw+rvirzUnWlhKUZY/
+93FGZ1/FpjlAOrLpcFTdvBXajBgpCCHTyTSWBs2KuR2gEWOzIzkyWXIHupwym671
+nTg++M/ziPyYJXDv7PqKiBU3DnvSAAOialhk1fse9YW1Dj2dcHz8s2Ex8gv2TcLi
+9e6gCF2rOBnusO3yVcqKNBEbpqB+wCbLPGG1C+8n177opTxUipm5kadDBRQy/sZA
+P6740cd5Jky1gzWDykch+8ttd8MNVFoNotk1MpauU2zP5/agPuDJuoF6RbCMqX62
+MsWp+9c1rlNNUTgQfqxTaEZ+oIj/mLK36iiMQzy0ey9GT/Viuow2WYDjDI5P+OB2
+mZp0grLzKK07KdTf/+1WYZb09GhSYzPlKyg12KP3Zoaklh83uYn06mqaeN6YEXYE
+zwBzW+p+qqN0rNRMFTNy3WnVVzZY5UWljU83jMBQkXiOSxo72/yIpG89xzi24Bqp
++pewy9PIcK1JBKvGyeO2Gh1K2tsrVYzs7aP5/RmkmUyrQeXa3l4=
+=FLEo
+-----END PGP SIGNATURE-----
