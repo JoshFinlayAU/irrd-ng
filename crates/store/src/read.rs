@@ -350,6 +350,17 @@ impl<'a> ReadView<'a> {
         }))
     }
 
+    /// `MAX(serial_global)` over the whole journal
+    /// (`RPSLDatabaseJournalStatisticsQuery`), `None` when it is empty.
+    pub fn max_serial_global(&self) -> Result<Option<i64>> {
+        match self.t.journal_global.last(self.txn)? {
+            Some((k, _)) => Ok(Some(
+                crate::keys::serial_from(k).ok_or(StoreError::Corrupt("journal_global"))?,
+            )),
+            None => Ok(None),
+        }
+    }
+
     /// The last value handed out by the `serial_global` sequence.
     pub fn serial_global_last_value(&self) -> Result<i64> {
         query::serial_global_last(&self.t, self.txn)

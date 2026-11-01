@@ -19,7 +19,7 @@ const TOOLS: &[(&str, Tool)] = &[
     ("irrd_load_database", db_tools::load_database),
     ("irrd_update_database", db_tools::update_database),
     ("irrd_set_last_modified_auth", not_implemented),
-    ("irrd_expire_journal", not_implemented),
+    ("irrd_expire_journal", crate::serving_tools::expire_journal),
     (
         "irrd_mirror_force_reload",
         crate::mirror_tools::force_reload,
@@ -33,6 +33,7 @@ const TOOLS: &[(&str, Tool)] = &[
 const HIDDEN: &[(&str, Tool)] = &[
     ("export-jsonl", db_tools::export_jsonl),
     ("store-info", db_tools::store_info),
+    ("run-export", crate::serving_tools::run_export),
     ("run-job", crate::job_tool::run_job),
 ];
 

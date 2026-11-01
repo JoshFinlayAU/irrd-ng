@@ -69,7 +69,7 @@ struct Tracker {
     sources_rpsl_data_updated: HashSet<String>,
     newest_mirror_serials: HashMap<String, i64>,
     mirroring_error: HashMap<String, String>,
-    exported_serials: HashMap<String, i64>,
+    exported_serials: HashMap<String, Option<i64>>,
     nrtm4_client_status: HashMap<String, Nrtm4ClientStatus>,
     nrtm4_server_status: HashMap<String, Nrtm4ServerStatus>,
     is_serial_synchronised: HashMap<String, bool>,
@@ -742,8 +742,9 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         Ok(())
     }
 
-    /// `record_serial_exported(source, serial)`
-    pub fn record_serial_exported(&mut self, source: &str, serial: i64) -> Result<()> {
+    /// `record_serial_exported(source, serial)`. v4 records `None` for a
+    /// source exported before it had any serial.
+    pub fn record_serial_exported(&mut self, source: &str, serial: Option<i64>) -> Result<()> {
         self.check_write_permitted()?;
         self.tracker.sources_seen.insert(source.to_owned());
         self.tracker
@@ -978,7 +979,7 @@ impl<'t, 'e> WriteTx<'t, 'e> {
         }
         for (source, serial) in self.tracker.exported_serials.clone() {
             self.update_status(&source, |st| {
-                st.serial_last_export = Some(serial);
+                st.serial_last_export = serial;
                 st.updated = txn_now;
             })?;
         }

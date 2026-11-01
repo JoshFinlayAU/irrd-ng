@@ -171,6 +171,21 @@ pub fn nrtm_serials_missing(a: i64, b: i64) -> String {
     format!("Serials {a} - {b} do not exist")
 }
 
+/// `Serial range requested exceeds maximum range of {range_limit}`
+pub fn nrtm_range_exceeded(range_limit: &str) -> String {
+    format!("Serial range requested exceeds maximum range of {range_limit}")
+}
+
+/// `There are no journal entries greater than or equal to this serial {start}.`
+pub fn nrtm_no_entries_from(start: i64) -> String {
+    format!("There are no journal entries greater than or equal to this serial {start}.")
+}
+
+/// `Requesting serials older than {days_limit} days will be rejected`
+pub fn nrtm_too_old(days_limit: &str) -> String {
+    format!("Requesting serials older than {days_limit} days will be rejected")
+}
+
 // ---- server.py ----
 
 /// Sent (without a newline) to a client outside the access list.

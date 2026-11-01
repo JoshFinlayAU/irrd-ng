@@ -167,7 +167,7 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
 }
 
 async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
-    let nrtm: Arc<dyn query::NrtmV3> = Arc::new(query::NrtmNotServed);
+    let nrtm: Arc<dyn query::NrtmV3> = Arc::new(query::NrtmServer);
     let query_settings = Arc::new(settings::query_settings(cfg));
 
     let whois_interface =

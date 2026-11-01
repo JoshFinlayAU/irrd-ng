@@ -27,7 +27,7 @@ const FORCE_RELOAD: Parser = Parser {
 /// v4's logger for the control tool.
 const CTL_LOG_TARGET: &str = "irrd.scripts.irrd_control";
 
-fn open_store(cfg: &Configuration) -> Result<Store, ExitCode> {
+pub(crate) fn open_store(cfg: &Configuration) -> Result<Store, ExitCode> {
     Store::open(
         &StoreOptions::new(settings::store_path()),
         settings::store_settings(cfg),
@@ -179,7 +179,7 @@ fn usage_error(cmd: &Command, msg: &str) -> ExitCode {
 }
 
 /// click's `ClickException`: `Error: ...`; exit 1.
-fn click_exception(msg: &str) -> ExitCode {
+pub(crate) fn click_exception(msg: &str) -> ExitCode {
     eprintln!("Error: {msg}");
     ExitCode::from(1)
 }
@@ -416,7 +416,8 @@ pub(crate) fn irrdctl(args: &[OsString]) -> ExitCode {
             };
             match sub.as_str() {
                 "client-clear-known-keys" => client_clear_known_keys(&cfg, &positional[0]),
-                _ => not_implemented(cmd.path),
+                "generate-private-key" => crate::serving_tools::generate_private_key(),
+                _ => crate::serving_tools::server_show_public_key(&cfg, &positional[0]),
             }
         }
         other => {

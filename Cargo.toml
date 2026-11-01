@@ -33,7 +33,13 @@ p256 = { version = "0.14.0", default-features = false, features = ["arithmetic",
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls-manual-roots-no-provider", "gzip", "deflate"] }
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"] }
 suppaftp = { version = "12.2.1", default-features = false, features = ["tokio"] }
-flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["zlib"] }
+# The reference zlib, built from source and linked statically: exports and
+# NRTMv4 files are byte-identical to v4's only with the same deflate
+# implementation as CPython's zlib module (zlib 1.3.1). zlib-rs and
+# miniz_oxide produce different, equally valid, streams.
+libz-sys = { version = "1.1.31", default-features = false, features = ["static", "libc"] }
+getrandom = "0.4.3"
 sha2 = { version = "0.11.1", default-features = false }
 tempfile = "3.27.0"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }

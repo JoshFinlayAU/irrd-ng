@@ -94,6 +94,20 @@ Signatures on NRTMv4 Update Notification Files are ES256 JWS, verified with the 
 
 There's one place we deliberately don't follow v4 here. v4's NRTMv4 client keeps the file hashes it has seen across sessions, and file names like `snapshot-1` get reused when a server resets its session, so after a reset v4 decides the server is rewriting history and stays stuck on every run until someone edits the database by hand. irrd-ng only compares hashes within one session, so it reloads from the new snapshot and carries on. That's DIV-003, and the mirroring side-by-side checks both halves of it: v4 still gets stuck, and irrd-ng ends up identical to the upstream.
 
+## Serving data
+
+irrd-ng serves its data to other IRR servers the three ways v4 does, and a v4 mirror can't tell which of the two it is following.
+
+- **NRTMv3** (`-g` on the whois port) is answered straight from the journal table by the query engine, with v4's checks in v4's order: access lists, `keep_journal`, the serial range, `nrtm_query_serial_range_limit` and `nrtm_query_serial_days_limit`, then the optional `nrtm_response_header`. Clients in `nrtm_access_list_unfiltered` get the objects as stored; everyone else gets password hashes removed and the `nrtm_dummified_*` attributes replaced.
+- **Exports** (`export_destination`, `export_destination_unfiltered`, `export_timer`) are written the way v4's `SourceExportRunner` writes them: a gzipped dump in v4's object order without suppressed objects, then `# EOF`, written to a temporary file and moved into place, plus the `CURRENTSERIAL` file.
+- **NRTMv4** is v4's `NRTM4ServerWriter`: snapshots, deltas and a signed Update Notification File in `nrtm4_server_local_path`, for a web server to publish. Like v4, irrd-ng has no HTTP route for these files. Sessions, key rotation with `nrtm4_server_private_key_next`, the snapshot frequency, the integrity check and the 24-hour expiry of deltas and dangling snapshots all follow v4. The two lock files v4 keeps in `piddir` are in-process locks, since every server runs in the one process.
+
+Exports and NRTMv4 files are byte-identical to v4's, apart from the gzip header's time and file name fields, which v4 itself never writes the same way twice. Getting there took one deliberate dependency choice: the deflate stream depends on the compressor, and neither pure-Rust implementation (miniz_oxide, zlib-rs) produces the bytes CPython's zlib does. irrd-ng links the reference zlib 1.3.1, built from source and linked statically, which also keeps the musl build static. The JSON in NRTMv4 files is written the way ujson writes it (every `/` escaped, non-ASCII as `\u` escapes), and the Update Notification File the way pydantic writes it.
+
+There is one place where irrd-ng is more consistent than v4 rather than identical. v4 reads the newest journal serial, the delta's entries and the snapshot's objects in one READ COMMITTED transaction, so a change committed during a run can land in a snapshot and be sent again in the next delta. irrd-ng reads all three from one LMDB snapshot. The files are the same whenever nothing is written during a run, which is what the differential checks.
+
+The serving differential, `parity/mirror/serve.sh`, runs a v4 upstream and an irrd-ng upstream side by side, feeds both the same changes, and has a v4 mirror follow each one. After every step it compares the two mirrors, the two upstreams, the exports byte for byte, what the two NRTMv4 repositories serve, and the NRTMv3 answers from `parity/corpus/whois/nrtm.q`.
+
 ## RPKI, scope filter and route preference
 
 Every route object carries three statuses, as in v4: RPKI (`valid`, `invalid`, `not_found`), scope filter (`in_scope`, `out_scope_as`, `out_scope_prefix`) and route preference (`visible`, `suppressed`). An object that is invalid, out of scope or suppressed is hidden from queries (unless a `!f` override asks for it), from exports and from mirrors. When a status change makes an object appear or disappear, the journal gets an entry for it, with the origin `rpki_status`, `scope_filter` or `route_preference`, so NRTM mirrors follow along.

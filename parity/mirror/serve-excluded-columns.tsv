@@ -1,0 +1,17 @@
+# Columns left out when comparing the serving differential's two sides
+# (parity/mirror/serve.sh), on top of excluded-columns.tsv. Each depends on
+# which NRTMv4 server wrote the files or when it ran, not on the data.
+#
+# table.column	reason
+database_status.nrtm4_client_session_id	each upstream picks its own session ID
+database_status.nrtm4_client_version	deltas are grouped by when each upstream ran
+database_status.nrtm4_client_previous_file_hashes	file hashes of differently named and timed files
+database_status.nrtm4_server_session_id	uuid4() per session
+database_status.nrtm4_server_version	deltas are grouped by when each server ran
+database_status.nrtm4_server_last_update_notification_file_update	now() of the last run
+database_status.nrtm4_server_last_snapshot_version	the version at the moment the first snapshot was made
+database_status.nrtm4_server_last_snapshot_global_serial	serial_global at that moment
+database_status.nrtm4_server_last_snapshot_filename	random token in the name
+database_status.nrtm4_server_last_snapshot_timestamp	now() of the run
+database_status.nrtm4_server_last_snapshot_hash	the file includes a random name and a time
+database_status.nrtm4_server_previous_deltas	names, hashes and times of the delta files

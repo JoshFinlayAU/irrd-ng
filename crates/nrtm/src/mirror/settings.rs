@@ -12,6 +12,11 @@ pub const DEFAULT_SOURCE_IMPORT_TIMER: i64 = 300;
 pub const DEFAULT_SOURCE_IMPORT_TIMER_NRTM4: i64 = 60;
 /// v4's `DEFAULT_SOURCE_EXPORT_TIMER`.
 pub const DEFAULT_SOURCE_EXPORT_TIMER: i64 = 3600;
+/// v4's `DEFAULT_SOURCE_EXPORT_TIMER_NRTM4`: how often the NRTMv4 server
+/// runs (0 with `IRRD_TESTING_FAST_SCHEDULER_OVERRIDE`).
+pub const DEFAULT_SOURCE_EXPORT_TIMER_NRTM4: i64 = 60;
+/// v4's `DEFAULT_SOURCE_NRTM4_SERVER_SNAPSHOT_FREQUENCY`, in seconds.
+pub const DEFAULT_SOURCE_NRTM4_SERVER_SNAPSHOT_FREQUENCY: i64 = 3600 * 4;
 /// v4's `DEFAULT_SOURCE_NRTM3_CLIENT_TIMEOUT`.
 pub const DEFAULT_SOURCE_NRTM3_CLIENT_TIMEOUT: i64 = 15;
 /// v4's `DEFAULT_SOURCE_NRTM_PORT`.
@@ -57,8 +62,22 @@ pub struct SourceMirrorSettings {
     pub runs_rpsl_export: bool,
     /// `int(export_timer)`.
     pub export_timer: i64,
-    /// `nrtm4_server_private_key` is set (Phase 6).
+    /// `nrtm4_server_private_key` is set.
     pub runs_nrtm4_server: bool,
+    /// `export_destination`, when truthy.
+    pub export_destination: Option<String>,
+    /// `export_destination_unfiltered`, when truthy.
+    pub export_destination_unfiltered: Option<String>,
+    /// The `nrtm_dummified_*` settings, for exports and NRTMv4 files.
+    pub dummify: rpsl::text::DummifySettings,
+    /// `nrtm4_server_local_path`, when truthy.
+    pub nrtm4_server_local_path: Option<String>,
+    /// `nrtm4_server_private_key`, when truthy.
+    pub nrtm4_server_private_key: Option<String>,
+    /// `nrtm4_server_private_key_next`, when truthy.
+    pub nrtm4_server_private_key_next: Option<String>,
+    /// `nrtm4_server_snapshot_frequency` in seconds, with v4's default.
+    pub nrtm4_server_snapshot_frequency: i64,
 }
 
 impl Default for SourceMirrorSettings {
@@ -82,6 +101,13 @@ impl Default for SourceMirrorSettings {
             runs_rpsl_export: false,
             export_timer: DEFAULT_SOURCE_EXPORT_TIMER,
             runs_nrtm4_server: false,
+            export_destination: None,
+            export_destination_unfiltered: None,
+            dummify: rpsl::text::DummifySettings::default(),
+            nrtm4_server_local_path: None,
+            nrtm4_server_private_key: None,
+            nrtm4_server_private_key_next: None,
+            nrtm4_server_snapshot_frequency: DEFAULT_SOURCE_NRTM4_SERVER_SNAPSHOT_FREQUENCY,
         }
     }
 }
@@ -138,6 +164,15 @@ impl MirrorSettings {
             1
         } else {
             MIRROR_FREQUENCY
+        }
+    }
+
+    /// The NRTMv4 server's timer.
+    pub fn export_timer_nrtm4(&self) -> i64 {
+        if self.fast_scheduler {
+            0
+        } else {
+            DEFAULT_SOURCE_EXPORT_TIMER_NRTM4
         }
     }
 

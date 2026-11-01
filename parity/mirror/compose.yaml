@@ -92,3 +92,39 @@ services:
     tmpfs: [/tmp, /run/irrd]
     ports: ["127.0.0.1:9645:8043", "127.0.0.1:9682:8080"]
     mem_limit: 1g
+
+  # The serving differential (serve.sh, profile "serve"): irrd-ng as an
+  # upstream beside the v4 one, fed the same changes, with a second v4
+  # mirror following it.
+  redis-mirror-ng:
+    image: redis:8.0.2-alpine@sha256:48501c5ad00d5563bc30c075c7bcef41d7d98de3e9a1e6c752068c66f0a8463b
+    profiles: [serve]
+    mem_limit: 256m
+
+  ng-upstream:
+    image: irrd-mirror-diff/irrd-ng:local
+    profiles: [serve]
+    command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
+    environment:
+      IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
+      IRRD_NG_STORE_PATH: /store
+    volumes:
+      - ${WORK}/ng-upstream:/etc/irrd:ro
+      - ${WORK}/srv/ng:/srv
+      - ${WORK}/data:/data:ro
+      - ${WORK}/ng-up-store:/store
+      - ${WORK}/ng-out:/out
+    tmpfs: [/tmp, /run/irrd]
+    ports: ["127.0.0.1:9646:8043", "127.0.0.1:9683:8080"]
+    mem_limit: 1g
+
+  mirror-ng-v4:
+    <<: *v4
+    profiles: [serve]
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ${WORK}/mirror-ng-v4:/etc/irrd
+      - ${WORK}/srv/ng/exports:/exports:ro
+      - ${WORK}/tls:/tls:ro
+    ports: ["127.0.0.1:9647:8043", "127.0.0.1:9684:8080"]

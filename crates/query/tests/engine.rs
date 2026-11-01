@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use nrtm::file_import::{self, ImportSettings, ParseEnv, apply_file_import};
-use query::{NrtmNotServed, QuerySettings, ResponseType, SourceQuerySettings, WhoisSession};
+use query::{NrtmServer, QuerySettings, ResponseType, SourceQuerySettings, WhoisSession};
 use rpki::{ScopeFilterConfig, ScopeFilterValidator};
 use rpsl::{Keyring, RpslSettings};
 use store::{Store, StoreOptions, StoreSettings};
@@ -165,7 +165,7 @@ fn setup(tag: &str) -> (Tmp, Store, Arc<QuerySettings>) {
 fn session(settings: &Arc<QuerySettings>) -> WhoisSession {
     WhoisSession::new(
         settings.clone(),
-        Arc::new(NrtmNotServed),
+        Arc::new(NrtmServer),
         "192.0.2.1",
         "192.0.2.1:65000",
     )

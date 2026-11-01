@@ -9,7 +9,8 @@ the source), writes <outdir>/<source>.db (the state loaded upstream) and
 <outdir>/<source>.pool (objects held back for later additions).
 
 `change` rewrites a state file for one round: about 4% of objects get a
-new remarks line, 2% are deleted, and 2% are added from the pool. The
+new remarks line (--modify-rate), 2% are deleted (--delete-rate), and 2%
+are added from the pool. The
 change is deterministic for a given round and seed. The state file is then
 applied upstream with irrd_update_database, which journals every change.
 
@@ -71,9 +72,9 @@ def change(args):
     out = []
     for o in state:
         r = rnd.random()
-        if r < 0.02:
+        if r < args.delete_rate:
             continue
-        if r < 0.06:
+        if 0.02 <= r < 0.02 + args.modify_rate:
             o = o.rstrip("\n") + f"\nremarks:        parity change round {args.round}\n"
         out.append(o)
     add = max(1, len(state) // 50)
@@ -96,6 +97,8 @@ def main():
     b.add_argument("pool")
     b.add_argument("round", type=int)
     b.add_argument("--seed", default="irrd-ng")
+    b.add_argument("--delete-rate", type=float, default=0.02)
+    b.add_argument("--modify-rate", type=float, default=0.04)
     args = ap.parse_args()
     {"initial": initial, "change": change}[args.cmd](args)
 

@@ -5,3 +5,4 @@
 pub mod file_import;
 pub mod messages;
 pub mod mirror;
+pub mod serve;

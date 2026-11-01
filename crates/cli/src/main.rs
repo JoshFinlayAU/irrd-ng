@@ -22,6 +22,7 @@ mod job_tool;
 mod logging;
 mod messages;
 mod mirror_tools;
+mod serving_tools;
 mod settings;
 mod tools;
 mod whois_server;
