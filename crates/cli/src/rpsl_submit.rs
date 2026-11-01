@@ -402,7 +402,12 @@ fn send(
                 EXIT_GENERAL,
             )
         })?;
-        let client = nrtm::mirror::net::http_client(Duration::from_secs(20))
+        let client = nrtm::mirror::net::http_client_builder(Duration::from_secs(20))
+            .and_then(|b| {
+                b.redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .map_err(|e| nrtm::mirror::pyerr::PyErr::Other(e.to_string()))
+            })
             .map_err(|e| Failure::X(format!("Some other error: OSError • {e:?}"), EXIT_GENERAL))?;
         let mut req = client
             .request(
@@ -506,11 +511,20 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
                 EXIT_INPUT,
             ));
         }
-        let (body, delete, count, _) = create_request_body(&rpsl)?;
+        let (body, delete, count, passwords) = create_request_body(&rpsl)?;
         if count == 0 {
             return Err(Failure::X(
                 "No RPSL objects were found after processing input.".to_owned(),
                 EXIT_INPUT,
+            ));
+        }
+        if !passwords.is_empty() {
+            // v4 4.5.4 filters passwords out of its debug log with
+            // bytes.replace(str, bytes), which raises before any request
+            // is made whenever the input has a password: line.
+            return Err(Failure::X(
+                "Some other error: TypeError • a bytes-like object is required, not 'str'".to_owned(),
+                EXIT_GENERAL,
             ));
         }
         let url = a.url.clone().unwrap_or_default();

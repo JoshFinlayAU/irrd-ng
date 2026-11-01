@@ -652,16 +652,22 @@ def steps(fpr, keycert):
         f"{S.SAMPLE_PERSON}delete: delete\n\n{mntner_clean}delete: delete\npassword: crypt-password\n")
     # irr_rpsl_submit, each against its own server
     url = ["-u", "http://localhost:8080/v1/submit/"]
-    yield "rpsl-submit-text", "tool-stdin", (["irr_rpsl_submit", *url], seed_person_modified.replace(
+    # v4's irr_rpsl_submit raises before sending whenever the input has a
+    # password: line; overrides go through.
+    yield "rpsl-submit-password", "tool-stdin", (["irr_rpsl_submit", *url], seed_person_modified.replace(
         "New street", "Submitted by CLI") + f"\npassword: {SEED_PW}\n")
+    yield "rpsl-submit-text", "tool-stdin", (["irr_rpsl_submit", *url], seed_person_modified.replace(
+        "New street", "Submitted by CLI") + f"\noverride: {OVERRIDE}\n")
     yield "rpsl-submit-json-failure", "tool-stdin", (["irr_rpsl_submit", "-j", *url, "-m", "a=b,c=d=e"],
-        seed_person_modified + "\npassword: wrong\n")
+        seed_person_modified.replace("New street", "Unauthenticated"))
     yield "rpsl-submit-host", "tool-stdin", (["irr_rpsl_submit", "-h", "localhost", "-p", "8080", "-t"],
-        S.SAMPLE_ROUTE6 + "\npassword: md5-password\n")
+        S.SAMPLE_ROUTE6 + f"\noverride: {OVERRIDE}\n")
     yield "rpsl-submit-not-all-deletes", "tool-stdin", (["irr_rpsl_submit", *url],
-        S.SAMPLE_ROUTE6 + "delete: x\n\n" + S.SAMPLE_ROUTE + "\npassword: md5-password\n")
+        S.SAMPLE_ROUTE6 + "delete: x\n\n" + S.SAMPLE_ROUTE + f"\noverride: {OVERRIDE}\n")
+    yield "rpsl-submit-override-twice", "tool-stdin", (["irr_rpsl_submit", *url],
+        S.SAMPLE_ROUTE6 + "override: a\n\n" + S.SAMPLE_ROUTE + "override: b\n")
     yield "rpsl-submit-delete", "tool-stdin", (["irr_rpsl_submit", *url],
-        S.SAMPLE_ROUTE6 + "delete: cleanup\npassword: md5-password\n")
+        S.SAMPLE_ROUTE6 + f"delete: cleanup\noverride: {OVERRIDE}\n")
     yield "rpsl-submit-empty", "tool-stdin", (["irr_rpsl_submit", *url], "\n\n")
     yield "rpsl-submit-only-meta", "tool-stdin", (["irr_rpsl_submit", *url], "password: x\n")
     yield "rpsl-submit-refused", "tool-stdin", (["irr_rpsl_submit", "-u", "http://127.0.0.1:1/v1/submit/"], "person: x\n")
