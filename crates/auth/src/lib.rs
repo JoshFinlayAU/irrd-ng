@@ -12,6 +12,7 @@
 #![deny(unsafe_code)]
 
 pub mod api;
+mod charsets;
 mod difflib;
 pub mod email;
 pub mod email_parser;

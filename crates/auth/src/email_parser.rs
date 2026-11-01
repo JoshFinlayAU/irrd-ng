@@ -11,6 +11,8 @@ use regex::Regex;
 
 use rpsl::Keyring;
 
+use crate::charsets;
+
 /// The first of the characters standing in for `surrogateescape` bytes.
 const ESCAPE_BASE: u32 = 0x10FF00;
 
@@ -448,10 +450,31 @@ pub struct EmailParser {
     pub message_subject: Option<String>,
 }
 
-/// `bytes.decode(charset, errors)` for the charsets irrd-ng knows; Python's
-/// `LookupError` text for the others.
+/// The name `codecs.lookup()` looks up: lower case, then
+/// `encodings.normalize_encoding()`, which turns each run of characters
+/// other than letters, digits and `.` into one `_` and drops them at
+/// either end.
+fn normalize_encoding(charset: &str) -> String {
+    let mut out = String::with_capacity(charset.len());
+    let mut punct = false;
+    for c in charset.to_lowercase().chars() {
+        if c.is_alphanumeric() || c == '.' {
+            if punct && !out.is_empty() {
+                out.push('_');
+            }
+            out.push(c);
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    out
+}
+
+/// `bytes.decode(charset, errors)` for ASCII, UTF-8 and Python's
+/// single-byte codecs; Python's `LookupError` text for the others.
 fn decode_charset(bytes: &[u8], charset: &str, backslashreplace: bool) -> Result<String, String> {
-    let norm = charset.to_lowercase().replace(['-', ' '], "_");
+    let norm = normalize_encoding(charset);
     let replace = |out: &mut String, b: u8| {
         if backslashreplace {
             out.push_str(&format!("\\x{b:02x}"));
@@ -494,7 +517,18 @@ fn decode_charset(bytes: &[u8], charset: &str, backslashreplace: bool) -> Result
         "latin_1" | "latin1" | "l1" | "iso_8859_1" | "iso8859_1" | "8859" | "cp819" | "latin" => {
             Ok(bytes.iter().map(|&b| b as char).collect())
         }
-        _ => Err(format!("unknown encoding: {charset}")),
+        name => {
+            let table =
+                charsets::table(name).ok_or_else(|| format!("unknown encoding: {charset}"))?;
+            let mut out = String::with_capacity(bytes.len());
+            for &b in bytes {
+                match table[usize::from(b)] {
+                    charsets::UNDEFINED => replace(&mut out, b),
+                    c => out.push(char::from_u32(u32::from(c)).unwrap_or('\u{fffd}')),
+                }
+            }
+            Ok(out)
+        }
     }
 }
 
@@ -673,4 +707,39 @@ pub fn reply_addresses(field: &str) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Expected values from Python 3.13's bytes.decode().
+    #[test]
+    fn single_byte_charsets() {
+        let b = [0x41, 0x80, 0x81, 0xe9, 0xff];
+        assert_eq!(
+            decode_charset(&b, "Windows 1252", true).expect("cp1252"),
+            "A\u{20ac}\\x81\u{e9}\u{ff}"
+        );
+        assert_eq!(
+            decode_charset(&b, "cp1252", false).expect("cp1252"),
+            "A\u{20ac}\u{e9}\u{ff}"
+        );
+        assert_eq!(
+            decode_charset(&[0xc1, 0xd2, 0x8d], "KOI8-R", true).expect("koi8-r"),
+            "\u{430}\u{440}\u{2588}"
+        );
+        assert_eq!(
+            decode_charset(&[0xa4], "iso-8859-15", true).expect("latin-9"),
+            "\u{20ac}"
+        );
+        assert_eq!(
+            decode_charset(&[0x41], "cp-1252", true).expect_err("unknown"),
+            "unknown encoding: cp-1252"
+        );
+        assert_eq!(
+            decode_charset(&[0x41], "Shift_JIS", true).expect_err("multi-byte"),
+            "unknown encoding: Shift_JIS"
+        );
+    }
 }
