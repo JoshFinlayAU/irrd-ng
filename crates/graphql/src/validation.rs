@@ -2232,11 +2232,22 @@ struct MaxIntrospectionDepth;
 
 /// `_check_depth()`'s walk: the fragments on the current path, the Python
 /// frames it is using, and whether it ran out of them.
+///
+/// graphql-core re-checks a fragment once per path to it, so a fragment
+/// that spreads the next one twice, 40 deep, means 2^40 checks and a
+/// thread that never finishes. `memo` remembers fragments found not deep
+/// enough at a depth, with the frames their check needed, and the walk
+/// reuses that answer where it cannot differ: when no fragment below was
+/// skipped for being on the path already (`cycle`), and when the frames it
+/// needed still fit under the limit.
 struct DepthWalk {
     visited: Vec<String>,
     frames: usize,
     limit: usize,
     overflow: bool,
+    memo: HashMap<(String, usize), usize>,
+    max_frames: usize,
+    cycle: bool,
 }
 
 impl DepthWalk {
@@ -2244,6 +2255,7 @@ impl DepthWalk {
     /// graphql-core's `RecursionError`.
     fn call(&mut self) -> bool {
         self.frames += 1;
+        self.max_frames = self.max_frames.max(self.frames);
         if self.frames > self.limit {
             self.overflow = true;
         }
@@ -2263,13 +2275,32 @@ impl MaxIntrospectionDepth {
                 let name = &fs.name.value;
                 match cx.get_fragment(name) {
                     Some(f) if !w.visited.contains(name) => {
-                        w.visited.push(name.clone());
-                        let r = w.call() && Self::check_set(cx, &f.selection_set, depth, w);
-                        w.frames -= 1;
-                        w.visited.pop();
-                        r
+                        let key = (name.clone(), depth);
+                        match w.memo.get(&key) {
+                            Some(&needed) if w.frames + needed <= w.limit => false,
+                            _ => {
+                                let (outer_max, outer_cycle) = (w.max_frames, w.cycle);
+                                let start = w.frames;
+                                w.max_frames = w.frames;
+                                w.cycle = false;
+                                w.visited.push(name.clone());
+                                let r = w.call() && Self::check_set(cx, &f.selection_set, depth, w);
+                                w.frames -= 1;
+                                w.visited.pop();
+                                if !r && !w.overflow && !w.cycle {
+                                    w.memo.insert(key, w.max_frames - start);
+                                }
+                                w.max_frames = w.max_frames.max(outer_max);
+                                w.cycle |= outer_cycle;
+                                r
+                            }
+                        }
                     }
-                    _ => false,
+                    Some(_) => {
+                        w.cycle = true;
+                        false
+                    }
+                    None => false,
                 }
             }
             Selection::Field(f) => {
@@ -2315,6 +2346,9 @@ impl<'a> Rule<'a> for MaxIntrospectionDepth {
                 frames: 1,
                 limit: cx.py_frames,
                 overflow: false,
+                memo: HashMap::new(),
+                max_frames: 1,
+                cycle: false,
             };
             let deep = match &f.selection_set {
                 Some(ss) => Self::check_set(cx, ss, 0, &mut w),
@@ -2477,6 +2511,47 @@ mod recursion_tests {
             .expect("thread")
             .join()
             .expect("no panic");
+    }
+
+    /// Each fragment spreading the next twice, 60 deep, is 2^60 paths for
+    /// graphql-core's introspection depth check. It must finish quickly
+    /// with graphql-core's answer, and still find a deep path at the end.
+    #[test]
+    fn introspection_depth_with_doubled_spreads_is_not_exponential() {
+        on_big_stack(|| {
+            let schema = Schema::from_sdl(SDL);
+            let twice = |i: usize| format!("...F{} ...F{}", i + 1, i + 1);
+            let shallow = format!(
+                "query{{__schema{{...F0}}}}\n{}",
+                chain(60, "__Schema", "description", &twice)
+            );
+            let started = std::time::Instant::now();
+            assert_eq!(run(&schema, &shallow, 969), Ok(0));
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            let deep = format!(
+                "query{{__schema{{...F0}}}}\n{}",
+                chain(
+                    60,
+                    "__Schema",
+                    "types{fields{type{fields{type{fields{name}}}}}}",
+                    &twice
+                )
+            );
+            // The same answer as a single chain, which graphql-core walks
+            // without repeats.
+            let once = |i: usize| format!("...F{}", i + 1);
+            let single = format!(
+                "query{{__schema{{...F0}}}}\n{}",
+                chain(
+                    60,
+                    "__Schema",
+                    "types{fields{type{fields{type{fields{name}}}}}}",
+                    &once
+                )
+            );
+            assert_eq!(run(&schema, &deep, 969), run(&schema, &single, 969));
+            assert!(run(&schema, &deep, 969).is_ok_and(|n| n >= 1));
+        });
     }
 
     /// The shortest failing chains graphql-core 3.3.0 and ariadne 1.1.1
