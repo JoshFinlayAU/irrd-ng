@@ -1,8 +1,8 @@
 # Divergences from IRRd v4
 
-irrd-ng matches IRRd 4.5.4 byte for byte on every surface listed in CLAUDE.md. This file is the complete list of places where it deliberately does not. Anything that differs from v4 and is not listed here is a bug.
+irrd-ng matches IRRd 4.5.4 byte for byte on every surface listed under "The compatibility promise" in the README. This file is the complete list of places where it deliberately does not. Anything that differs from v4 and is not listed here is a bug.
 
-Each entry says what v4 does, what irrd-ng does instead, who can see the difference, and why. Entries are added only after review, never to make a failing parity diff pass.
+The file has four parts. The DIV entries are deliberate fixes and additions that anyone can see. The accepted minor divergences (P-01 to P-20) are corner cases that were reviewed and accepted. The proposed ones (P-21 onwards) are corner cases still waiting for that review. Each entry says what v4 does, what irrd-ng does instead, who can see the difference, and why. Entries are added only after review, never to make a failing parity diff pass.
 
 ## DIV-001: NRTMv4 keep_journal configuration error is formatted
 
@@ -70,7 +70,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 - **P-09 Import note order.** The relative order of "Key expired" and "New signatures" notes is approximate when one `certif` holds several keys.
 - **P-10 Re-importing a known key with extra user IDs.** irrd-ng assumes the primary user ID moves to the front again after the merge. Not yet tested against gpg.
 - **P-11 Small gaps.** Python's final-sigma lowercasing is approximated (error text only, for attribute names containing a capital sigma). `geofeed` URLs with invalid bracketed hosts do not raise as Python 3.13 does. `render_rpsl_text()` returns text for an object without a source where v4 raises; v4's callers never do this.
-- **P-12 Mangled key owner names.** gpg and python-gnupg turn non-ASCII names in `owner` into Latin-1 mojibake (`BÃ¶ing`). irrd-ng copies this exactly today. Fixing it would be a visible divergence, so it is listed here for a decision rather than changed.
+- **P-12 Mangled key owner names.** gpg and python-gnupg turn non-ASCII names in `owner` into Latin-1 mojibake (`BÃ¶ing`). irrd-ng copies this exactly. It is listed because fixing it would be a visible divergence; it was accepted with the others as it is, so the mangling stays.
 
 ### Whois
 
@@ -88,7 +88,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 
 ## Proposed, awaiting review
 
-P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 and P-45 to P-48 out of Phase 8 and its follow-up, P-40 to P-44 out of Phase 7, and P-49 to P-53 out of Phase 9. Each needs a decision: accept it, or keep it open as a bug to fix.
+P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8, P-40 to P-44 out of Phase 7, P-45 to P-48 out of the Phase 8 follow-up on the GraphQL transports, and P-49 to P-53 out of Phase 9. P-22 has since been withdrawn. Each of the others needs a decision: accept it, or keep it open as a bug to fix.
 
 ### RPKI, scope filter and route preference
 
@@ -116,7 +116,7 @@ P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 and P-45 to P-48 out of Ph
 - **P-36 Event stream without Redis.** Changes are announced in-process. Writes by other processes, such as the command-line tools, are announced within 2 seconds, with one event per source per 2-second window. Compressed frame bytes and ping timing differ.
 - **P-37 Row order in `/v1/event-stream/initial/`.** Follows irrd-ng's object order.
 - **P-38 pydantic error text for invalid event stream messages.** Approximated.
-- **P-39 LMDB map size in `/v1/status/`.** Not shown today, because v4 prints nothing like it. The project brief asks for it to be shown; adding one line would change the status text, so it waits for a decision.
+- **P-39 LMDB map size in `/v1/status/`.** Not shown, because v4 prints nothing like it. The project brief (CLAUDE.md) asks for it to be shown; adding one line would change the status text, so it waits for a decision.
 
 ### Submissions and mail
 

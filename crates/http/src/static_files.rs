@@ -2,6 +2,11 @@
 //! explorer loads (`irrd/webui/static/js/graphiql/`). The rest of v4's
 //! static files belong to the web UI, a later phase.
 //!
+//! The files are byte-identical copies of v4's in `assets/graphiql/`, with
+//! their origins and licences, so that a source tarball builds without the
+//! `vendor/irrd-v4` submodule. A test checks the copies against the
+//! submodule when it is present.
+//!
 //! `last-modified` and `etag` come from the file's modification time in
 //! v4, which differs on every installation; irrd-ng uses the date of the
 //! pinned v4 release.
@@ -19,11 +24,7 @@ macro_rules! asset {
     ($name:literal) => {
         (
             concat!("/static/js/graphiql/", $name),
-            include_bytes!(concat!(
-                "../../../vendor/irrd-v4/irrd/webui/static/js/graphiql/",
-                $name
-            ))
-            .as_slice(),
+            include_bytes!(concat!("../assets/graphiql/", $name)).as_slice(),
         )
     };
 }
@@ -73,4 +74,49 @@ pub(crate) fn serve(method: &Method, path: &str) -> Reply {
     ];
     r.body = Bytes::from_static(data);
     r
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    /// The copies in `assets/graphiql/` and `src/graphiql.html` must stay
+    /// byte-identical to v4's files at the pinned tag. Skipped when the
+    /// submodule is not checked out (a source tarball).
+    #[test]
+    fn graphiql_assets_match_vendor() {
+        let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let v4 = crate_dir.join("../../vendor/irrd-v4/irrd");
+        let v4_assets = v4.join("webui/static/js/graphiql");
+        if !v4_assets.is_dir() {
+            eprintln!("vendor/irrd-v4 is not checked out; skipping the comparison");
+            return;
+        }
+        let mut names: Vec<String> = std::fs::read_dir(&v4_assets)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        let mut served: Vec<String> = ASSETS
+            .iter()
+            .map(|(p, _)| p.trim_start_matches("/static/js/graphiql/").to_owned())
+            .collect();
+        served.sort();
+        assert_eq!(served, names, "v4's GraphiQL file list changed");
+        for (path, data) in ASSETS {
+            let name = path.trim_start_matches("/static/js/graphiql/");
+            let theirs = std::fs::read(v4_assets.join(name)).unwrap();
+            assert!(
+                *data == theirs.as_slice(),
+                "assets/graphiql/{name} differs from v4's copy"
+            );
+        }
+        let html = std::fs::read(v4.join("server/graphql/graphiql.html")).unwrap();
+        assert!(
+            crate::gql::GRAPHIQL_HTML.as_bytes() == html.as_slice(),
+            "src/graphiql.html differs from v4's irrd/server/graphql/graphiql.html"
+        );
+    }
 }
