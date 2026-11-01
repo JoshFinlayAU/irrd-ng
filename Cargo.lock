@@ -410,6 +410,7 @@ dependencies = [
  "mimalloc",
  "nrtm",
  "query",
+ "reqwest",
  "rpki",
  "rpsl",
  "socket2",

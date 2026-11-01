@@ -354,7 +354,10 @@ impl<'t, 'e> WriteTx<'t, 'e> {
             _ => return Err(StoreError::ValueError("'mnt-by'".to_owned())),
         };
         self.put_suspended_object(&SuspendedObjectRow {
-            pk: Uuid::new_v4(),
+            // Time ordered, so rows suspended in one transaction (which share
+            // a timestamp) sort in the order they were suspended, as
+            // PostgreSQL returns v4's in practice.
+            pk: Uuid::now_v7(),
             rpsl_pk: row.rpsl_pk.clone(),
             source: row.source.clone(),
             object_class: row.object_class.clone(),

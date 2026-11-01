@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use crate::{db_tools, messages};
+use crate::db_tools;
 
 pub(crate) type Tool = fn(&[OsString]) -> ExitCode;
 
@@ -27,7 +27,7 @@ const TOOLS: &[(&str, Tool)] = &[
         "irrd_mirror_force_reload",
         crate::mirror_tools::force_reload,
     ),
-    ("irr_rpsl_submit", not_implemented),
+    ("irr_rpsl_submit", crate::rpsl_submit::run),
     ("irrd_load_pgp_keys", crate::submit_tools::load_pgp_keys),
     ("import", crate::import::run),
 ];
@@ -50,15 +50,6 @@ pub(crate) fn lookup(name: &str) -> Option<Tool> {
 
 pub(crate) fn names() -> Vec<&'static str> {
     TOOLS.iter().map(|(n, _)| *n).collect()
-}
-
-fn not_implemented(args: &[OsString]) -> ExitCode {
-    let name = args
-        .first()
-        .map(|a| a.to_string_lossy())
-        .unwrap_or_default();
-    eprintln!("{}", messages::not_implemented(&name));
-    ExitCode::from(1)
 }
 
 #[cfg(test)]

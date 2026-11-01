@@ -47,7 +47,16 @@ const SET_LAST_MODIFIED: Parser = Parser {
     positionals: &[],
 };
 
-fn load(parser: &Parser, args: &[OsString]) -> Result<(Configuration, std::collections::HashMap<&'static str, String>), ExitCode> {
+fn load(
+    parser: &Parser,
+    args: &[OsString],
+) -> Result<
+    (
+        Configuration,
+        std::collections::HashMap<&'static str, String>,
+    ),
+    ExitCode,
+> {
     let a = match parser.parse(args.get(1..).unwrap_or_default()) {
         Parsed::Args(a) => a,
         Parsed::Help => return Err(ExitCode::SUCCESS),
@@ -210,7 +219,7 @@ pub(crate) fn set_last_modified_auth(args: &[OsString]) -> ExitCode {
         Err(c) => return c,
     };
     let rpsl_settings = cfg.rpsl_settings().unwrap_or_default();
-    let sources = auth_sources.clone();
+    let sources = auth_sources;
     let result = store.write(move |tx| {
         let mut rows = Vec::new();
         {
@@ -328,7 +337,11 @@ fn webauthns_of(store: &Store, user: &store::AuthUserRow) -> Vec<store::AuthWebA
 fn ui_datetime(t: store::Timestamp) -> String {
     let s = t.to_string();
     // Timestamp displays as ISO 8601: YYYY-MM-DDTHH:MM:SS...
-    format!("{} {}", s.get(..10).unwrap_or(""), s.get(11..16).unwrap_or(""))
+    format!(
+        "{} {}",
+        s.get(..10).unwrap_or(""),
+        s.get(11..16).unwrap_or("")
+    )
 }
 
 /// `send_authentication_change_mail(user, None, msg)`, rendering v4's
@@ -377,7 +390,13 @@ pub(crate) fn user_mfa_clear(cfg: &Configuration, email: &str) -> ExitCode {
     }
     let mut methods: Vec<String> = webauthns
         .iter()
-        .map(|w| format!("WebAuthn '{}' (last use {})", w.name, ui_datetime(w.last_used)))
+        .map(|w| {
+            format!(
+                "WebAuthn '{}' (last use {})",
+                w.name,
+                ui_datetime(w.last_used)
+            )
+        })
         .collect();
     if has_totp {
         methods.push("TOTP".to_owned());

@@ -508,6 +508,57 @@ pub(crate) fn mirror_settings(cfg: &Configuration) -> nrtm::mirror::settings::Mi
     out
 }
 
+/// What submissions read from `irrd.yaml` (`irrd/updates`).
+pub(crate) fn submit_settings(cfg: &Configuration) -> auth::SubmitSettings {
+    let mut sources = HashMap::new();
+    for name in configured_sources(cfg) {
+        let k = |key: &str| format!("sources.{name}.{key}");
+        sources.insert(
+            name.clone(),
+            auth::SourceSubmitSettings {
+                authoritative: truthy(cfg, &k("authoritative")),
+                suspension_enabled: truthy(cfg, &k("suspension_enabled")),
+                non_strict_mode: truthy(cfg, &k("authoritative_non_strict_mode_dangerous")),
+                object_class_filter: object_class_filter(cfg, &name),
+                rpki_excluded: truthy(cfg, &k("rpki_excluded")),
+            },
+        );
+    }
+    let mut set_autnum = HashMap::new();
+    for class in [
+        "COMMON",
+        "as-set",
+        "route-set",
+        "filter-set",
+        "peering-set",
+        "rtr-set",
+    ] {
+        if let Some(v) = str_setting(
+            cfg,
+            &format!("auth.set_creation.{class}.autnum_authentication"),
+        ) {
+            set_autnum.insert(class.to_owned(), v);
+        }
+    }
+    let defaults = auth::SubmitSettings::default();
+    auth::SubmitSettings {
+        rpsl: cfg.rpsl_settings().unwrap_or_default(),
+        sources,
+        override_password: str_setting(cfg, "auth.override_password").filter(|s| !s.is_empty()),
+        authenticate_parents_route_creation: truthy(
+            cfg,
+            "auth.authenticate_parents_route_creation",
+        ),
+        set_autnum_authentication: set_autnum,
+        rpki_enabled: truthy(cfg, "rpki.roa_source"),
+        roa_import_timer: str_setting(cfg, "rpki.roa_import_timer")
+            .unwrap_or(defaults.roa_import_timer),
+        scopefilter: scopefilter_config(cfg),
+        mail: mail_settings(cfg),
+        notification_header: str_setting(cfg, "email.notification_header").unwrap_or_default(),
+    }
+}
+
 #[cfg(test)]
 mod status_job_tests {
     use super::*;
@@ -547,52 +598,5 @@ mod status_job_tests {
         ));
         let j = status_job_settings(&cfg);
         assert!(j.roa_source.is_none() && j.scopefilter.is_none() && !j.route_preference_enabled);
-    }
-}
-
-/// What submissions read from `irrd.yaml` (`irrd/updates`).
-pub(crate) fn submit_settings(cfg: &Configuration) -> auth::SubmitSettings {
-    let mut sources = HashMap::new();
-    for name in configured_sources(cfg) {
-        let k = |key: &str| format!("sources.{name}.{key}");
-        sources.insert(
-            name.clone(),
-            auth::SourceSubmitSettings {
-                authoritative: truthy(cfg, &k("authoritative")),
-                suspension_enabled: truthy(cfg, &k("suspension_enabled")),
-                non_strict_mode: truthy(cfg, &k("authoritative_non_strict_mode_dangerous")),
-                object_class_filter: object_class_filter(cfg, &name),
-                rpki_excluded: truthy(cfg, &k("rpki_excluded")),
-            },
-        );
-    }
-    let mut set_autnum = HashMap::new();
-    for class in [
-        "COMMON",
-        "as-set",
-        "route-set",
-        "filter-set",
-        "peering-set",
-        "rtr-set",
-    ] {
-        if let Some(v) = str_setting(cfg, &format!("auth.set_creation.{class}.autnum_authentication"))
-        {
-            set_autnum.insert(class.to_owned(), v);
-        }
-    }
-    let defaults = auth::SubmitSettings::default();
-    auth::SubmitSettings {
-        rpsl: cfg.rpsl_settings().unwrap_or_default(),
-        sources,
-        override_password: str_setting(cfg, "auth.override_password").filter(|s| !s.is_empty()),
-        authenticate_parents_route_creation: truthy(cfg, "auth.authenticate_parents_route_creation"),
-        set_autnum_authentication: set_autnum,
-        rpki_enabled: truthy(cfg, "rpki.roa_source"),
-        roa_import_timer: str_setting(cfg, "rpki.roa_import_timer")
-            .unwrap_or(defaults.roa_import_timer),
-        scopefilter: scopefilter_config(cfg),
-        mail: mail_settings(cfg),
-        notification_header: str_setting(cfg, "email.notification_header")
-            .unwrap_or_default(),
     }
 }

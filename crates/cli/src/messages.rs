@@ -15,10 +15,6 @@ pub(crate) fn unknown_tool(name: &str) -> String {
     format!("irrd-ng: unknown tool name {name:?}")
 }
 
-pub(crate) fn not_implemented(name: &str) -> String {
-    format!("{name}: not implemented yet")
-}
-
 pub(crate) const IMPORT_USAGE: &str = "usage: irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>] \
      [--write-batch-rows <n>]";
 

@@ -141,7 +141,7 @@ pub(crate) fn reactivate_for_mntner(
     }
     results.extend(
         all.iter()
-            .filter(|r| r.source == source && r.mntners.iter().any(|m| *m == pk))
+            .filter(|r| r.source == source && r.mntners.contains(&pk))
             .cloned(),
     );
 

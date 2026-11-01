@@ -77,7 +77,7 @@ pub fn handle_email_submission(
         Some(body) => {
             match process(
                 store,
-                settings.clone(),
+                settings,
                 Submission::TextBlob {
                     text: body,
                     origin: Origin::Email,

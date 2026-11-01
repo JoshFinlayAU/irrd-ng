@@ -155,12 +155,12 @@ fn run(
             auth.api_keys = api_keys;
             let mut requests = Vec::new();
             for o in objects {
-                requests.push(Request::Change(ChangeRequest::new(
+                requests.push(Request::Change(Box::new(ChangeRequest::new(
                     &o.text,
                     tx,
                     &ctx,
                     delete_reason.as_deref(),
-                )?));
+                )?)));
             }
             (auth, requests)
         }
@@ -170,11 +170,11 @@ fn run(
             let mut requests = Vec::new();
             for (mntner, source, t) in objects {
                 let text = format!("mntner: {mntner}\nsource: {source}\n");
-                requests.push(Request::Suspension(SuspensionRequest::new(
+                requests.push(Request::Suspension(Box::new(SuspensionRequest::new(
                     &text,
                     &ctx,
                     t.value(),
-                )?));
+                )?)));
             }
             (auth, requests)
         }

@@ -69,11 +69,12 @@ pub(crate) fn suspension(
     headers: &HeaderMap,
     body: &[u8],
 ) -> SubmitReply {
-    let submission = match api::json_loads(body).and_then(|v| api::validate_suspension_submission(&v)) {
-        Ok(s) => s,
-        Err(BodyError::BadRequest(m)) => return SubmitReply::BadRequest(m),
-        Err(BodyError::Internal(m)) => return SubmitReply::Internal(m),
-    };
+    let submission =
+        match api::json_loads(body).and_then(|v| api::validate_suspension_submission(&v)) {
+            Ok(s) => s,
+            Err(BodyError::BadRequest(m)) => return SubmitReply::BadRequest(m),
+            Err(BodyError::Internal(m)) => return SubmitReply::Internal(m),
+        };
     let mut meta = RequestMeta::default();
     meta.set(auth::META_KEY_HTTP_CLIENT_IP, PyJson::Str(host.to_owned()));
     meta.set(

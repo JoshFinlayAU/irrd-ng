@@ -821,9 +821,9 @@ impl SuspensionRequest {
 #[derive(Debug)]
 pub(crate) enum Request {
     /// A change.
-    Change(ChangeRequest),
+    Change(Box<ChangeRequest>),
     /// A suspension or reactivation.
-    Suspension(SuspensionRequest),
+    Suspension(Box<SuspensionRequest>),
 }
 
 impl Request {
@@ -902,15 +902,15 @@ pub(crate) fn parse_change_requests(
             continue;
         }
         match suspension_state.filter(|s| !s.is_empty()) {
-            Some(state) => results.push(Request::Suspension(SuspensionRequest::new(
+            Some(state) => results.push(Request::Suspension(Box::new(SuspensionRequest::new(
                 &rpsl_text, ctx, &state,
-            )?)),
-            None => results.push(Request::Change(ChangeRequest::new(
+            )?))),
+            None => results.push(Request::Change(Box::new(ChangeRequest::new(
                 &rpsl_text,
                 tx,
                 ctx,
                 delete_reason.as_deref(),
-            )?)),
+            )?))),
         }
     }
     auth.passwords = passwords;
