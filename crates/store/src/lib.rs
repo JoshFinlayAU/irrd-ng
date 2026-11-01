@@ -39,5 +39,5 @@ pub use model::*;
 pub use read::{ObjectId, ReadTx, ReadView};
 pub use records::{JournalEntryRef, RpslObjectRef, SetMembers};
 pub use settings::{SourceSettings, StoreSettings};
-pub use store::{BulkLoad, Store, StoreInfo, WRITER_THREAD_NAME};
+pub use store::{BulkLoad, EventListener, Store, StoreInfo, WRITER_THREAD_NAME};
 pub use write::{AuthTable, ChangedObjects, Pruned, RoutePreferenceHook, WriteTx};

@@ -28,3 +28,12 @@ TIER2_PG_CONTAINER=<pg container> TIER2_NG_STORE=<store> bench/load.sh --concurr
 
 `cargo bench -p query` (criterion micro-benchmarks) is separate and not yet
 written.
+
+## HTTP API
+
+`bench/http_load.sh` does the same for the HTTP side: GraphQL lookups of the kinds irrexplorer sends (`rpslObjects` by prefix and origin, `asnPrefixes`, primary keys with `mntByObjs`), set expansion over GraphQL, `/v1/whois/`, `/v1/status/` and `/metrics/`, mixed by `bench/http_mix.py` from the corpus bindings. `loadgen` sends them in its `http` mode (one request per connection). It runs against the Tier 1 stack by default (v4 on 9080, irrd-ng on 8080), one server after the other, sampling irrd-ng's RSS and the memory of v4's containers (v4, Redis, PostgreSQL).
+
+```sh
+parity/load.sh && parity/ng.sh start
+bench/http_load.sh --concurrency "4 16" --duration 30
+```

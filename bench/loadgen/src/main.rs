@@ -11,6 +11,11 @@
 //!   close, the way most whois clients ask) or `keepalive` (one `!!`
 //!   connection per worker, kept open, answers read by v4's framing:
 //!   `A<len>`/`C`/`D`/`F` for IRRd style, up to `\n\n\n` for RIPE style).
+//! - `mode` `http` sends one HTTP/1.1 request per query on a new
+//!   connection (`Connection: close`), read to the close. The query is
+//!   `METHOD PATH` or `METHOD PATH BODY`; a body is sent as
+//!   `application/json`. The `Host` header is `localhost`, or
+//!   `$LOADGEN_HOST`.
 //! - `class` groups results in the report.
 //! - Several queries for one keepalive turn can be joined with ` ;; `; they
 //!   are sent one after another and timed as one round trip each.
@@ -82,23 +87,27 @@ fn parse_mix(path: &str) -> Result<Vec<Entry>, String> {
             .parse()
             .map_err(|_| format!("{path}:{}: bad weight", n + 1))?;
         let keepalive = match mode {
-            "single" => false,
+            "single" | "http" => false,
             "keepalive" => true,
             _ => {
                 return Err(format!(
-                    "{path}:{}: mode must be single or keepalive",
+                    "{path}:{}: mode must be single, keepalive or http",
                     n + 1
                 ));
             }
         };
-        let queries = query
-            .split(" ;; ")
-            .map(|q| {
-                let mut b = q.as_bytes().to_vec();
-                b.push(b'\n');
-                b
-            })
-            .collect();
+        let queries = if mode == "http" {
+            vec![http_request(query)]
+        } else {
+            query
+                .split(" ;; ")
+                .map(|q| {
+                    let mut b = q.as_bytes().to_vec();
+                    b.push(b'\n');
+                    b
+                })
+                .collect()
+        };
         if weight > 0 {
             out.push(Entry {
                 weight,
@@ -112,6 +121,29 @@ fn parse_mix(path: &str) -> Result<Vec<Entry>, String> {
         return Err(format!("{path}: no entries"));
     }
     Ok(out)
+}
+
+/// A raw HTTP/1.1 request for `METHOD PATH [BODY]`.
+fn http_request(spec: &str) -> Vec<u8> {
+    let mut parts = spec.splitn(3, ' ');
+    let method = parts.next().unwrap_or("GET");
+    let path = parts.next().unwrap_or("/");
+    let body = parts.next();
+    let host = std::env::var("LOADGEN_HOST").unwrap_or_else(|_| "localhost".to_owned());
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
+    if let Some(b) = body {
+        let _ = write!(
+            req,
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            b.len()
+        );
+    }
+    req.push_str("\r\n");
+    let mut out = req.into_bytes();
+    if let Some(b) = body {
+        out.extend_from_slice(b.as_bytes());
+    }
+    out
 }
 
 fn parse_args() -> Result<Args, String> {

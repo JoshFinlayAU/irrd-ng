@@ -186,6 +186,33 @@ impl<'a> ReadView<'a> {
         Ok(out)
     }
 
+    /// Object counts per (source, object class), from the key index alone
+    /// (`RPSLDatabaseObjectStatisticsQuery`).
+    pub fn object_class_counts(&self) -> Result<Vec<(String, String, u64)>> {
+        let mut out: Vec<(String, String, u64)> = Vec::new();
+        for item in self.t.objects_key.iter(self.txn)? {
+            let (k, _) = item?;
+            let (source, rest) =
+                crate::keys::take_str(k).ok_or(StoreError::Corrupt("object key"))?;
+            let (class, _) =
+                crate::keys::take_str(rest).ok_or(StoreError::Corrupt("object key"))?;
+            match out.last_mut() {
+                Some(l)
+                    if l.0.as_bytes() == source.as_slice()
+                        && l.1.as_bytes() == class.as_slice() =>
+                {
+                    l.2 += 1;
+                }
+                _ => out.push((
+                    String::from_utf8(source).map_err(|_| StoreError::Corrupt("object key"))?,
+                    String::from_utf8(class).map_err(|_| StoreError::Corrupt("object key"))?,
+                    1,
+                )),
+            }
+        }
+        Ok(out)
+    }
+
     /// Number of objects.
     pub fn object_count(&self) -> Result<u64> {
         Ok(self.t.objects.len(self.txn)?)
@@ -359,6 +386,20 @@ impl<'a> ReadView<'a> {
             )),
             None => Ok(None),
         }
+    }
+
+    /// `MAX(timestamp)` over the whole journal
+    /// (`RPSLDatabaseJournalStatisticsQuery`), `None` when it is empty.
+    pub fn max_journal_timestamp(&self) -> Result<Option<crate::model::Timestamp>> {
+        let mut max: Option<crate::model::Timestamp> = None;
+        for item in self.t.journal.iter(self.txn)? {
+            let (_, v) = item?;
+            let e: JournalEntryRef<'_> = decode(v)?;
+            if max.is_none_or(|m| e.timestamp > m) {
+                max = Some(e.timestamp);
+            }
+        }
+        Ok(max)
     }
 
     /// The last value handed out by the `serial_global` sequence.

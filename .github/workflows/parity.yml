@@ -19,7 +19,7 @@ concurrency:
 jobs:
   tier1:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,6 +75,23 @@ jobs:
         with:
           name: status-suite
           path: parity/out/status-*
+      - name: Load the Tier 1 data into v4 and irrd-ng
+        run: IRRD_NG=$PWD/target/debug/irrd-ng parity/load.sh --profile rpki
+      - name: HTTP API suites (GraphQL, status and metrics, event stream)
+        run: |
+          IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite graphql --test ng
+          IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite api --test ng
+          IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite events --test ng
+          IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite events-live --test ng
+      - name: HTTP API suite reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: http-api-suites
+          path: |
+            parity/out/graphql-*
+            parity/out/api-*
+            parity/out/events-*
       - name: Logs on failure
         if: failure()
         run: docker compose -f parity/compose.yaml logs --tail 200

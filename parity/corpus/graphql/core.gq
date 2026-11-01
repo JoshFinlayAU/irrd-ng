@@ -1,0 +1,314 @@
+# GraphQL suite: resolvers, arguments, fragments and errors, replayed
+# against v4 and irrd-ng by tools/http_diff.py (parity/run.sh --suite
+# graphql). Syntax: tools/http_diff.py and README.md here.
+
+@tags introspection
+@limit 1
+@gql IntrospectionQuery
+query IntrospectionQuery { __schema { queryType { name } mutationType { name } subscriptionType { name } types { ...FullType } directives { name description locations args { ...InputValue } } } }
+fragment FullType on __Type { kind name description fields(includeDeprecated: true) { name description args { ...InputValue } type { ...TypeRef } isDeprecated deprecationReason } inputFields { ...InputValue } interfaces { ...TypeRef } enumValues(includeDeprecated: true) { name description isDeprecated deprecationReason } possibleTypes { ...TypeRef } }
+fragment InputValue on __InputValue { name description type { ...TypeRef } defaultValue }
+fragment TypeRef on __Type { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } } }
+@end
+
+@gql
+{ __schema { description types { name kind specifiedByURL isOneOf } directives(includeDeprecated: true) { name isRepeatable isDeprecated deprecationReason args(includeDeprecated: true) { name defaultValue isDeprecated } } } }
+@end
+
+@gql
+{ __type(name: "RPSLRoute") { name kind interfaces { name } fields { name type { name kind ofType { name kind ofType { name } } } } } }
+@end
+
+@gql
+{ __type(name: "RPSLContactUnion") { name possibleTypes { name } } r: __type(name: "RPSLObject") { possibleTypes { name } } n: __type(name: "Nope") { name } }
+@end
+
+@gql
+{ __typename q: __typename }
+@end
+
+@gql
+{ __schema { types { fields { type { fields { type { fields { name } } } } } } } }
+@end
+
+@tags rpslobjects
+@limit 10
+@gql
+{ rpslObjects(rpslPk: "{aut_num}") { rpslPk objectClass source updated objectText ... on RPSLAutNum { autNum asName memberOf mntBy asn } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{route4.prefix}{route4.origin}") { __typename rpslPk source ... on RPSLRoute { route origin prefix prefixLength asn rpkiStatus routePreferenceStatus ipFirst ipLast rpkiMaxLength descr mntBy memberOf } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{route6.prefix}{route6.origin}", objectClass: ["route6"]) { rpslPk source ... on RPSLRoute6 { route6 origin prefix prefixLength asn rpkiStatus } } }
+@end
+
+@gql
+{ rpslObjects(mntBy: "{mntner}") { rpslPk source objectClass } }
+@end
+
+@gql
+{ rpslObjects(mntBy: ["{mntner_busy}"], objectClass: ["route"], recordLimit: 5000) { rpslPk ... on RPSLRoute { prefix asn } } }
+@end
+
+@gql
+{ rpslObjects(memberOf: "{member_of_target}") { rpslPk source objectClass } }
+@end
+
+@gql
+{ rpslObjects(members: "{aut_num}") { rpslPk source objectClass } }
+@end
+
+@gql
+{ rpslObjects(mbrsByRef: "{mbrs_by_ref_mnt}") { rpslPk source objectClass } }
+@end
+
+@gql
+{ rpslObjects(origin: "{origin4}") { rpslPk ... on RPSLRoute { prefix } ... on RPSLRoute6 { prefix } } }
+@end
+
+@gql
+{ rpslObjects(asn: [{origin4|digits}]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{mntner}") { rpslPk source ... on RPSLMntner { auth adminC adminCObjs { __typename ... on RPSLPerson { rpslPk person } ... on RPSLRole { rpslPk role } } mntByObjs { rpslPk } } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{as_set}") { rpslPk source ... on RPSLAsSet { members mbrsByRef membersObjs { rpslPk source } mbrsByRefObjs { rpslPk } } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{route_set}") { rpslPk source ... on RPSLRouteSet { members mpMembers membersObjs { rpslPk source } } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}", objectClass: "aut-num") { rpslPk ... on RPSLAutNum { memberOfObjs { rpslPk source } techCObjs { ... on RPSLPerson { nicHdl } ... on RPSLRole { nicHdl } } } } }
+@end
+
+@gql
+{ rpslObjects(ipExact: "{route4.prefix}") { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(ipLessSpecific: "{route4_host}") { rpslPk source objectClass } }
+@end
+
+@gql
+{ rpslObjects(ipLessSpecific: "{route4_host}", objectClass: ["route"]) { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(ipMoreSpecific: "{route4_covering}") { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(ipMoreSpecific: "{route4_covering}", objectClass: "route") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipLessSpecificOneLevel: "{route4_nested}") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipAny: "{route6_covering}") { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(ipAny: "{route6_covering}", objectClass: ["route6"]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(textSearch: "{aut_num}") { rpslPk objectClass } }
+@end
+
+@gql
+{ rpslObjects(textSearch: "{route4_host}") { rpslPk objectClass } }
+@end
+
+@gql
+{ rpslObjects(objectClass: ["route"], rpkiStatus: [invalid]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(objectClass: ["route"], rpkiStatus: [valid], sources: ["RIRS"]) { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}", sources: ["NOPE"]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}", sources: []) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}", sqlTrace: true) { rpslPk source } }
+@end
+
+@gql
+{ rpslObjects(mntBy: ["{mntner}"], recordLimit: 2, sqlTrace: true, objectClass: ["route", "aut-num"]) { rpslPk mntByObjs { rpslPk } } }
+@end
+
+@gql
+{ rpslObjects(origin: "{origin4}", rpkiStatus: [valid, invalid, not_found], scopeFilterStatus: [in_scope, out_scope_as, out_scope_prefix], routePreferenceStatus: [visible, suppressed]) { rpslPk } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}") { rpslPk journal { serialNrtm operation } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{route4.prefix}{route4.origin}", sources: "RPKI") { rpslPk source objectText ... on RPSLRoute { rpkiMaxLength } } }
+@end
+
+@gql
+{ rpslObjects(rpslPk: ["{aut_num}", "{mntner}"]) { rpslPk ...F } }
+fragment F on RPSLObject { objectClass objectText }
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}") { ...objectText } }
+fragment objectText on RPSLObject { rpslPk objectText }
+@end
+
+@tags sets
+@gql
+{ asnPrefixes(asns: [{origin4|digits}]) { asn prefixes } }
+@end
+
+@gql
+{ asnPrefixes(asns: [{origin_many6|digits}], ipVersion: 6) { asn prefixes } }
+@end
+
+@gql
+{ asnPrefixes(asns: [1, 2], ipVersion: 5) { asn prefixes } }
+@end
+
+@gql
+{ asSetPrefixes(setNames: ["{as_set}"]) { rpslPk prefixes } }
+@end
+
+@gql
+{ asSetPrefixes(setNames: ["{as_set_deep}"], ipVersion: 4, excludeSets: ["{as_set}"], sqlTrace: true) { rpslPk prefixes } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{as_set_hier}"]) { rpslPk rootSource members } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{as_set_deep}"], depth: 1, sqlTrace: true) { rpslPk rootSource members } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{route_set_hier}"], sources: ["{source}"]) { rpslPk rootSource members } }
+@end
+
+@gql
+{ recursiveSetMembers(setNames: ["{as_set_loop}"], depth: null) { rpslPk } }
+@end
+
+@tags status
+@limit 1
+@gql
+{ databaseStatus { source source_type authoritative objectClassFilter rpkiRovFilter scopefilterEnabled routePreference localJournalKept serialOldestJournal serialNewestJournal serialLastExport serialNewestMirror nrtm4ClientSessionId nrtm4ClientVersion nrtm4ServerSessionId nrtm4ServerVersion nrtm4ServerLastUpdateNotificationFileUpdate nrtm4ServerLastSnapshotVersion rpslDataUpdated lastUpdate synchronisedSerials aliased_sources } }
+@end
+
+@gql
+{ databaseStatus(sources: ["RADB", "RIRS", "NOPE"]) { source source_type aliased_sources } }
+@end
+
+@gql
+{ databaseStatus(sources: ["RIRS"]) { source authoritative } }
+@end
+
+@tags variables
+@limit 3
+@gql
+query($pk: [String!]) { rpslObjects(rpslPk: $pk) { rpslPk source } }
+@variables {"pk": ["{aut_num}"]}
+@end
+
+@gql
+query($names: [String!]!) { recursiveSetMembers(setNames: $names, depth: 1) { rpslPk rootSource members } }
+@variables {"names": ["{as_set}"]}
+@end
+
+@gql
+query($asn: [ASN!]) { r: rpslObjects(asn: $asn, objectClass: ["route", "route6"], rpkiStatus: [valid, invalid, not_found]) { rpslPk source ... on RPSLRoute { prefix asn } ... on RPSLRoute6 { prefix asn } } }
+@variables {"asn": ["{origin4|digits}"]}
+@end
+
+@gql
+query($p0: IP!) { q0: rpslObjects(ipAny: $p0, objectClass: ["route"], rpkiStatus: [valid, invalid, not_found]) { rpslPk source ... on RPSLRoute { prefix asn } } }
+@variables {"p0": "{route4.prefix}"}
+@end
+
+@gql
+query($ip: IP) { rpslObjects(ipExact: $ip) { rpslPk } }
+@variables {"ip": "{route4.prefix}"}
+@end
+
+# recordLimit below the number of matches: v4 returns whichever rows
+# PostgreSQL finds first (no ORDER BY), so only the count compares.
+@tags variables,limit-unordered
+@gql
+query($n: Int = 2, $t: Boolean = false) { rpslObjects(mntBy: "{mntner_busy}", recordLimit: $n, sqlTrace: $t) { rpslPk } }
+@end
+
+@tags variables
+
+@gql
+query($n: Int) { rpslObjects(mntBy: "{mntner_busy}", recordLimit: $n) { rpslPk } }
+@variables {"n": "abc"}
+@end
+
+@gql
+query($ip: IP) { rpslObjects(ipExact: $ip) { rpslPk } }
+@variables {"ip": "999.1.1.1"}
+@end
+
+@gql
+query($a: [ASN!]) { rpslObjects(asn: $a) { rpslPk } }
+@variables {"a": ["AS65000", 1.5, {"x": 1}]}
+@end
+
+@gql
+query($s: [RPKIStatus!]) { rpslObjects(objectClass: "route", rpkiStatus: $s) { rpslPk } }
+@variables {"s": ["valid", "bogus"]}
+@end
+
+@gql
+query($x: String!) { __typename }
+@end
+
+@gql
+query($x: String!) { rpslObjects(textSearch: $x) { rpslPk } }
+@variables {"x": null}
+@end
+
+@gql Two
+query One { __typename } query Two { databaseStatus(sources: ["RADB"]) { source } }
+@end
+
+@gql
+query One { __typename } query Two { __typename }
+@end
+
+@gql Nope
+query One { __typename }
+@end
+
+@tags skipinclude
+@gql
+query($s: Boolean!) { rpslObjects(rpslPk: "{aut_num}") { rpslPk source @skip(if: $s) objectClass @include(if: $s) } }
+@variables {"s": true}
+@end
+
+@gql
+{ rpslObjects(rpslPk: "{aut_num}") { rpslPk ... on RPSLAutNum @include(if: false) { asn } ... @skip(if: false) { source } } }
+@end

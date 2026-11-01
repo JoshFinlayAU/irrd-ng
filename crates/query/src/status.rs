@@ -9,7 +9,7 @@ use crate::resolver::{QResult, QueryResolver};
 use crate::settings::{ConfigValue, QuerySettings};
 
 /// `datetime.astimezone(UTC).isoformat()`: microseconds only when non-zero.
-pub(crate) fn isoformat(t: Timestamp) -> String {
+pub fn isoformat(t: Timestamp) -> String {
     let s = t.to_string();
     if t.micros().rem_euclid(1_000_000) == 0 {
         // 2026-10-31T01:02:03.000000+00:00 -> 2026-10-31T01:02:03+00:00
@@ -45,7 +45,7 @@ fn config(o: &mut Object<'_>, key: &str, v: &ConfigValue) {
 }
 
 /// `is_serial_synchronised()`
-fn is_serial_synchronised(settings: &QuerySettings, row: &DatabaseStatus) -> bool {
+pub fn is_serial_synchronised(settings: &QuerySettings, row: &DatabaseStatus) -> bool {
     let s = settings.source(&row.source);
     row.synchronised_serials
         && (!settings.scopefilter_enabled || s.scopefilter_excluded)

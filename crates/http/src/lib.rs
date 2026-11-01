@@ -1,16 +1,24 @@
 //! REST endpoints, GraphQL and the event stream.
 //!
-//! Phase 3 serves what the whois work needs: `/v1/whois/` over the same
-//! engine as the whois server, and `/`'s redirect to `/ui/`, with v4's
-//! status codes, headers and middleware behaviour (Starlette's trusted host
-//! check, slash redirects and 405s, uvicorn's proxy headers and `server`
-//! header, IRRd's security headers). Every other route answers 404 until
-//! Phase 8.
+//! The routes of v4's Starlette app (`irrd/server/http/app.py`): `/`'s
+//! redirect to `/ui/`, `/v1/status/`, `/v1/whois/`, `/graphql/`,
+//! `/metrics/` and the event stream, with v4's status codes, headers and
+//! middleware behaviour (Starlette's trusted host check, slash redirects
+//! and 405s, uvicorn's proxy headers and `server` header, IRRd's security
+//! headers). The web UI (`/ui/`) is a later phase.
 
 #![deny(unsafe_code)]
 
+mod event_stream;
+pub use event_stream::Events;
+mod gql;
 pub mod messages;
+mod pydantic;
+mod sqltrace;
+mod static_files;
+mod status;
 mod submit;
+mod websocket;
 
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
@@ -38,6 +46,33 @@ pub struct HttpSettings {
     pub https_only: bool,
     /// `server.http.forwarded_allowed_ips`, for uvicorn's proxy headers.
     pub forwarded_allowed_ips: Vec<String>,
+    /// `server.whois.interface`, for `/v1/status/`.
+    pub whois_interface: String,
+    /// `server.whois.port`, for `/v1/status/`.
+    pub whois_port: i64,
+    /// `server.http.status_access_list` (`/v1/status/`, `/metrics/`).
+    pub status_access_list: Option<String>,
+    /// `server.http.event_stream_access_list`
+    pub event_stream_access_list: Option<String>,
+    /// NRTM settings of each source, for `/v1/status/`.
+    pub status_sources: std::collections::HashMap<String, StatusSourceSettings>,
+    /// Sources with `keep_journal` set, in configuration order: what the
+    /// event stream reports as streamed.
+    pub journaled_sources: Vec<String>,
+    /// The host name, for the event stream's initial download
+    /// (`socket.gethostname()`).
+    pub hostname: String,
+}
+
+/// The NRTM settings of a source that `/v1/status/` reports.
+#[derive(Debug, Clone, Default)]
+pub struct StatusSourceSettings {
+    /// `sources.<name>.nrtm_host`
+    pub nrtm_host: Option<String>,
+    /// `int(sources.<name>.nrtm_port)`, default 43.
+    pub nrtm_port: i64,
+    /// `sources.<name>.nrtm4_client_notification_file_url`
+    pub nrtm4_client_notification_file_url: Option<String>,
 }
 
 /// Shared state: the store and the settings, replaced on SIGHUP.
@@ -52,6 +87,11 @@ pub struct HttpState {
     pub nrtm: Arc<dyn NrtmV3>,
     /// Settings for `/v1/submit/` and `/v1/suspension/`.
     pub submit: RwLock<Arc<auth::SubmitSettings>>,
+    /// When the daemon started, in seconds since the epoch
+    /// (`IRRD_MAIN_STARTUP_TIME`, for `/metrics/`).
+    pub startup_time: i64,
+    /// Store changes for the event stream: each source whose journal grew.
+    pub events: event_stream::Events,
 }
 
 impl std::fmt::Debug for HttpState {
@@ -85,14 +125,21 @@ const SECURITY_HEADERS: &[(&str, &str)] = &[
 
 const TEXT_PLAIN: &str = "text/plain; charset=utf-8";
 
-/// A complete response body that never reports itself finished before it
-/// is polled. hyper treats a body that is already at its end as "no body"
-/// and then drops a `content-length: 0` header we set and appends its own
-/// after all the others; with this wrapper our header stays where v4 sends
-/// it (straight after `server`). hyper still takes the length from the
-/// exact size hint.
+/// A response body: complete, or streamed in chunks. A complete body
+/// never reports itself finished before it is polled. hyper treats a body
+/// that is already at its end as "no body" and then drops a
+/// `content-length: 0` header we set and appends its own after all the
+/// others; with this wrapper our header stays where v4 sends it (straight
+/// after `server`). hyper still takes the length from the exact size hint.
+/// A streamed body has no length, so hyper sends it chunked, as uvicorn
+/// does for Starlette's `StreamingResponse`.
 #[derive(Debug)]
-pub struct ReplyBody(Full<Bytes>);
+pub enum ReplyBody {
+    /// The whole body.
+    Full(Full<Bytes>),
+    /// Chunks as they are produced.
+    Stream(tokio::sync::mpsc::Receiver<Bytes>),
+}
 
 impl hyper::body::Body for ReplyBody {
     type Data = Bytes;
@@ -102,7 +149,16 @@ impl hyper::body::Body for ReplyBody {
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>> {
-        std::pin::Pin::new(&mut self.get_mut().0).poll_frame(cx)
+        match self.get_mut() {
+            ReplyBody::Full(f) => std::pin::Pin::new(f).poll_frame(cx),
+            ReplyBody::Stream(rx) => match rx.poll_recv(cx) {
+                std::task::Poll::Ready(Some(b)) => {
+                    std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(b))))
+                }
+                std::task::Poll::Ready(None) => std::task::Poll::Ready(None),
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            },
+        }
     }
 
     fn is_end_stream(&self) -> bool {
@@ -110,7 +166,10 @@ impl hyper::body::Body for ReplyBody {
     }
 
     fn size_hint(&self) -> hyper::body::SizeHint {
-        self.0.size_hint()
+        match self {
+            ReplyBody::Full(f) => f.size_hint(),
+            ReplyBody::Stream(_) => hyper::body::SizeHint::default(),
+        }
     }
 }
 
@@ -119,9 +178,13 @@ struct Reply {
     status: StatusCode,
     headers: Vec<(&'static str, String)>,
     body: Bytes,
+    /// A streamed body instead of `body`.
+    stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
     /// Inside the security header middleware (everything but the trusted
     /// host check).
     secured: bool,
+    /// A WebSocket handshake to complete once the response is sent.
+    upgrade: Option<websocket::Upgrade>,
 }
 
 impl Reply {
@@ -134,8 +197,16 @@ impl Reply {
                 ("content-type", TEXT_PLAIN.to_owned()),
             ],
             body,
+            stream: None,
             secured: true,
+            upgrade: None,
         }
+    }
+
+    fn with_type(status: StatusCode, content_type: &str, body: impl Into<Bytes>) -> Self {
+        let mut r = Reply::text(status, body);
+        r.headers[1].1 = content_type.to_owned();
+        r
     }
 
     fn empty(status: StatusCode) -> Self {
@@ -143,7 +214,9 @@ impl Reply {
             status,
             headers: Vec::new(),
             body: Bytes::new(),
+            stream: None,
             secured: true,
+            upgrade: None,
         }
     }
 
@@ -152,7 +225,9 @@ impl Reply {
             status,
             headers: vec![("content-length", "0".to_owned()), ("location", location)],
             body: Bytes::new(),
+            stream: None,
             secured: true,
+            upgrade: None,
         }
     }
 
@@ -165,7 +240,9 @@ impl Reply {
                 ("content-type", "application/json".to_owned()),
             ],
             body,
+            stream: None,
             secured: true,
+            upgrade: None,
         }
     }
 
@@ -330,12 +407,13 @@ fn finish(
     settings: &HttpSettings,
     session_cookie: bool,
     head: bool,
+    path: &str,
 ) -> Response<ReplyBody> {
-    let mut resp = Response::new(ReplyBody(Full::new(if head {
-        Bytes::new()
-    } else {
-        reply.body
-    })));
+    let body = match reply.stream {
+        Some(rx) if !head => ReplyBody::Stream(rx),
+        _ => ReplyBody::Full(Full::new(if head { Bytes::new() } else { reply.body })),
+    };
+    let mut resp = Response::new(body);
     *resp.status_mut() = reply.status;
     let h = resp.headers_mut();
     let mut put = |k: &str, v: &str| {
@@ -356,7 +434,9 @@ fn finish(
         for (k, v) in SECURITY_HEADERS {
             put(k, v);
         }
-        if session_cookie {
+        if path.starts_with("/static/") {
+            put("cache-control", "no-cache");
+        } else if session_cookie {
             put("cache-control", "no-store");
         }
     }
@@ -394,54 +474,319 @@ fn whois_endpoint(state: &HttpState, host: &str, port: u16, raw_query: Option<&s
     }
 }
 
+/// Starlette's `Router.redirect_slashes`: a 307 to the same URL with the
+/// slash added, built from the `Host` header.
+fn slash_redirect(headers: &HeaderMap, path: &str, raw_query: Option<&str>) -> Reply {
+    let host_header = headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default();
+    let mut url = format!("http://{host_header}{path}/");
+    if let Some(q) = raw_query {
+        url.push('?');
+        url.push_str(q);
+    }
+    Reply::redirect(StatusCode::TEMPORARY_REDIRECT, url)
+}
+
+/// The mounts of v4's app, by path prefix (matched with a slash added).
+const MOUNTS: &[&str] = &[
+    "/v1/status",
+    "/v1/whois",
+    "/v1/submit",
+    "/v1/suspension",
+    "/graphql",
+    "/static",
+    "/metrics",
+];
+
+/// An access-listed endpoint's check (`is_client_permitted(host, ...)`).
+fn permitted(state: &HttpState, host: &str, list: Option<&str>) -> bool {
+    let q = state.query.read().map(|s| s.clone()).unwrap_or_default();
+    q.is_client_permitted(host, list, true).unwrap_or(false)
+}
+
+/// What the route needs from the request.
+struct Req<'a> {
+    method: &'a Method,
+    path: &'a str,
+    raw_query: Option<&'a str>,
+    headers: &'a HeaderMap,
+    host: &'a str,
+    port: u16,
+}
+
+async fn route(
+    state: &Arc<HttpState>,
+    settings: &HttpSettings,
+    r: &Req<'_>,
+    body: Option<Incoming>,
+    on_upgrade: Option<hyper::upgrade::OnUpgrade>,
+) -> Reply {
+    let head = *r.method == Method::HEAD;
+    let get = *r.method == Method::GET || head;
+    let path = r.path;
+    if path == "/" {
+        return if get {
+            Reply::redirect(StatusCode::FOUND, "/ui/".to_owned())
+        } else {
+            Reply::method_not_allowed("GET, HEAD")
+        };
+    }
+    if let Some(m) = MOUNTS.iter().find(|m| path == **m) {
+        return slash_redirect(r.headers, m, r.raw_query);
+    }
+    if path == "/v1/event-stream/initial" {
+        return slash_redirect(r.headers, path, r.raw_query);
+    }
+    if path.starts_with("/v1/status/") {
+        if !get {
+            return Reply::method_not_allowed("GET");
+        }
+        if !permitted(state, r.host, settings.status_access_list.as_deref()) {
+            return Reply::text(StatusCode::FORBIDDEN, messages::ACCESS_DENIED);
+        }
+        return status_endpoint(state, settings);
+    }
+    if path.starts_with("/v1/whois/") {
+        return if get {
+            whois_endpoint(state, r.host, r.port, r.raw_query)
+        } else {
+            Reply::method_not_allowed("GET")
+        };
+    }
+    if path.starts_with("/graphql/") {
+        let body = match body {
+            Some(b) => http_body_util::BodyExt::collect(b)
+                .await
+                .map(|c| c.to_bytes())
+                .unwrap_or_default(),
+            None => Bytes::new(),
+        };
+        return graphql_endpoint(state, r, &body);
+    }
+    if path.starts_with("/static/") {
+        return static_files::serve(r.method, path);
+    }
+    if path.starts_with("/metrics/") {
+        if !get {
+            return Reply::method_not_allowed("GET");
+        }
+        if !permitted(state, r.host, settings.status_access_list.as_deref()) {
+            return Reply::text(StatusCode::FORBIDDEN, messages::ACCESS_DENIED);
+        }
+        return metrics_endpoint(state);
+    }
+    if path == "/v1/event-stream/" && websocket::is_upgrade(r.headers) {
+        return websocket::accept(state.clone(), r.headers, r.host, on_upgrade, settings);
+    }
+    if path == "/v1/event-stream/initial/" {
+        if !get {
+            return Reply::method_not_allowed("GET");
+        }
+        if !permitted(state, r.host, settings.event_stream_access_list.as_deref()) {
+            return Reply::text(StatusCode::FORBIDDEN, messages::ACCESS_DENIED);
+        }
+        return event_stream::initial_download(state.clone(), settings, r.host, r.raw_query);
+    }
+    if let Some(reply) = submit_route(state, r, body).await {
+        return reply;
+    }
+    Reply::text(StatusCode::NOT_FOUND, "Not Found")
+}
+
+fn status_endpoint(state: &HttpState, settings: &HttpSettings) -> Reply {
+    let q = state.query.read().map(|s| s.clone()).unwrap_or_default();
+    let text = tokio::task::block_in_place(|| -> store::Result<String> {
+        let tx = state.store.read()?;
+        status::status_text(&tx.view(), &q, settings)
+    });
+    match text {
+        Ok(t) => Reply::text(StatusCode::OK, t),
+        Err(e) => internal_server_error(&e.to_string()),
+    }
+}
+
+fn metrics_endpoint(state: &HttpState) -> Reply {
+    let q = state.query.read().map(|s| s.clone()).unwrap_or_default();
+    let text = tokio::task::block_in_place(|| -> store::Result<String> {
+        let tx = state.store.read()?;
+        status::metrics_text(&tx.view(), &q, state.startup_time)
+    });
+    match text {
+        Ok(t) => Reply::text(StatusCode::OK, t),
+        Err(e) => internal_server_error(&e.to_string()),
+    }
+}
+
+/// Starlette's `ServerErrorMiddleware` answer to an exception.
+fn internal_server_error(log: &str) -> Reply {
+    tracing::error!(target: ACCESS_LOG_TARGET, "{log}");
+    let mut r = Reply::text(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error");
+    r.secured = false;
+    r
+}
+
+/// ariadne's `GraphQLHTTPHandler.handle_request()`.
+fn graphql_endpoint(state: &HttpState, r: &Req<'_>, body: &[u8]) -> Reply {
+    let allow = "OPTIONS, POST, GET";
+    match *r.method {
+        Method::GET => {
+            return Reply::with_type(
+                StatusCode::OK,
+                "text/html; charset=utf-8",
+                gql::GRAPHIQL_HTML,
+            );
+        }
+        Method::POST => {}
+        Method::OPTIONS => {
+            let mut rep = Reply::empty(StatusCode::OK);
+            rep.headers = vec![
+                ("allow", allow.to_owned()),
+                ("content-length", "0".to_owned()),
+            ];
+            return rep;
+        }
+        _ => {
+            let mut rep = Reply::empty(StatusCode::METHOD_NOT_ALLOWED);
+            rep.headers = vec![
+                ("allow", allow.to_owned()),
+                ("content-length", "0".to_owned()),
+            ];
+            return rep;
+        }
+    }
+    let start = Instant::now();
+    let content_type: String = r
+        .headers
+        .get("content-type")
+        .map(|h| h.as_bytes().iter().map(|&b| b as char).collect())
+        .unwrap_or_default();
+    let ct = content_type.split(';').next().unwrap_or_default();
+    let data = match ct {
+        "application/json" => match ::graphql::value::json_loads(body) {
+            Some(d) => d,
+            None => {
+                return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_INVALID_JSON);
+            }
+        },
+        "multipart/form-data" => {
+            return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_INVALID_MULTIPART);
+        }
+        _ => {
+            return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_CONTENT_TYPE);
+        }
+    };
+    let settings = state.query.read().map(|s| s.clone()).unwrap_or_default();
+    let outcome = tokio::task::block_in_place(|| -> store::Result<::graphql::Outcome> {
+        let tx = state.store.read()?;
+        let view = tx.view();
+        let resolvers = gql::Resolvers {
+            view: &view,
+            settings: &settings,
+            client_host: r.host.to_owned(),
+            sql_trace: std::cell::RefCell::new(false),
+            sql_queries: std::cell::RefCell::new(None),
+        };
+        let elapsed = || start.elapsed().as_secs_f64();
+        Ok(::graphql::graphql(
+            gql::schema(),
+            &gql::IrrdScalars,
+            &resolvers,
+            &resolvers,
+            &data,
+            &elapsed,
+        ))
+    });
+    match outcome {
+        Ok(::graphql::Outcome::Result(success, result)) => {
+            log_graphql_query(r.host, &data, &result);
+            let status = if success
+                || result
+                    .get("data")
+                    .is_some_and(|d| *d != ::graphql::Value::Null)
+            {
+                StatusCode::OK
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            Reply::with_type(
+                status,
+                "application/json",
+                ::graphql::value::json_dumps(&result),
+            )
+        }
+        Ok(::graphql::Outcome::Crash(e)) => internal_server_error(&e),
+        Err(e) => internal_server_error(&e.to_string()),
+    }
+}
+
+/// `QueryMetadataExtension.format()`'s log line.
+fn log_graphql_query(host: &str, data: &::graphql::Value, result: &::graphql::Value) {
+    let ::graphql::Value::Object(fields) = data else {
+        return;
+    };
+    if data.get("operationName").and_then(::graphql::Value::as_str) == Some("IntrospectionQuery") {
+        return;
+    }
+    let execution = result
+        .get("extensions")
+        .and_then(|e| e.get("execution"))
+        .cloned()
+        .unwrap_or(::graphql::Value::Null);
+    let mut d = ::graphql::Value::Object(fields.clone());
+    let q = match data.get("query") {
+        Some(::graphql::Value::Str(s)) => s.clone(),
+        Some(other) => ::graphql::value::inspect(other),
+        None => String::new(),
+    };
+    d.set(
+        "query",
+        ::graphql::Value::Str(q.replace(' ', "").replace('\n', " ").replace('\t', "")),
+    );
+    let line = messages::graphql_query_log(
+        host,
+        &::graphql::value::inspect(&execution),
+        &::graphql::value::inspect(&d),
+    );
+    let line: String = line.chars().take(5000).collect();
+    tracing::info!(target: "irrd.server.graphql.extensions", "{line}");
+}
+
 async fn handle(
     state: Arc<HttpState>,
     peer: SocketAddr,
-    req: Request<Incoming>,
+    mut req: Request<Incoming>,
 ) -> Result<Response<ReplyBody>, Infallible> {
     let start = Instant::now();
     let settings = state.http.read().map(|s| s.clone()).unwrap_or_default();
+    let on_upgrade = if websocket::is_upgrade(req.headers()) {
+        Some(hyper::upgrade::on(&mut req))
+    } else {
+        None
+    };
     let (parts, body) = req.into_parts();
-    let req = Request::from_parts(parts, ());
-    let headers = req.headers();
+    let headers = &parts.headers;
     let (host, port) = client_of(peer, headers, &settings);
-    let method = req.method().clone();
+    let method = parts.method.clone();
     let head = method == Method::HEAD;
-    let path = req.uri().path().to_owned();
-    let raw_query = req.uri().query().map(str::to_owned);
+    let path = parts.uri.path().to_owned();
+    let raw_query = parts.uri.query().map(str::to_owned);
 
     let reply = if !host_allowed(headers, settings.allowed_host.as_deref()) {
         let mut r = Reply::text(StatusCode::BAD_REQUEST, "Invalid host header");
         r.secured = false;
         r
-    } else if path == "/" {
-        if method == Method::GET || head {
-            Reply::redirect(StatusCode::FOUND, "/ui/".to_owned())
-        } else {
-            Reply::method_not_allowed("GET, HEAD")
-        }
-    } else if path == "/v1/whois" {
-        // Router.redirect_slashes: the Mount matches with a slash added.
-        let host_header = headers
-            .get("host")
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or_default();
-        let mut url = format!("http://{host_header}/v1/whois/");
-        if let Some(q) = &raw_query {
-            url.push('?');
-            url.push_str(q);
-        }
-        Reply::redirect(StatusCode::TEMPORARY_REDIRECT, url)
-    } else if path.starts_with("/v1/whois/") {
-        if method == Method::GET || head {
-            whois_endpoint(&state, &host, port, raw_query.as_deref())
-        } else {
-            Reply::method_not_allowed("GET")
-        }
-    } else if let Some(r) = submit_route(&state, &path, &method, headers, &host, body).await {
-        r
     } else {
-        Reply::text(StatusCode::NOT_FOUND, "Not Found")
+        let r = Req {
+            method: &method,
+            path: &path,
+            raw_query: raw_query.as_deref(),
+            headers,
+            host: &host,
+            port,
+        };
+        route(&state, &settings, &r, Some(body), on_upgrade).await
     };
 
     let cookie_name = if settings.https_only {
@@ -451,61 +796,54 @@ async fn handle(
     };
     let session_cookie = has_cookie(headers, cookie_name);
     let status = reply.status;
-    let resp = finish(reply, &settings, session_cookie, head);
-    let request_line = match raw_query {
-        Some(q) => format!("{method} {path}?{q} HTTP/1.1"),
-        None => format!("{method} {path} HTTP/1.1"),
+    let is_ws = reply.upgrade.is_some();
+    let resp = if let Some(up) = reply.upgrade {
+        websocket::response(up, &settings)
+    } else {
+        finish(reply, &settings, session_cookie, head, &path)
     };
-    tracing::info!(
-        target: ACCESS_LOG_TARGET,
-        "{}",
-        messages::access_log(
-            &format!("{host}:{port}"),
-            &request_line,
-            status.as_u16(),
-            status.canonical_reason().unwrap_or(""),
-            start.elapsed().as_secs_f64()
-        )
-    );
+    if !is_ws {
+        let request_line = match raw_query {
+            Some(q) => format!("{method} {path}?{q} HTTP/1.1"),
+            None => format!("{method} {path} HTTP/1.1"),
+        };
+        tracing::info!(
+            target: ACCESS_LOG_TARGET,
+            "{}",
+            messages::access_log(
+                &format!("{host}:{port}"),
+                &request_line,
+                status.as_u16(),
+                status.canonical_reason().unwrap_or(""),
+                start.elapsed().as_secs_f64()
+            )
+        );
+    }
     Ok(resp)
 }
 
 /// `/v1/submit/` and `/v1/suspension/`, or `None` for other paths.
-async fn submit_route(
-    state: &HttpState,
-    path: &str,
-    method: &Method,
-    headers: &HeaderMap,
-    host: &str,
-    body: Incoming,
-) -> Option<Reply> {
-    let (mount, allow) = if path == "/v1/submit" || path.starts_with("/v1/submit/") {
+async fn submit_route(state: &HttpState, r: &Req<'_>, body: Option<Incoming>) -> Option<Reply> {
+    let (method, path, headers, host) = (r.method, r.path, r.headers, r.host);
+    let (mount, allow) = if path.starts_with("/v1/submit/") {
         ("/v1/submit", "POST, DELETE")
-    } else if path == "/v1/suspension" || path.starts_with("/v1/suspension/") {
+    } else if path.starts_with("/v1/suspension/") {
         ("/v1/suspension", "POST")
     } else {
         return None;
     };
-    if path == mount {
-        // Router.redirect_slashes, as for /v1/whois.
-        let host_header = headers
-            .get("host")
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or_default();
-        return Some(Reply::redirect(
-            StatusCode::TEMPORARY_REDIRECT,
-            format!("http://{host_header}{mount}/"),
-        ));
-    }
     let delete = *method == Method::DELETE;
     if !(*method == Method::POST || (delete && mount == "/v1/submit")) {
         return Some(Reply::method_not_allowed(allow));
     }
     use http_body_util::BodyExt;
-    let Ok(collected) = body.collect().await else {
-        return Some(Reply::internal_error());
+    let bytes = match body {
+        Some(b) => match b.collect().await {
+            Ok(c) => c.to_bytes(),
+            Err(_) => return Some(Reply::internal_error()),
+        },
+        None => Bytes::new(),
     };
-    let bytes = collected.to_bytes();
     let settings = state.submit.read().map(|s| s.clone()).unwrap_or_default();
     let reply = tokio::task::block_in_place(|| {
         if mount == "/v1/submit" {
@@ -536,12 +874,97 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
         };
         let state = state.clone();
         tokio::spawn(async move {
-            let io = hyper_util::rt::TokioIo::new(stream);
+            // A WebSocket upgrade to the event stream is answered here, so
+            // the 101 keeps uvicorn's header case; everything else, and
+            // what was read so far, goes to hyper.
+            let mut stream = stream;
+            let mut head: Vec<u8> = Vec::new();
+            const PREFIX: &[u8] = b"GET /v1/event-stream/ ";
+            loop {
+                let candidate = if head.len() < PREFIX.len() {
+                    PREFIX.starts_with(&head)
+                } else {
+                    head.starts_with(PREFIX)
+                };
+                if !candidate || head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() > 65536 {
+                    break;
+                }
+                let mut chunk = [0u8; 4096];
+                match tokio::io::AsyncReadExt::read(&mut stream, &mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(&chunk[..n]),
+                }
+            }
+            if head.starts_with(PREFIX)
+                && let Some(end) = head.windows(4).position(|w| w == b"\r\n\r\n")
+            {
+                match websocket::raw_handshake(state.clone(), stream, peer, &head[..end + 2]).await
+                {
+                    Ok(()) => return,
+                    Err(s) => stream = s,
+                }
+            }
+            let io = hyper_util::rt::TokioIo::new(Rewind::new(head, stream));
             let service = hyper::service::service_fn(move |req| handle(state.clone(), peer, req));
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
+                .with_upgrades()
                 .await;
         });
+    }
+}
+
+/// A stream that first replays bytes already read from it.
+struct Rewind<T> {
+    pre: Vec<u8>,
+    pos: usize,
+    inner: T,
+}
+
+impl<T> Rewind<T> {
+    fn new(pre: Vec<u8>, inner: T) -> Self {
+        Rewind { pre, pos: 0, inner }
+    }
+}
+
+impl<T: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Rewind<T> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let me = self.get_mut();
+        if me.pos < me.pre.len() {
+            let n = (me.pre.len() - me.pos).min(buf.remaining());
+            buf.put_slice(&me.pre[me.pos..me.pos + n]);
+            me.pos += n;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut me.inner).poll_read(cx, buf)
+    }
+}
+
+impl<T: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Rewind<T> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 }
 

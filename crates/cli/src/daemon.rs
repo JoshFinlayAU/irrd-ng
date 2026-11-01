@@ -59,12 +59,51 @@ fn http_settings(cfg: &Configuration) -> http::HttpSettings {
         Some(config::Value::Str(s)) => s.split(',').map(|x| x.trim().to_owned()).collect(),
         _ => Vec::new(),
     };
+    let mut status_sources = std::collections::HashMap::new();
+    let mut journaled_sources = Vec::new();
+    for name in settings::configured_sources(cfg) {
+        let k = |key: &str| format!("sources.{name}.{key}");
+        if settings::truthy(cfg, &k("keep_journal")) {
+            journaled_sources.push(name.clone());
+        }
+        status_sources.insert(
+            name.clone(),
+            http::StatusSourceSettings {
+                nrtm_host: settings::str_setting(cfg, &k("nrtm_host")).filter(|h| !h.is_empty()),
+                nrtm_port: settings::int_setting(cfg, &k("nrtm_port")).unwrap_or(43),
+                nrtm4_client_notification_file_url: settings::str_setting(
+                    cfg,
+                    &k("nrtm4_client_notification_file_url"),
+                )
+                .filter(|u| !u.is_empty()),
+            },
+        );
+    }
     http::HttpSettings {
         server_header: format!("IRRd {}", crate::IRRD_VERSION),
         allowed_host: url_hostname(&url),
         https_only: url.starts_with("https://"),
         forwarded_allowed_ips: forwarded,
+        whois_interface: settings::str_setting(cfg, "server.whois.interface")
+            .unwrap_or_else(|| "::0".into()),
+        whois_port: settings::int_setting(cfg, "server.whois.port").unwrap_or(43),
+        status_access_list: settings::str_setting(cfg, "server.http.status_access_list"),
+        event_stream_access_list: settings::str_setting(
+            cfg,
+            "server.http.event_stream_access_list",
+        ),
+        status_sources,
+        journaled_sources,
+        hostname: hostname(),
     }
+}
+
+/// `socket.gethostname()`
+fn hostname() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+        .map(|h| h.trim().to_owned())
+        .unwrap_or_default()
 }
 
 fn bind(interface: &str, port: u16, backlog: i32) -> std::io::Result<tokio::net::TcpListener> {
@@ -159,11 +198,19 @@ pub(crate) fn run(args: &[OsString]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    let _ = startup_time();
     let code = runtime.block_on(async move { serve(&mut cfg, store).await });
     // Running imports are abandoned, as v4 terminates its children: their
     // write transactions never commit.
     runtime.shutdown_timeout(std::time::Duration::from_secs(3));
     code
+}
+
+/// `IRRD_MAIN_STARTUP_TIME`: when this process started, in seconds since
+/// the epoch.
+fn startup_time() -> i64 {
+    static START: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *START.get_or_init(|| store::Timestamp::now().unix_seconds())
 }
 
 async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
@@ -207,12 +254,17 @@ async fn serve(cfg: &mut Configuration, store: Store) -> ExitCode {
         settings: RwLock::new(query_settings.clone()),
         nrtm: nrtm.clone(),
     });
+    let events = http::Events::new();
+    store.set_event_listener(Some(events.store_listener()));
+    events.spawn_watcher(store.clone());
     let http_state = Arc::new(http::HttpState {
         store: store.clone(),
         query: RwLock::new(query_settings),
         http: RwLock::new(Arc::new(http_settings(cfg))),
         nrtm,
         submit: RwLock::new(Arc::new(settings::submit_settings(cfg))),
+        startup_time: startup_time(),
+        events,
     });
     tokio::spawn(whois_server::serve(
         whois_listener,

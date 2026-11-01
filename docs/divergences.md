@@ -32,6 +32,13 @@ Each entry says what v4 does, what irrd-ng does instead, who can see the differe
 - **Visible to**: operators whose ROA source contains repeats, who now get current RPKI state instead of a stuck import, and their users through `!f` filtering, RPKI-aware queries and notification mails.
 - **Why**: a v4 bug with no upside. Josh decided on 2026-11-01 to fix it. `parity/status/run.sh` step 03 checks that v4 still fails on the file with repeats and that irrd-ng on that file ends up exactly where v4 does on the same file without them, apart from the one extra trust anchor row.
 
+## DIV-005: irr_rpsl_submit works with passwords
+
+- **v4** (`irrd/scripts/irr_rpsl_submit.py:552`): before sending, the tool filters passwords out of a debug line with `filtered_http_data.replace(password, b"REMOVED")`, which is `bytes.replace(str, bytes)`. That raises `TypeError` whenever the input has a `password:` line, so the tool exits 32 with `Some other error: TypeError • a bytes-like object is required, not 'str'` and sends nothing. Input that authenticates with a password can never be submitted with v4's tool.
+- **irrd-ng**: the request is sent, and the reply is reported as for any other submission.
+- **Visible to**: anyone who runs `irr_rpsl_submit` with `password:` lines, which now works.
+- **Why**: a plain v4 bug that makes the tool unusable for password authentication, fixed in line with DIV-004. `parity/submit/run.sh` checks that v4's tool still fails, and compares irrd-ng with v4's tool with that one line corrected.
+
 ## Not a divergence: comment line stripping
 
 v4's `split_paragraphs_rpsl` (`irrd/utils/text.py:69`) has an operator precedence slip, `strip_comments and line.startswith("%") or line.startswith("#")`, so `#` lines are always dropped and `%` lines only when `strip_comments` is set. Read literally that looks like a bug, but the behaviour it produces is the right one: RPSL treats `#` lines as comments everywhere, while NRTMv3 streams (the one caller that passes `strip_comments=False`) must keep `%` lines for `%START` and `%END`. Correcting the precedence would make irrd-ng keep `#` lines in NRTMv3 streams, which would then reject any mirrored object containing a whole-line comment and any stream with a `#` line after `%END`. irrd-ng therefore implements v4's behaviour, written out explicitly, and produces identical results.
@@ -74,7 +81,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 
 ## Proposed, awaiting review
 
-P-21 to P-29 came out of Phases 5 and 6. Each needs a decision: accept it, or keep it open as a bug to fix.
+P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8 and P-40 to P-44 out of Phase 7. Each needs a decision: accept it, or keep it open as a bug to fix.
 
 ### RPKI, scope filter and route preference
 
@@ -90,3 +97,25 @@ P-21 to P-29 came out of Phases 5 and 6. Each needs a decision: accept it, or ke
 - **P-27 No NRTMv4 server lock files.** v4 creates `nrtm4-server-*.lock` files in `piddir`; irrd-ng runs everything in one process and uses in-process locks instead.
 - **P-28 Deterministic NRTMv4 signatures.** irrd-ng's ES256 signatures are deterministic (RFC 6979); v4's are randomised. Both verify with the same key, and no client can tell them apart except by comparing two signatures of the same file.
 - **P-29 Write-side checks and error text.** irrd-ng does not re-validate an Update Notification File's contents before writing it, which only matters in a race v4 cannot reach in practice. Python exception text in export and NRTMv4 server error logs is approximated.
+
+### GraphQL, status, metrics and the event stream
+
+- **P-30 Order of `rpslObjects` and the `*Objs` fields.** v4 runs these queries without `ORDER BY`, so rows come back in whatever order Postgres returns them, and a `recordLimit` below the number of matches returns arbitrary rows. irrd-ng uses its object order (P-14). Error paths that carry a row index follow the same order.
+- **P-31 Set order in `asSetPrefixes`, `asnPrefixes` and `recursiveSetMembers`.** v4 builds the per-set and prefix order from Python sets, as in P-13. The harness accepts a permutation.
+- **P-32 Order of GraphQL errors.** v4 lists errors in the order its threaded resolvers finish. irrd-ng lists them in execution order.
+- **P-33 `sqlTrace`.** irrd-ng has no SQL, so it renders the SQL v4 would have run instead of running it, with columns in table order where v4 uses Python set order.
+- **P-34 No template leak from `membersObjs`.** In v4, one `membersObjs` query permanently changes that HTTP worker's `-t as-set`, `-t route-set` and `-t rtr-set` templates, and possibly reference checks for submissions handled by the same worker. irrd-ng does not copy this.
+- **P-35 Static files.** Only the GraphiQL files under `/static/` are served. Their `last-modified` and `etag` use the v4.5.4 release date, because v4's depend on when and where it was installed.
+- **P-36 Event stream without Redis.** Changes are announced in-process. Writes by other processes, such as the command-line tools, are announced within 2 seconds, with one event per source per 2-second window. Compressed frame bytes and ping timing differ.
+- **P-37 Row order in `/v1/event-stream/initial/`.** Follows irrd-ng's object order.
+- **P-38 pydantic error text for invalid event stream messages.** Approximated.
+- **P-39 LMDB map size in `/v1/status/`.** Not shown today, because v4 prints nothing like it. The project brief asks for it to be shown; adding one line would change the status text, so it waits for a decision.
+
+### Submissions and mail
+
+- **P-40 Mail order.** Notification and reply mails go out in a fixed order; v4 sends them in Python set order, which changes between runs.
+- **P-41 Multi-byte mail charsets.** Mail bodies in ASCII, UTF-8 and all of Python's single-byte codecs (windows-125x, iso-8859-x, koi8, mac and DOS code pages, with their aliases) decode exactly as in v4. Multi-byte charsets such as Shift_JIS, GB2312, Big5 and ISO-2022-JP are not supported: such a mail is logged as unprocessable and gets no reply, where v4 would decode it.
+- **P-42 `From:` parsing.** The reply address is taken from `From:` with a simpler parser than Python's `email.utils`. Ordinary addresses give the same result.
+- **P-43 Non-ASCII headers in a signed PGP/MIME part.** These are not re-encoded the way Python's email package would before the signature check, so such a signature can fail in irrd-ng and pass in v4.
+- **P-44 Signature checks by sequoia, not gpg.** PGP signatures and key imports go through sequoia, so rare edge cases in key or signature formats can be judged differently. A `$2$` bcrypt hash, the oldest variant, is always refused; v4 leaves it to passlib, whose answer depends on its bcrypt backend.
+

@@ -235,16 +235,16 @@ pub(crate) fn ipy(text: &str) -> Option<Ip> {
 
 /// The `(net, broadcast)` pair v4 compares against `ip_first`/`ip_last`,
 /// with the broadcast's own (re-guessed) IP version.
-struct IpBounds {
-    version: u8,
-    net: u128,
-    bcast: u128,
+pub(crate) struct IpBounds {
+    pub(crate) version: u8,
+    pub(crate) net: u128,
+    pub(crate) bcast: u128,
     bcast_version: u8,
     prefixlen: u32,
 }
 
 impl IpBounds {
-    fn of(ip: &Ip) -> Self {
+    pub(crate) fn of(ip: &Ip) -> Self {
         let b = ip.broadcast();
         IpBounds {
             version: ip.version(),
@@ -255,7 +255,7 @@ impl IpBounds {
         }
     }
 
-    fn space(&self) -> Space {
+    pub(crate) fn space(&self) -> Space {
         if self.version == 4 {
             Space::Ipv4
         } else {
@@ -269,20 +269,20 @@ impl IpBounds {
     /// every IPv4 `inet` below every IPv6 one, so `ip_last = <v4>` is never
     /// true, `ip_last >= <v4>` always is, and `ip_first <= <v4>` never is
     /// for IPv6 rows. The callers reproduce exactly those predicates.
-    fn consistent(&self) -> bool {
+    pub(crate) fn consistent(&self) -> bool {
         self.version == self.bcast_version
     }
 
-    fn q_net(&self) -> Inet {
+    pub(crate) fn q_net(&self) -> Inet {
         (family_rank(self.version), self.net)
     }
 
-    fn q_bcast(&self) -> Inet {
+    pub(crate) fn q_bcast(&self) -> Inet {
         (family_rank(self.bcast_version), self.bcast)
     }
 
     /// The row's `(ip_first, ip_last)` if its `ip_version` is the query's.
-    fn row(&self, o: &RpslObjectRef<'_>) -> Option<(Inet, Inet)> {
+    pub(crate) fn row(&self, o: &RpslObjectRef<'_>) -> Option<(Inet, Inet)> {
         if o.ip_version != Some(self.version) {
             return None;
         }
@@ -290,19 +290,19 @@ impl IpBounds {
     }
 
     /// `ip_first = net AND ip_last = broadcast AND ip_version = v`
-    fn exact(&self, o: &RpslObjectRef<'_>) -> bool {
+    pub(crate) fn exact(&self, o: &RpslObjectRef<'_>) -> bool {
         self.row(o)
             .is_some_and(|(f, l)| f == self.q_net() && l == self.q_bcast())
     }
 
     /// `ip_first <= net AND ip_last >= broadcast AND ip_version = v`
-    fn less_or_exact(&self, o: &RpslObjectRef<'_>) -> bool {
+    pub(crate) fn less_or_exact(&self, o: &RpslObjectRef<'_>) -> bool {
         self.row(o)
             .is_some_and(|(f, l)| f <= self.q_net() && l >= self.q_bcast())
     }
 
     /// v4's non-prefix `ip_more_specific()` predicate.
-    fn more_specific(&self, o: &RpslObjectRef<'_>) -> bool {
+    pub(crate) fn more_specific(&self, o: &RpslObjectRef<'_>) -> bool {
         let (n, b) = (self.q_net(), self.q_bcast());
         self.row(o)
             .is_some_and(|(f, l)| f >= n && f <= b && l <= b && l >= n && !(f == n && l == b))
@@ -311,7 +311,7 @@ impl IpBounds {
 
 /// An `inet` host value as PostgreSQL orders it: every IPv4 address
 /// below every IPv6 one, then by address.
-type Inet = (u8, u128);
+pub(crate) type Inet = (u8, u128);
 
 fn family_rank(version: u8) -> u8 {
     u8::from(version != 4)
@@ -324,7 +324,7 @@ fn inet(a: &IpAddr) -> Inet {
     }
 }
 
-fn addr_u128(a: &IpAddr) -> u128 {
+pub(crate) fn addr_u128(a: &IpAddr) -> u128 {
     match a {
         IpAddr::V4(v) => u128::from(u32::from(*v)),
         IpAddr::V6(v) => u128::from(*v),
@@ -332,7 +332,7 @@ fn addr_u128(a: &IpAddr) -> u128 {
 }
 
 /// `prefix >>= cidr` (`contains_or_equals`) and `prefix << cidr`.
-fn prefix_relation(o: &RpslObjectRef<'_>, q: &IpBounds, strictly_inside: bool) -> bool {
+pub(crate) fn prefix_relation(o: &RpslObjectRef<'_>, q: &IpBounds, strictly_inside: bool) -> bool {
     let Some(p) = o.prefix else {
         return false;
     };
@@ -985,14 +985,58 @@ impl QueryResolver {
         Ok(())
     }
 
+    /// `members_for_set_per_source()`: the members of every as-set or
+    /// route-set named `parameter`, per source, in source priority order.
+    pub fn members_for_set_per_source(
+        &mut self,
+        view: &ReadView<'_>,
+        parameter: &str,
+        exclude_sets: &[String],
+        depth: i64,
+        recursive: bool,
+    ) -> QResult<Vec<(String, Vec<String>)>> {
+        let f = self.prepare();
+        let pk = rpsl::python::upper(parameter);
+        let pk = rpsl::python::strip(&pk);
+        let mut rows: Vec<(usize, String)> = Vec::new();
+        for id in view.ids_by_rpsl_pk(pk)? {
+            let Some(o) = view.object_by_id(id)? else {
+                continue;
+            };
+            if !matches!(o.object_class, "as-set" | "route-set") || !f.passes(&o) {
+                continue;
+            }
+            let prio = f
+                .sources
+                .iter()
+                .position(|s| s == o.source)
+                .unwrap_or(100_000);
+            rows.push((prio, o.source.to_owned()));
+        }
+        rows.sort();
+        let mut out: Vec<(String, Vec<String>)> = Vec::new();
+        for (_, source) in rows {
+            if out.iter().any(|(s, _)| *s == source) {
+                continue;
+            }
+            let members = self.members_for_set(
+                view,
+                parameter,
+                exclude_sets,
+                depth,
+                recursive,
+                Some(&source),
+            )?;
+            out.push((source, members));
+        }
+        Ok(out)
+    }
+
     // ---- status ----
 
     /// `DatabaseStatusQuery().sources(sources)`: rows of the listed sources
     /// that exist, ordered by first position in the list.
-    pub(crate) fn status_rows(
-        view: &ReadView<'_>,
-        sources: &[String],
-    ) -> QResult<Vec<DatabaseStatus>> {
+    pub fn status_rows(view: &ReadView<'_>, sources: &[String]) -> QResult<Vec<DatabaseStatus>> {
         let wanted: Vec<String> = sources
             .iter()
             .map(|s| rpsl::python::upper(s).into_owned())
@@ -1008,7 +1052,7 @@ impl QueryResolver {
 }
 
 /// `f"{ip_first}/{prefix_length}"` with PostgreSQL's `inet` text.
-pub(crate) fn prefix_text(version: u8, addr: u128, len: u8) -> String {
+pub fn prefix_text(version: u8, addr: u128, len: u8) -> String {
     let mut s = String::with_capacity(44);
     write_prefix(&mut s, version, addr, len);
     s

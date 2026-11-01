@@ -165,11 +165,11 @@ impl QuerySettings {
             .chain(self.rpki_enabled.then_some(RPKI_IRR_PSEUDO_SOURCE))
     }
 
-    pub(crate) fn is_valid_real_source(&self, name: &str) -> bool {
+    pub fn is_valid_real_source(&self, name: &str) -> bool {
         self.all_valid_real_sources().any(|s| s == name)
     }
 
-    pub(crate) fn alias(&self, name: &str) -> Option<&[String]> {
+    pub fn alias(&self, name: &str) -> Option<&[String]> {
         self.source_aliases
             .iter()
             .find(|(a, _)| a == name)
@@ -177,14 +177,14 @@ impl QuerySettings {
     }
 
     /// `all_valid_sources`: real sources, then aliases.
-    pub(crate) fn all_valid_sources(&self) -> Vec<String> {
+    pub fn all_valid_sources(&self) -> Vec<String> {
         self.all_valid_real_sources()
             .map(str::to_owned)
             .chain(self.source_aliases.iter().map(|(a, _)| a.clone()))
             .collect()
     }
 
-    pub(crate) fn is_valid_source(&self, name: &str) -> bool {
+    pub fn is_valid_source(&self, name: &str) -> bool {
         self.is_valid_real_source(name) || self.alias(name).is_some()
     }
 

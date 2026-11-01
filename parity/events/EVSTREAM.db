@@ -1,0 +1,45 @@
+mntner:         EVSTREAM-MNT
+descr:          Synthetic maintainer for the event stream suite
+admin-c:        EVS1-TEST
+upd-to:         noc@example.net
+auth:           CRYPT-PW LEuuhsBJNFV0Q
+auth:           BCRYPT-PW $2b$12$.dW05gqNsSV/W3cHDHpJ7.HZvnSOrNrFkGqmK3fpW7WnZsFX9sq5a
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
+
+person:         Event Stream Tester
+address:        Example Street 1
+phone:          +31 20 000 0000
+e-mail:         noc@example.net
+nic-hdl:        EVS1-TEST
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
+
+aut-num:        AS64496
+as-name:        EVSTREAM-EXAMPLE
+descr:          Documentation ASN
+member-of:      AS-EVSTREAM
+admin-c:        EVS1-TEST
+tech-c:         EVS1-TEST
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
+
+as-set:         AS-EVSTREAM
+descr:          Synthetic set: é and / in text
+members:        AS64496, AS64497
+mbrs-by-ref:    EVSTREAM-MNT
+tech-c:         EVS1-TEST
+admin-c:        EVS1-TEST
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
+
+route:          192.0.2.0/24
+descr:          Documentation prefix
+origin:         AS64496
+mnt-by:         EVSTREAM-MNT
+changed:        noc@example.net 20261101
+source:         EVSTREAM
