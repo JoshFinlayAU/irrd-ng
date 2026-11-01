@@ -315,7 +315,7 @@ fn get<'a>(v: &'a PyJson, k: &str) -> Option<&'a PyJson> {
 
 fn int3(v: Option<&PyJson>) -> String {
     match v {
-        Some(PyJson::Number(n)) => format!("{:>3}", n),
+        Some(PyJson::Number(n)) => format!("{:>3}", n.to_string()),
         Some(other) => other.py_str(),
         None => String::new(),
     }
@@ -591,6 +591,15 @@ mod tests {
             py_json_ascii("é\u{1F308}\""),
             "\"\\u00e9\\ud83c\\udf08\\\"\""
         );
+    }
+
+    #[test]
+    fn text_report_pads_counts() {
+        let r = auth::api::json_loads(br#"{"summary":{"objects_found":1,"successful":1,"successful_create":0,"successful_modify":1,"successful_delete":0,"failed":0,"failed_create":0,"failed_modify":0,"failed_delete":0},"objects":[]}"#)
+            .unwrap_or(PyJson::Null);
+        let t = format_as_text(&r).unwrap_or_default();
+        assert!(t.contains("Number of objects found:                    1\n    "));
+        assert!(t.contains("    Modify:        1\n"));
     }
 
     #[test]
