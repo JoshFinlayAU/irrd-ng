@@ -1,7 +1,7 @@
 //! `irrd-ng import`: the one-shot migration from an IRRd 4.5 database.
 //!
 //!   irrd-ng import --from-postgres <dsn> [--store <path>] [--batch-rows <n>]
-//!                 [--write-batch-rows <n>]
+//!                 [--write-batch-rows <n>] [--load-pgp-keys]
 //!
 //! Reads the v4 database in one read-only snapshot and upserts every row
 //! into the store, creating it if needed. The store is `--store`, else
@@ -25,6 +25,8 @@ struct Args {
     store: std::path::PathBuf,
     batch_rows: usize,
     write_rows: usize,
+    /// `--load-pgp-keys`: fill the PGP keyring from every key-cert.
+    load_pgp_keys: bool,
 }
 
 fn parse(args: &[OsString]) -> Result<Args, String> {
@@ -32,6 +34,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
     let mut store = None;
     let mut batch_rows = import_v4::DEFAULT_BATCH_ROWS;
     let mut write_rows = import_v4::to_store::WRITE_BATCH_ROWS;
+    let mut load_pgp_keys = false;
     let mut it = args
         .iter()
         .skip(1)
@@ -66,6 +69,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
                     .filter(|n| *n > 0)
                     .ok_or_else(|| messages::import_bad_int("--write-batch-rows", &v))?;
             }
+            "--load-pgp-keys" => load_pgp_keys = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(messages::import_unknown_arg(other)),
         }
@@ -75,6 +79,7 @@ fn parse(args: &[OsString]) -> Result<Args, String> {
         store: store.unwrap_or_else(crate::settings::store_path),
         batch_rows,
         write_rows,
+        load_pgp_keys,
     })
 }
 
@@ -141,6 +146,11 @@ fn import(args: &Args, load_started: &mut bool) -> anyhow::Result<()> {
         "{}",
         messages::import_synced(sync_start.elapsed().as_secs_f64())
     );
+    let keys = if args.load_pgp_keys {
+        Some(load_keyring_from_keycerts(&store)?)
+    } else {
+        None
+    };
     for (table, n) in &stats.tables {
         println!(
             "{}",
@@ -156,5 +166,44 @@ fn import(args: &Args, load_started: &mut bool) -> anyhow::Result<()> {
             start.elapsed().as_secs_f64()
         )
     );
+    if let Some(keys) = keys {
+        println!("{}", messages::import_keyring(keys));
+    }
     Ok(())
+}
+
+/// v4 keeps its PGP keyring in a GnuPG home directory, outside the
+/// database, so the import cannot copy it, and starts irrd-ng with an
+/// empty keyring as a v4 on a new host would start. With
+/// `--load-pgp-keys` every stored key-cert is parsed strictly instead,
+/// which imports its key, as `irrd_load_pgp_keys` does per source, so PGP
+/// signed submissions work straight after the migration. Returns the
+/// number of keys in the keyring.
+fn load_keyring_from_keycerts(store: &Store) -> anyhow::Result<usize> {
+    let texts: Vec<String> = {
+        let r = store.read()?;
+        let v = r.view();
+        let mut out = Vec::new();
+        for source in v.object_sources()? {
+            for item in v.objects(Some(&source), Some("key-cert"))? {
+                out.push(item?.1.object_text.to_owned());
+            }
+        }
+        out
+    };
+    let settings = rpsl::RpslSettings::default();
+    let keyring = nrtm::keyring::load_keyring(store);
+    for text in &texts {
+        let _ = rpsl::rpsl_object_from_text(
+            text,
+            &rpsl::ParseOptions {
+                strict: true,
+                default_source: None,
+                settings: &settings,
+                keyring: &keyring,
+            },
+        );
+    }
+    nrtm::keyring::save_keyring(store, &keyring);
+    Ok(keyring.fingerprints().len())
 }
