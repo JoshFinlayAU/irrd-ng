@@ -81,7 +81,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 
 ## Proposed, awaiting review
 
-P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8 and P-40 to P-44 out of Phase 7. Each needs a decision: accept it, or keep it open as a bug to fix.
+P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 and P-45 to P-48 out of Phase 8 and its follow-up, and P-40 to P-44 out of Phase 7. Each needs a decision: accept it, or keep it open as a bug to fix.
 
 ### RPKI, scope filter and route preference
 
@@ -118,4 +118,13 @@ P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8 and P-40 to
 - **P-42 `From:` parsing.** The reply address is taken from `From:` with a simpler parser than Python's `email.utils`. Ordinary addresses give the same result.
 - **P-43 Non-ASCII headers in a signed PGP/MIME part.** These are not re-encoded the way Python's email package would before the signature check, so such a signature can fail in irrd-ng and pass in v4.
 - **P-44 Signature checks by sequoia, not gpg.** PGP signatures and key imports go through sequoia, so rare edge cases in key or signature formats can be judged differently. A `$2$` bcrypt hash, the oldest variant, is always refused; v4 leaves it to passlib, whose answer depends on its bcrypt backend.
+
+### GraphQL transports
+
+v4 4.5.4 never returns a result for a GraphQL query sent over the WebSocket at `/graphql/` or as a multipart request: IRRd's logging extension reads `request._json` after the query runs, which only exists for JSON bodies, so the query raises `AttributeError`. Over WebSocket the connection drops without a close frame, and a multipart request gets a plain 500. irrd-ng copies this, and the handshakes, protocol messages and multipart errors around it, byte for byte (`parity/corpus/graphql/transport.gq`). Making these transports actually work would be a deliberate divergence from a v4 bug, and is not done because no client can be relying on them today.
+
+- **P-45 The query is not run.** Where v4 runs the query and then fails, irrd-ng fails without running it. The client sees the same bytes.
+- **P-46 Multipart bodies are parsed in one piece.** v4 parses them in network-sized chunks, which only matters for some malformed bodies split across packets.
+- **P-47 Multi-byte charsets in a multipart `charset=` parameter.** UTF-8, ASCII, Latin-1 and Python's single-byte codecs decode as in v4; multi-byte ones such as UTF-16 fall back to Latin-1.
+- **P-48 Lone surrogates in a WebSocket message `id`.** Echoing one back crashes v4's handler; irrd-ng escapes it.
 
