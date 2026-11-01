@@ -204,18 +204,50 @@ fn py_format(template: &str, asn: &str, prefix: &str) -> Result<String, RoaImpor
 
 /// One `roas` entry, with each value kept as JSON so v4's per-type
 /// behaviour can be reproduced.
-#[derive(Debug, Default, Deserialize)]
-struct RawRoa {
+#[derive(Debug, Default)]
+struct RoaDict {
     asn: Option<serde_json::Value>,
     prefix: Option<serde_json::Value>,
-    #[serde(rename = "maxLength")]
     max_length: Option<serde_json::Value>,
     ta: Option<serde_json::Value>,
 }
 
+/// One `roas` entry as it is in the file: each value is borrowed from the
+/// JSON text and only turned into a [`RoaDict`] while that entry is
+/// checked, so a million ROAs cost a few dozen bytes each instead of a
+/// tree of JSON values. The type names stay `RawDoc` and `RawRoa`: they
+/// appear in serde's error text for a document of the wrong shape.
 #[derive(Debug, Deserialize)]
-struct RawDoc {
-    roas: Option<Vec<RawRoa>>,
+struct RawRoa<'a> {
+    #[serde(borrow)]
+    asn: Option<&'a serde_json::value::RawValue>,
+    #[serde(borrow)]
+    prefix: Option<&'a serde_json::value::RawValue>,
+    #[serde(borrow, rename = "maxLength")]
+    max_length: Option<&'a serde_json::value::RawValue>,
+    #[serde(borrow)]
+    ta: Option<&'a serde_json::value::RawValue>,
+}
+
+impl RawRoa<'_> {
+    fn to_dict(&self) -> RoaDict {
+        // The text was validated as JSON when the document was read.
+        let v = |r: Option<&serde_json::value::RawValue>| {
+            r.map(|r| serde_json::from_str(r.get()).unwrap_or(serde_json::Value::Null))
+        };
+        RoaDict {
+            asn: v(self.asn),
+            prefix: v(self.prefix),
+            max_length: v(self.max_length),
+            ta: v(self.ta),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RawDoc<'a> {
+    #[serde(borrow)]
+    roas: Option<Vec<RawRoa<'a>>>,
 }
 
 /// `str()` of a JSON value as Python sees it after `ujson.loads`.
@@ -383,7 +415,7 @@ struct Slurm {
     filtered_asns: HashSet<i64>,
     filtered_prefixes: IpSet,
     filtered_combined: HashMap<i64, IpSet>,
-    assertions: Vec<RawRoa>,
+    assertions: Vec<RoaDict>,
 }
 
 fn json_error_text(e: &serde_json::Error, text: &str) -> String {
@@ -464,7 +496,7 @@ fn load_slurm(text: &str) -> Result<Slurm, RoaImportError> {
         let asn = a
             .get("asn")
             .ok_or_else(|| RoaImportError::Other(rpsl::python::repr("asn")))?;
-        s.assertions.push(RawRoa {
+        s.assertions.push(RoaDict {
             asn: Some(serde_json::Value::String(format!("AS{}", py_str(asn)))),
             prefix: Some(prefix.clone()),
             max_length: Some(max_length),
@@ -512,29 +544,36 @@ impl RoaImport {
                 ))));
             }
         };
-        let Some(mut roa_dicts) = doc.roas else {
+        let Some(file_dicts) = doc.roas else {
             return Err(parser_error(messages::ROOT_KEY_NOT_FOUND.to_owned()));
         };
         let slurm = match slurm_json {
             Some(s) if !s.is_empty() => Some(load_slurm(s)?),
             _ => None,
         };
-        let n_file = roa_dicts.len();
-        if let Some(s) = &slurm {
-            roa_dicts.extend(s.assertions.iter().map(|a| RawRoa {
-                asn: a.asn.clone(),
-                prefix: a.prefix.clone(),
-                max_length: a.max_length.clone(),
-                ta: a.ta.clone(),
-            }));
-        }
+        let n_file = file_dicts.len();
+        let n_all = n_file + slurm.as_ref().map_or(0, |s| s.assertions.len());
 
-        let mut roas = Vec::with_capacity(roa_dicts.len());
-        let mut pseudo = Vec::with_capacity(roa_dicts.len());
+        let mut roas = Vec::with_capacity(n_all);
+        let mut pseudo = Vec::with_capacity(n_all);
         let mut duplicates = 0;
-        let mut seen_roas = HashSet::new();
-        let mut seen_pseudo = HashSet::new();
-        for (idx, d) in roa_dicts.iter().enumerate() {
+        // Repeats are found on the values the keys are made from: the
+        // prefix (its text is a function of it), origin, max length and
+        // trust anchor for a ROA, prefix, origin and max length for its
+        // pseudo-IRR object (whose class follows from the prefix). No key
+        // text is kept per ROA.
+        let mut ta_ids: HashMap<String, u32> = HashMap::new();
+        let mut seen_roas: HashSet<(Ip, u32, i64, u32)> = HashSet::with_capacity(n_all);
+        let mut seen_pseudo: HashSet<(Ip, u32, i64)> = HashSet::with_capacity(n_all);
+        let assertions = slurm.as_ref().map_or(&[][..], |s| &s.assertions[..]);
+        let mut file_entry;
+        for idx in 0..n_all {
+            let d = if idx < n_file {
+                file_entry = file_dicts[idx].to_dict();
+                &file_entry
+            } else {
+                &assertions[idx - n_file]
+            };
             let missing = |key: &str| {
                 let record = if idx < n_file {
                     record_repr(rpki_json, idx)
@@ -580,7 +619,15 @@ impl RoaImport {
                     asn,
                 )));
             }
-            if !seen_roas.insert((prefix_str.clone(), asn, max_length, ta.clone())) {
+            let ta_id = match ta_ids.get(&ta) {
+                Some(id) => *id,
+                None => {
+                    let id = ta_ids.len() as u32;
+                    ta_ids.insert(ta.clone(), id);
+                    id
+                }
+            };
+            if !seen_roas.insert((prefix, asn, max_length, ta_id)) {
                 duplicates += 1;
                 tracing::debug!(target: LOG_TARGET, "{}", messages::duplicate_roa(&prefix_str, asn, max_length, &ta));
                 continue;
@@ -599,7 +646,7 @@ impl RoaImport {
                 roas[0].pseudo_text(r)?;
             }
             let roa = &roas[roas.len() - 1];
-            if seen_pseudo.insert((roa.pseudo_class(), roa.pseudo_pk())) {
+            if seen_pseudo.insert((roa.prefix, roa.asn, roa.max_length)) {
                 pseudo.push(roas.len() - 1);
             } else {
                 duplicates += 1;
@@ -617,7 +664,7 @@ impl RoaImport {
     }
 }
 
-fn slurm_record_repr(d: &RawRoa) -> String {
+fn slurm_record_repr(d: &RoaDict) -> String {
     let mut parts = Vec::new();
     for (k, v) in [
         ("asn", &d.asn),

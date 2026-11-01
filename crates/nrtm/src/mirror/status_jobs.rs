@@ -137,16 +137,22 @@ pub fn import_and_validate(
     let slurm_shown = jobs.slurm_source.clone().unwrap_or_else(|| "None".into());
     let parsed = RoaImport::parse(roa_json, slurm_json, Some(&jobs.pseudo_irr_remarks))?;
     let scopefilter = ScopeFilterValidator::new(settings.scopefilter.clone());
-    let mut objects = Vec::with_capacity(parsed.pseudo.len());
-    for &i in &parsed.pseudo {
-        objects.push(parsed.roas[i].pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?);
+    // The pseudo-IRR objects are rendered one at a time inside the write,
+    // not collected first: at a million ROAs the rendered rows were the
+    // largest allocation of the import. Rendering can only fail on the
+    // remarks template, which is the same for every ROA, so the first one
+    // is rendered here to report that before anything is written.
+    if let Some(&i) = parsed.pseudo.first() {
+        parsed.roas[i].pseudo_object(&jobs.pseudo_irr_remarks, &scopefilter)?;
     }
 
     // First transaction, journaling disabled: replace every ROA and every
     // pseudo-IRR object.
+    let pseudo = parsed.pseudo;
     let roas = Arc::new(parsed.roas);
     let reserve = roas.len().saturating_mul(2048);
-    let (r2, o2) = (roas.clone(), objects);
+    let r2 = roas.clone();
+    let remarks = jobs.pseudo_irr_remarks.clone();
     store
         .write_reserving(reserve, move |tx| {
             tx.disable_journaling();
@@ -163,8 +169,11 @@ pub fn import_and_validate(
                     )?;
                 }
             }
-            for obj in o2.iter() {
-                tx.upsert_rpsl_object(obj, JournalEntryOrigin::PseudoIrr, None, None)?;
+            for &i in &pseudo {
+                let obj = r2[i]
+                    .pseudo_object(&remarks, &scopefilter)
+                    .map_err(|e| store::StoreError::Aborted(e.to_string()))?;
+                tx.upsert_rpsl_object(&obj, JournalEntryOrigin::PseudoIrr, None, None)?;
             }
             Ok(())
         })
