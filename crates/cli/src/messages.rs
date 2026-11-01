@@ -209,6 +209,11 @@ pub(crate) fn store_in(path: &std::path::Path) -> String {
 /// irrd-ng's own: replication configured without a secret.
 pub(crate) const REPLICATION_NEEDS_SECRET: &str = "Unable to start: ng_replication.secret (or IRRD_NG_REPLICATION_SECRET) must be set when ng_replication.port or ng_replication.active_host is set";
 
+/// irrd-ng's own: a replication secret too short to resist guessing. The
+/// configuration check reports a short `ng_replication.secret` in the file;
+/// this one also covers `IRRD_NG_REPLICATION_SECRET`.
+pub(crate) const REPLICATION_SECRET_TOO_SHORT: &str = "Unable to start: ng_replication.secret (or IRRD_NG_REPLICATION_SECRET) must be at least 16 characters";
+
 /// irrd-ng's own: a standby with nothing to follow.
 /// irrd-ng's own: a whois query line over `MAX_LINE`.
 pub(crate) fn whois_line_too_long(client: &str) -> String {

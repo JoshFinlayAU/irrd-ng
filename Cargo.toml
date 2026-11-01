@@ -45,6 +45,10 @@ flate2 = { version = "1.1.9", default-features = false, features = ["zlib"] }
 # miniz_oxide produce different, equally valid, streams.
 libz-sys = { version = "1.1.31", default-features = false, features = ["static", "libc"] }
 getrandom = "0.4.3"
+# Stretches the replication secret (Argon2id). Already in the tree through
+# sequoia-openpgp, pure Rust.
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+libc = "0.2.191"
 sha2 = { version = "0.11.1", default-features = false }
 tempfile = "3.27.0"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
@@ -96,6 +100,14 @@ codegen-units = 1
 panic = "unwind"
 overflow-checks = true
 strip = "symbols"
+
+# Argon2 runs once at startup, but unoptimised it takes seconds, which the
+# replication tests would pay for every server and standby they start.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
 
 [profile.bench]
 inherits = "release"

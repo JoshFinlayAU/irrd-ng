@@ -334,6 +334,20 @@ struct Replication {
     follow: Option<replication::FollowerSettings>,
 }
 
+/// The replication secret, when it is set and long enough. The file's
+/// value is checked with the rest of the configuration, but one from the
+/// environment (`IRRD_NG_REPLICATION_SECRET`) is only seen here, so the
+/// length is checked again.
+fn usable_replication_secret(secret: Option<&str>) -> Result<&str, &'static str> {
+    match secret {
+        None => Err(messages::REPLICATION_NEEDS_SECRET),
+        Some(s) if s.chars().count() < replication::protocol::MIN_SECRET_CHARS => {
+            Err(messages::REPLICATION_SECRET_TOO_SHORT)
+        }
+        Some(s) => Ok(s),
+    }
+}
+
 fn replication_settings(
     cfg: &Configuration,
     store_path: &std::path::Path,
@@ -343,12 +357,17 @@ fn replication_settings(
     let active_host =
         settings::str_setting(cfg, "ng_replication.active_host").filter(|s| !s.is_empty());
     let readonly = settings::truthy(cfg, "readonly_standby");
-    if (port.is_some() || (readonly && active_host.is_some())) && secret.is_none() {
-        return Err(messages::REPLICATION_NEEDS_SECRET.to_owned());
+    if port.is_none() && !(readonly && active_host.is_some()) {
+        return Ok(Replication {
+            serve: None,
+            follow: None,
+        });
     }
-    let secret = secret.unwrap_or_default().into_bytes();
-    let path = |key: &str| {
-        settings::str_setting(cfg, &format!("ng_replication.{key}"))
+    let secret = usable_replication_secret(secret.as_deref()).map_err(str::to_owned)?;
+    // Stretched once, here, and shared by both roles of this server.
+    let key = replication::SharedKey::derive(secret.as_bytes()).map_err(|e| e.to_string())?;
+    let path = |name: &str| {
+        settings::str_setting(cfg, &format!("ng_replication.{name}"))
             .filter(|s| !s.is_empty())
             .map(std::path::PathBuf::from)
     };
@@ -359,7 +378,7 @@ fn replication_settings(
                 settings::str_setting(cfg, "ng_replication.interface")
                     .unwrap_or_else(|| "::0".into()),
                 p as u16,
-                secret.clone(),
+                key.clone(),
             );
             if let (Some(cert), Some(key)) = (path("tls_certificate"), path("tls_key")) {
                 s.tls = Some(
@@ -375,7 +394,7 @@ fn replication_settings(
             let mut f = replication::FollowerSettings::new(
                 host.clone(),
                 settings::int_setting(cfg, "ng_replication.active_port").unwrap_or(0) as u16,
-                secret,
+                key,
                 store_path,
             );
             let pin = settings::str_setting(cfg, "ng_replication.tls_pin");
@@ -793,5 +812,26 @@ mod tests {
             Some("2001:db8::1")
         );
         assert_eq!(url_hostname("localhost"), None);
+    }
+
+    #[test]
+    fn replication_secret_needs_sixteen_characters() {
+        assert_eq!(
+            usable_replication_secret(None),
+            Err(messages::REPLICATION_NEEDS_SECRET)
+        );
+        assert_eq!(
+            usable_replication_secret(Some("fifteen chars!!")),
+            Err(messages::REPLICATION_SECRET_TOO_SHORT)
+        );
+        // Characters, not bytes, as the configuration check counts them.
+        assert_eq!(
+            usable_replication_secret(Some("ééééééééééééééé")),
+            Err(messages::REPLICATION_SECRET_TOO_SHORT)
+        );
+        assert_eq!(
+            usable_replication_secret(Some("sixteen chars!!!")),
+            Ok("sixteen chars!!!")
+        );
     }
 }

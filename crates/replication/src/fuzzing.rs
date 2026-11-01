@@ -38,7 +38,7 @@ pub fn decode(data: &[u8]) {
         while let [kind, a, b, tail @ ..] = r {
             let n = usize::from(u16::from_be_bytes([*a, *b])).min(tail.len());
             let (payload, tail) = tail.split_at(n);
-            let kind = match *kind % 9 {
+            let kind = match *kind % 10 {
                 0 => Kind::Hello,
                 1 => Kind::Challenge,
                 2 => Kind::Auth,
@@ -47,6 +47,7 @@ pub fn decode(data: &[u8]) {
                 5 => Kind::SnapshotRows,
                 6 => Kind::SnapshotEnd,
                 7 => Kind::Entries,
+                8 => Kind::Accept,
                 _ => Kind::Heartbeat,
             };
             if now(writer.send(kind, payload)).is_none() {
@@ -66,15 +67,19 @@ pub fn decode(data: &[u8]) {
                 let _ = protocol::parse_hello(&p);
             }
             Kind::Challenge => {
+                let _ = protocol::parse_challenge_version(&p);
                 let _ = protocol::parse_challenge(&p);
             }
             Kind::Auth => {
-                if let Ok((_, mut r)) = protocol::parse_auth(&p) {
-                    let _ = (r.str(), r.u64());
+                if let Ok((body, _)) = protocol::split_auth(&p) {
+                    let _ = protocol::parse_auth_position(body);
                 }
             }
+            Kind::Accept => {
+                let _ = protocol::parse_accept(&p);
+            }
             Kind::Error => {
-                let _ = String::from_utf8_lossy(&p);
+                let _ = crate::messages::remote_text(&p);
             }
             Kind::SnapshotBegin | Kind::Heartbeat => {
                 let _ = protocol::parse_position(&p);
