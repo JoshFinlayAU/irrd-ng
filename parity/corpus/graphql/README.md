@@ -8,8 +8,8 @@
 - `@tags a,b` tags the items that follow; the file name is always a tag.
 - `@limit N` caps how many times a templated item is expanded (default 10).
 - `@gql [OperationName]` starts a GraphQL request. The query text follows, up to `@end`. A line `@variables <JSON>` inside it sets `variables`. The request is `POST /graphql/` with `Content-Type: application/json` and a body of `query`, `variables` (when given) and `operationName` (when given).
-- `@request METHOD PATH` starts a raw request: header lines, then a blank line and the body (if any), up to `@end`. Without a blank line there is no body.
-- `@ws [extensions]` starts a WebSocket session to `/v1/event-stream/`, offering `extensions` if given. Lines `send <text>` send a text message; `wait` collects messages until the server is quiet for 1.5 seconds or closes.
+- `@request METHOD PATH [crlf]` starts a raw request: header lines, then a blank line and the body (if any), up to `@end`. Without a blank line there is no body. With `crlf`, the body lines are joined with CRLF instead of LF (multipart bodies need it). The `Content-Length` header is added.
+- `@ws [path=PATH] [protocol=LIST] [extensions]` starts a WebSocket session to `PATH` (default `/v1/event-stream/`), offering the subprotocols in `LIST` and `extensions` if given. Lines `send <text>` send a text message, `sendbin <hex>` a binary one and `close [code]` a close frame; `wait` collects messages until the server is quiet for 1.5 seconds, sends a close frame or drops the connection (recorded as `eof`). A refused handshake records the response head and body.
 
 `{name}`, `{name.field}`, `{name|lower}`, `{name|upper}` and `{name|digits}` take values from the corpus bindings (`tools/corpus_bindings.py`), as in the whois corpus; `|digits` keeps only the digits (an AS number for an `ASN` argument). An item is repeated once per value, up to the limit, and dropped when the data has no values for a placeholder.
 

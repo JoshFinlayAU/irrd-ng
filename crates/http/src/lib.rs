@@ -13,6 +13,7 @@ mod event_stream;
 pub use event_stream::Events;
 mod gql;
 pub mod messages;
+mod multipart;
 mod pydantic;
 mod sqltrace;
 mod static_files;
@@ -526,6 +527,25 @@ async fn route(
     let head = *r.method == Method::HEAD;
     let get = *r.method == Method::GET || head;
     let path = r.path;
+    if *r.method == Method::GET && websocket::is_upgrade(r.headers) {
+        // A WebSocket upgrade that was not answered before hyper saw it:
+        // websockets checks the handshake before the app sees the path.
+        let endpoint = websocket::endpoint(path);
+        if matches!(
+            endpoint,
+            websocket::Endpoint::EventStream | websocket::Endpoint::GraphQL
+        ) || !websocket::handshake_ok(r.headers)
+        {
+            return websocket::accept(
+                state.clone(),
+                r.headers,
+                r.host,
+                on_upgrade,
+                settings,
+                endpoint,
+            );
+        }
+    }
     if path == "/" {
         return if get {
             Reply::redirect(StatusCode::FOUND, "/ui/".to_owned())
@@ -576,9 +596,6 @@ async fn route(
             return Reply::text(StatusCode::FORBIDDEN, messages::ACCESS_DENIED);
         }
         return metrics_endpoint(state);
-    }
-    if path == "/v1/event-stream/" && websocket::is_upgrade(r.headers) {
-        return websocket::accept(state.clone(), r.headers, r.host, on_upgrade, settings);
     }
     if path == "/v1/event-stream/initial/" {
         if !get {
@@ -671,7 +688,12 @@ fn graphql_endpoint(state: &HttpState, r: &Req<'_>, body: &[u8]) -> Reply {
             }
         },
         "multipart/form-data" => {
-            return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_INVALID_MULTIPART);
+            return match multipart::extract(&content_type, body) {
+                multipart::Extracted::BadRequest(m) => Reply::text(StatusCode::BAD_REQUEST, m),
+                multipart::Extracted::Crash(e) => {
+                    internal_server_error(&format!("Exception in ASGI application: {e}"))
+                }
+            };
         }
         _ => {
             return Reply::text(StatusCode::BAD_REQUEST, messages::GRAPHQL_CONTENT_TYPE);
@@ -874,12 +896,12 @@ pub async fn serve(listener: TcpListener, state: Arc<HttpState>) {
         };
         let state = state.clone();
         tokio::spawn(async move {
-            // A WebSocket upgrade to the event stream is answered here, so
-            // the 101 keeps uvicorn's header case; everything else, and
-            // what was read so far, goes to hyper.
+            // A WebSocket upgrade is answered here, so the responses keep
+            // the header case of uvicorn and websockets; everything else,
+            // and what was read so far, goes to hyper.
             let mut stream = stream;
             let mut head: Vec<u8> = Vec::new();
-            const PREFIX: &[u8] = b"GET /v1/event-stream/ ";
+            const PREFIX: &[u8] = b"GET /";
             loop {
                 let candidate = if head.len() < PREFIX.len() {
                     PREFIX.starts_with(&head)

@@ -471,6 +471,34 @@ fn normalize_encoding(charset: &str) -> String {
     out
 }
 
+/// `bytes.decode(charset)` with strict errors, for ASCII, UTF-8, Latin-1
+/// and Python's single-byte codecs: `None` where Python raises
+/// `UnicodeDecodeError`, and for every other codec name (Python's
+/// multi-byte codecs are not supported, so they count as unknown).
+pub fn decode_strict(bytes: &[u8], charset: &str) -> Option<String> {
+    match normalize_encoding(charset).as_str() {
+        "ascii" | "us_ascii" | "646" | "us" | "iso646_us" | "ansi_x3.4_1968" | "cp367" => bytes
+            .is_ascii()
+            .then(|| bytes.iter().map(|&b| b as char).collect()),
+        "utf_8" | "utf8" | "u8" | "utf" | "cp65001" => {
+            std::str::from_utf8(bytes).ok().map(str::to_owned)
+        }
+        "latin_1" | "latin1" | "l1" | "iso_8859_1" | "iso8859_1" | "8859" | "cp819" | "latin" => {
+            Some(bytes.iter().map(|&b| b as char).collect())
+        }
+        name => {
+            let table = charsets::table(name)?;
+            bytes
+                .iter()
+                .map(|&b| match table[usize::from(b)] {
+                    charsets::UNDEFINED => None,
+                    c => char::from_u32(u32::from(c)),
+                })
+                .collect()
+        }
+    }
+}
+
 /// `bytes.decode(charset, errors)` for ASCII, UTF-8 and Python's
 /// single-byte codecs; Python's `LookupError` text for the others.
 fn decode_charset(bytes: &[u8], charset: &str, backslashreplace: bool) -> Result<String, String> {
