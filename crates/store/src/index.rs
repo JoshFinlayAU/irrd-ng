@@ -680,14 +680,28 @@ pub(crate) fn routes_for_origin(
     asn: u32,
     ip_version: Option<u8>,
 ) -> Result<Vec<OriginRoute>> {
-    let mut p = Vec::new();
+    let mut out = Vec::new();
+    for_each_route_for_origin(t, txn, source, asn, ip_version, |r| out.push(r))?;
+    Ok(out)
+}
+
+/// [`routes_for_origin`], handing each route to `f` instead of collecting
+/// them: set expansion asks for every member AS in every source.
+pub(crate) fn for_each_route_for_origin(
+    t: &Tables,
+    txn: &RoTxn<'_>,
+    source: &str,
+    asn: u32,
+    ip_version: Option<u8>,
+    mut f: impl FnMut(OriginRoute),
+) -> Result<()> {
+    let mut p = Vec::with_capacity(source.len() + 8);
     push_str(&mut p, source.as_bytes());
     p.extend_from_slice(&asn.to_be_bytes());
     if let Some(v) = ip_version {
         p.push(v);
     }
     let base = p.len() - usize::from(ip_version.is_some());
-    let mut out = Vec::new();
     for item in t.route_origin.prefix_iter(txn, &p)? {
         let (k, v) = item?;
         let rest = &k[base..];
@@ -703,7 +717,7 @@ pub(crate) fn routes_for_origin(
             .get(1 + width)
             .ok_or(StoreError::Corrupt("index key"))?;
         let (rpki, sf, rp) = statuses_from_bytes(v).ok_or(StoreError::Corrupt("index value"))?;
-        out.push(OriginRoute {
+        f(OriginRoute {
             id: id_from_tail(k).ok_or(StoreError::Corrupt("index key"))?,
             ip_first: ip,
             prefix_length: len,
@@ -712,5 +726,5 @@ pub(crate) fn routes_for_origin(
             route_preference_status: rp,
         });
     }
-    Ok(out)
+    Ok(())
 }

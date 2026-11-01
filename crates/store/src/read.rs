@@ -302,6 +302,18 @@ impl<'a> ReadView<'a> {
         index::routes_for_origin(&self.t, self.txn, source, asn, ip_version)
     }
 
+    /// [`ReadView::routes_for_origin`], handing each route to `f` in the
+    /// same order instead of collecting them.
+    pub fn for_each_route_for_origin(
+        &self,
+        source: &str,
+        asn: u32,
+        ip_version: Option<u8>,
+        f: impl FnMut(OriginRoute),
+    ) -> Result<()> {
+        index::for_each_route_for_origin(&self.t, self.txn, source, asn, ip_version, f)
+    }
+
     // ---- journal ----
 
     /// One journal entry.
