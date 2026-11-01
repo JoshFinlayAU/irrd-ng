@@ -514,8 +514,12 @@ enum Out {
 /// The daemon's background log writer, once started.
 static WRITER: OnceLock<std::sync::mpsc::SyncSender<Out>> = OnceLock::new();
 
-/// Records queued for the background writer before callers wait.
-const WRITER_QUEUE: usize = 1 << 16;
+/// Records queued for the background writer before callers wait: at
+/// about 250 bytes a record, up to some 64 MiB, which is several seconds
+/// of logging at the highest query rates the load bench reaches (a busy
+/// disk held writes for over 6 s there). The queue only fills while the
+/// log cannot be written.
+const WRITER_QUEUE: usize = 1 << 18;
 
 /// Hand `out` to the background writer, or give it back when there is
 /// none (the command line tools write directly).
