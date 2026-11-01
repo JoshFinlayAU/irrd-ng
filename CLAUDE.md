@@ -110,6 +110,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace          # unit + integration
 cargo test --doc --workspace
+cargo deny check
 ```
 
 Release and cross builds:
@@ -118,16 +119,17 @@ Release and cross builds:
 cargo build --release
 cargo zigbuild --release --target x86_64-unknown-linux-musl
 cargo zigbuild --release --target aarch64-unknown-linux-musl
-# glibc: same with *-unknown-linux-gnu.
-# Verify static: `file target/<musl-target>/release/irrd` → "statically linked"
+# glibc: same with --target *-unknown-linux-gnu.2.36, as CI does.
+# Verify static: `file target/<musl-target>/release/irrd-ng` → "statically linked"
 ```
 
 Run locally:
 
 ```sh
 ln -sf irrd-ng target/release/irrd    # the multicall binary picks the tool from its name
-./target/release/irrd --config dev/irrd.yaml --foreground
-whois -h 127.0.0.1 -p 8043 '!iAS-EXAMPLE,1'
+export IRRD_NG_STORE_PATH=$PWD/.store  # the default, /var/lib/irrd-ng, needs root
+./target/release/irrd --config <your irrd.yaml> --foreground   # parity/load.sh writes one to parity/.work/tier1/irrd-ng.yaml
+parity/whois.sh 127.0.0.1 8043 '!iAS-EXAMPLE,1'   # or whois -h 127.0.0.1 -p 8043 if installed
 bgpq4 -h 127.0.0.1:8043 -S RADB AS-EXAMPLE    # real-client smoke test
 ```
 
@@ -137,7 +139,12 @@ bgpq4 -h 127.0.0.1:8043 -S RADB AS-EXAMPLE    # real-client smoke test
 parity/up.sh          # docker compose: pinned IRRd 4.5.x + postgres + redis
 parity/load.sh        # fetch/cached IRR dumps → load into BOTH v4 and irrd-ng
 parity/run.sh         # replay corpus against both, byte-diff responses
-parity/run.sh --suite graphql|http|nrtm|submit|cli
+parity/run.sh --suite whois|http|graphql|api|events|events-live|all
+parity/status/run.sh  # RPKI, scope filter, route preference
+parity/mirror/run.sh  # irrd-ng mirroring from v4 (NRTMv3, NRTMv4, imports)
+parity/mirror/serve.sh  # v4 mirroring from irrd-ng (about 75 minutes)
+parity/submit/run.sh  # submissions, mails, tools
+parity/rehearsal/run.sh  # stop v4, import, start irrd-ng on the same irrd.yaml, run every suite
 parity/down.sh
 ```
 
@@ -151,7 +158,7 @@ How the harness works:
 - New query corpora come from anonymised real query logs and bgpq4/peval invocations.
 - A failing diff blocks merge. Fix the code, or add a reviewed entry to `docs/divergences.md`. Never "update the expected output" to make a test pass.
 
-Benchmarks: `cargo bench -p query` and `bench/load.sh`, which runs a whois/HTTP load generator against both v4 and irrd-ng. Report p50/p99 latency, QPS, RSS and import time vs v4. Performance claims need numbers from this, not intuition.
+Benchmarks: `bench/load.sh` and `bench/http_load.sh`, which runs a whois/HTTP load generator against both v4 and irrd-ng. Report p50/p99 latency, QPS, RSS and import time vs v4. Performance claims need numbers from this, not intuition.
 
 ## Conventions
 

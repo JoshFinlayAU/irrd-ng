@@ -44,7 +44,7 @@ LMDB fits that almost too well:
 The costs are real and we've tried to be honest about them:
 
 - **One writer.** All writes go through a dedicated writer thread fed by a channel. Big jobs are batched into large transactions, and we never hold a write transaction across an await or network I/O. Get that wrong and every other writer queues behind it.
-- **Map size.** LMDB needs a maximum size up front. The store grows the map automatically with headroom and will surface it in `/v1/status/`.
+- **Map size.** LMDB needs a maximum size up front. The store grows the map automatically with headroom. Showing it in `/v1/status/` would change v4's status text, so it waits on a decision (P-39).
 - **Long read transactions pin pages.** Anything long-lived (the event stream, NRTM serving) has to renew its read transaction or the file just keeps growing.
 - **Size on disk.** About 1.3 to 1.4 KB per object since schema version 2 (full RADB, 1.37M objects: 1,839 MB loaded with `irrd_load_database`, down from 2,050 MB). Most of it is the `objects` table (about 740 bytes per object, verbatim text plus parsed fields). Version 2 shrank the look-up index from 299 to 166 bytes per object: its keys name the attribute by a one-byte code, and attribute presence (`parsed_data ? attr`) is indexed only for `member-of` and `mbrs-by-ref`, the only presence v4 ever asks about; any other presence check scans. Compressing `objects` would cost the zero-copy reads the query path relies on, so it stays as it is.
 
