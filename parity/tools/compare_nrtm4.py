@@ -19,7 +19,10 @@ What must be identical is everything a client reads:
   - each file's own consistency: hashes match, headers carry the UNF's
     session and the referenced version, deltas are contiguous.
 
-The number of deltas is reported but may differ. Exits 1 on any difference.
+The number of deltas is reported but may differ. A record that ends one
+delta and starts the next again is v4's READ COMMITTED race (a change
+committed while the server ran) and is counted, not compared; the result
+is then "equivalent" rather than "identical". Exits 1 on any difference.
 """
 import argparse
 import base64
@@ -73,11 +76,22 @@ def load(repo):
 
     snap = check(unf["snapshot"], "snapshot")
     delta_records = []
+    repeated = 0
     versions = [d["version"] for d in unf["deltas"]]
     if versions and versions != list(range(versions[0], versions[0] + len(versions))):
         problems.append(f"deltas not contiguous: {versions}")
+    previous = []
     for d in unf["deltas"]:
-        delta_records.extend(check(d, "delta")[1:])
+        recs = check(d, "delta")[1:]
+        # v4 reads the newest journal serial, then the delta's entries,
+        # in one READ COMMITTED transaction: an entry committed in between
+        # ends this delta and starts the next one again. Drop such a
+        # repeat (a prefix of this delta equal to a suffix of the last).
+        n = min(len(previous), len(recs))
+        overlap = next((k for k in range(n, 0, -1) if previous[-k:] == recs[:k]), 0)
+        repeated += overlap
+        delta_records.extend(recs[overlap:])
+        previous = recs
     masked = json.loads(unf_raw)
     masked["session_id"] = "<session>"
     masked["timestamp"] = "<timestamp>" if re.fullmatch(
@@ -92,6 +106,7 @@ def load(repo):
         "snapshot": snap[1:],
         "deltas": delta_records,
         "problems": problems,
+        "repeated": repeated,
     }
 
 
@@ -128,8 +143,13 @@ def main():
             print(f"  {a.label_left}: {x[i][:300]!r}" if i < len(x) else f"  {a.label_left}: <end>")
             print(f"  {a.label_right}: {y[i][:300]!r}" if i < len(y) else f"  {a.label_right}: <end>")
             failed = True
+    repeats = ""
+    if l["repeated"] or r["repeated"]:
+        repeats = (f"; records repeated across a delta boundary (v4's READ COMMITTED race): "
+                   f"{a.label_left} {l['repeated']}, {a.label_right} {r['repeated']}")
+    verdict = "DIFFERENT" if failed else ("equivalent" if repeats else "identical")
     print(f"snapshot {len(l['snapshot'])} records, delta records {len(l['deltas'])}; "
-          f"deltas {a.label_left} {nl}, {a.label_right} {nr}: {'DIFFERENT' if failed else 'identical'}")
+          f"deltas {a.label_left} {nl}, {a.label_right} {nr}{repeats}: {verdict}")
     return 1 if failed else 0
 
 

@@ -324,7 +324,9 @@ compare() {
 
   # NRTMv4 repositories; both servers run about every second, so give the
   # later one a moment to write its delta.
-  check "$step" "NRTMv4 repositories serve the same snapshot and changes" "$out/nrtm4.txt" compare_nrtm4
+  local nrc=0
+  compare_nrtm4 > "$out/nrtm4.txt" 2>&1 || nrc=1
+  check "$step" "NRTMv4 repositories: $(tail -1 "$out/nrtm4.txt" | sed 's/^.*: //')" "$out/nrtm4.check" test "$nrc" = 0
 
   # NRTMv3 and friends over whois.
   nrtm_bindings > "$out/bindings.json"
