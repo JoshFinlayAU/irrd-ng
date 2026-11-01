@@ -74,6 +74,15 @@ impl WhoisSession {
         }
     }
 
+    /// Answer the next queries with `settings`, the current ones after a
+    /// SIGHUP: v4 reads most settings per query with `get_setting()`. What
+    /// v4 builds once per connection stays as it was (see
+    /// [`QueryResolver`]), and so does the session's own state: selected
+    /// sources, `!f` switches, `-k`/`!!`, `!t` and the user agent.
+    pub fn update_settings(&mut self, settings: Arc<QuerySettings>) {
+        self.resolver.update_settings(settings);
+    }
+
     /// The resolver (source selection, filters).
     pub fn resolver(&self) -> &QueryResolver {
         &self.resolver
@@ -342,11 +351,11 @@ impl WhoisSession {
         parameter: &str,
     ) -> QResult<()> {
         let settings = self.resolver.settings();
+        // The valid sources as of the connection's start (v4's
+        // source_manager), keep_journal as it is now.
+        let conn = self.resolver.connection_settings();
         let sources: Vec<String> = if parameter == "-*" {
-            settings
-                .all_valid_real_sources()
-                .map(str::to_owned)
-                .collect()
+            conn.all_valid_real_sources().map(str::to_owned).collect()
         } else {
             parameter
                 .split(',')
@@ -355,7 +364,7 @@ impl WhoisSession {
         };
         let invalid_sources: Vec<&String> = sources
             .iter()
-            .filter(|s| !settings.is_valid_real_source(s))
+            .filter(|s| !conn.is_valid_real_source(s))
             .collect();
         let rows = QueryResolver::status_rows(view, &sources)?;
         let mut text = String::new();
@@ -690,10 +699,17 @@ impl WhoisSession {
             return invalid(messages::invalid_nrtm_version(version));
         }
         let source = rpsl::python::upper(source).into_owned();
-        let settings = self.resolver.settings();
-        if !settings.is_valid_real_source(&source) {
+        // The source must have been valid when the connection started
+        // (v4's source_manager); the access lists are read as they are
+        // now.
+        if !self
+            .resolver
+            .connection_settings()
+            .is_valid_real_source(&source)
+        {
             return invalid(messages::unknown_source(&source));
         }
+        let settings = self.resolver.settings();
         let s = settings.source(&source);
         let permitted = |list: &Option<String>| {
             settings

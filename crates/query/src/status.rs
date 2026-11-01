@@ -133,11 +133,14 @@ pub(crate) fn database_status_json(
     view: &ReadView<'_>,
     sources: Option<Vec<String>>,
 ) -> QResult<String> {
+    // Valid sources and aliases as of the connection's start (v4's
+    // source_manager); the per-source settings as they are now.
     let settings = resolver.settings();
-    let sources = sources.unwrap_or_else(|| settings.all_valid_sources());
+    let conn = resolver.connection_settings();
+    let sources = sources.unwrap_or_else(|| conn.all_valid_sources());
     let invalid: Vec<&String> = sources
         .iter()
-        .filter(|s| !settings.is_valid_source(s))
+        .filter(|s| !conn.is_valid_source(s))
         .collect();
     let rows = QueryResolver::status_rows(view, &sources)?;
 
@@ -154,7 +157,7 @@ pub(crate) fn database_status_json(
         set(&mut entries, k, Entry::Regular(Box::new(row)));
     }
     for s in &sources {
-        if let Some(aliased) = settings.alias(s) {
+        if let Some(aliased) = conn.alias(s) {
             set(&mut entries, s.clone(), Entry::Alias(aliased));
         }
     }

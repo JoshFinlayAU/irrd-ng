@@ -165,6 +165,11 @@ async fn handle_connection(stream: TcpStream, peer: std::net::SocketAddr, shared
             tracing::debug!(target: LOG_TARGET, "{}", messages::log_closed_per_request(&client_str));
             break;
         }
+        // Each query sees the settings as they are now, as v4's
+        // get_setting() does in a worker that received SIGHUP.
+        if let Ok(current) = shared.settings.read() {
+            session.update_settings(current.clone());
+        }
         out.clear();
         tokio::task::block_in_place(|| session.query_whois(&shared.store, query, &mut out));
         if !write_or_stall(&mut write_half, &out).await {
@@ -270,6 +275,86 @@ mod server_tests {
         let r = s.query_http(&st, "!~panic");
         assert_eq!(r.response_type, query::ResponseType::ErrorInternal);
         assert_eq!(s.result(), query::messages::INTERNAL_ERROR);
+        drop(st);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Read what the server sends until it pauses.
+    async fn read_reply(s: &mut TcpStream) -> String {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(Ok(n)) =
+            tokio::time::timeout(Duration::from_millis(300), s.read(&mut buf)).await
+        {
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+        String::from_utf8(out).expect("utf8")
+    }
+
+    /// A SIGHUP replaces the shared settings; a connection that is already
+    /// open answers its next query with them, as v4's whois workers do.
+    #[test]
+    fn open_connection_sees_reloaded_settings() {
+        let dir = std::env::temp_dir().join(format!("irrd-ng-whois-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut o = store::StoreOptions::new(&dir);
+        o.initial_map_size = 16 << 20;
+        let st = Store::open(&o, store::StoreSettings::default()).expect("store");
+        st.write(|tx| {
+            let status = store::DatabaseStatus::new("TEST", tx.transaction_time());
+            tx.put_database_status(&status)
+        })
+        .expect("write");
+        let settings = |permitted: bool| {
+            let mut s = QuerySettings {
+                version: "4.5.4".into(),
+                sources: vec!["TEST".into()],
+                ..QuerySettings::default()
+            };
+            s.per_source.insert(
+                "TEST".into(),
+                query::SourceQuerySettings {
+                    nrtm_access_list_unfiltered: Some("unfiltered".into()),
+                    ..query::SourceQuerySettings::default()
+                },
+            );
+            if permitted {
+                s.access_lists.insert(
+                    "unfiltered".into(),
+                    vec![rpsl::Ip::parse("127.0.0.1", 0).expect("ip")],
+                );
+            }
+            Arc::new(s)
+        };
+        let shared = Arc::new(WhoisShared {
+            store: st.clone(),
+            settings: RwLock::new(settings(true)),
+            nrtm: Arc::new(query::NrtmServer),
+        });
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            tokio::spawn(serve(listener, shared.clone(), 2));
+            let mut s = TcpStream::connect(addr).await.expect("connect");
+            s.write_all(b"-k\n").await.expect("write");
+            let _ = read_reply(&mut s).await;
+            s.write_all(b"-q sources\n").await.expect("write");
+            assert_eq!(read_reply(&mut s).await, "TEST:3:X:Unknown\n\n\n");
+            // What the SIGHUP handler in daemon.rs does.
+            *shared.settings.write().expect("lock") = settings(false);
+            s.write_all(b"-q sources\n").await.expect("write");
+            assert_eq!(read_reply(&mut s).await, "TEST:3:N:Unknown\n\n\n");
+            s.write_all(b"-g TEST:3:1-LAST\n").await.expect("write");
+            assert_eq!(read_reply(&mut s).await, "%% ERROR: Access denied\n\n\n");
+        });
         drop(st);
         let _ = std::fs::remove_dir_all(&dir);
     }
