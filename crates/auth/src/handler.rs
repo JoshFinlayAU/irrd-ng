@@ -114,6 +114,11 @@ pub fn process(
 /// mntner it names; the passwords are the request's, or the text's
 /// `password:` lines read as v4 reads them. Anything missed here is checked
 /// under the lock as before, so the results are the same either way.
+///
+/// The work is bounded by what v4 would do anyway: nothing when there are
+/// more passwords than v4 accepts (it refuses those before checking any),
+/// only well-formed hashes with a cost v4 accepts, and at most
+/// [`MAX_PRECOMPUTED_PAIRS`] checks.
 fn precompute_bcrypt(store: &Store, submission: &Submission) -> rpsl::auth::BcryptResults {
     let (texts, mut passwords): (Vec<&str>, Vec<String>) = match submission {
         Submission::TextBlob { text, .. } => (
@@ -131,6 +136,9 @@ fn precompute_bcrypt(store: &Store, submission: &Submission) -> rpsl::auth::Bcry
         ),
         Submission::Suspension { .. } => return Default::default(),
     };
+    if passwords.len() > crate::validators::MAX_CREDENTIALS_PER_SUBMISSION {
+        return Default::default();
+    }
     passwords.sort();
     passwords.dedup();
     if passwords.is_empty() {
@@ -139,13 +147,13 @@ fn precompute_bcrypt(store: &Store, submission: &Submission) -> rpsl::auth::Bcry
     let mut hashes = Vec::new();
     let mut names = std::collections::BTreeSet::new();
     for text in &texts {
-        bcrypt_hashes_in(text, &mut hashes);
         for token in text.split(|c: char| c.is_whitespace() || c == ',') {
             if !token.is_empty()
                 && token.len() <= 128
                 && token
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                && names.len() < MAX_MNTNER_NAMES
             {
                 names.insert(token.to_ascii_uppercase());
             }
@@ -163,20 +171,36 @@ fn precompute_bcrypt(store: &Store, submission: &Submission) -> rpsl::auth::Bcry
             }
         }
     }
-    hashes.sort();
-    hashes.dedup();
+    // Stored hashes first: the submitted text cannot crowd them out.
+    for text in &texts {
+        bcrypt_hashes_in(text, &mut hashes);
+    }
+    let mut seen = std::collections::HashSet::new();
+    hashes.retain(|h| seen.insert(h.clone()));
+    hashes.truncate(MAX_PRECOMPUTED_PAIRS / passwords.len());
     if hashes.is_empty() {
         return Default::default();
     }
     rpsl::auth::precompute_bcrypt(&hashes, &passwords)
 }
 
-/// Every token following a `BCRYPT-PW` token, in any case.
+/// The most tokens looked up as mntner names ahead of one submission.
+const MAX_MNTNER_NAMES: usize = 1024;
+
+/// The most bcrypt checks done ahead of one submission.
+const MAX_PRECOMPUTED_PAIRS: usize = 256;
+
+/// Every well-formed bcrypt hash with a cost v4 accepts that follows a
+/// `BCRYPT-PW` token, in any case, until [`MAX_PRECOMPUTED_PAIRS`] are held.
 fn bcrypt_hashes_in(text: &str, out: &mut Vec<String>) {
     let mut tokens = text.split_whitespace();
     while let Some(t) = tokens.next() {
+        if out.len() >= MAX_PRECOMPUTED_PAIRS {
+            return;
+        }
         if t.eq_ignore_ascii_case("BCRYPT-PW")
             && let Some(hash) = tokens.next()
+            && rpsl::auth::bcrypt_hash_within_limits(hash)
         {
             out.push(hash.to_owned());
         }
@@ -554,5 +578,29 @@ impl Handler {
             .map(Request::object_repr)
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Only hashes v4 would check are taken, and never more than the budget,
+    // however much the submitted text holds.
+    #[test]
+    fn bcrypt_hashes_are_bounded() {
+        let ok = "$2b$12$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW";
+        let text = format!(
+            "auth: BCRYPT-PW xN\nauth: bcrypt-pw {}\nauth: BCRYPT-PW {}\n{}",
+            ok.replace("$12$", "$31$"),
+            ok,
+            "auth: BCRYPT-PW $2b$04$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW\n"
+                .repeat(1000)
+        );
+        let mut out = Vec::new();
+        bcrypt_hashes_in(&text, &mut out);
+        assert_eq!(out[0], ok);
+        assert_eq!(out.len(), MAX_PRECOMPUTED_PAIRS);
+        assert!(out.iter().all(|h| rpsl::auth::bcrypt_hash_within_limits(h)));
     }
 }

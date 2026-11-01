@@ -81,7 +81,7 @@ pub fn precompute_bcrypt(hashes: &[String], passwords: &[String]) -> BcryptResul
         .min(8)
         .min(pairs.len().max(1));
     let chunk = pairs.len().div_ceil(threads).max(1);
-    let mut out = BcryptResults::with_capacity(pairs.len());
+    let mut out = BcryptResults::new();
     std::thread::scope(|scope| {
         let workers: Vec<_> = pairs
             .chunks(chunk)
@@ -136,6 +136,16 @@ fn bcrypt_verify_now(password: &str, hash: &str) -> bool {
     // bcrypt 4.3 truncates at 72 bytes; pwhash implements 2a, 2b and 2y
     // identically, as bcrypt does for passwords this short.
     pwhash::bcrypt::verify(truncate_bytes(password.as_bytes(), 72), hash)
+}
+
+/// Whether `hash` is a bcrypt hash passlib would check, with a cost no
+/// higher than v4 accepts in a submission (`BCRYPT_MAX_ROUNDS`).
+pub fn bcrypt_hash_within_limits(hash: &str) -> bool {
+    hash_shape_ok_ignoring_cost(hash)
+        && hash
+            .get(4..6)
+            .and_then(|c| c.parse::<u32>().ok())
+            .is_some_and(|c| c <= crate::fields::BCRYPT_MAX_ROUNDS)
 }
 
 fn hash_shape_ok_ignoring_cost(hash: &str) -> bool {
@@ -346,5 +356,16 @@ mod tests {
         });
         assert_eq!(used, (true, true));
         assert!(!verify_password(PasswordHasher::BcryptPw, "y", &h));
+    }
+
+    #[test]
+    fn bcrypt_hash_limits() {
+        let ok = "$2b$12$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW";
+        assert!(bcrypt_hash_within_limits(ok));
+        assert!(bcrypt_hash_within_limits(&ok.replace("$12$", "$16$")));
+        assert!(!bcrypt_hash_within_limits(&ok.replace("$12$", "$17$")));
+        assert!(!bcrypt_hash_within_limits(&ok.replace("$12$", "$31$")));
+        assert!(!bcrypt_hash_within_limits("xN"));
+        assert!(!bcrypt_hash_within_limits(&ok[..40]));
     }
 }
