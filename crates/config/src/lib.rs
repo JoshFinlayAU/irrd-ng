@@ -31,9 +31,12 @@ mod yaml;
 
 pub use known_keys::{
     AUTH_SET_CREATION_COMMON_KEY, KEY_SPECS, KNOWN_FLEXIBLE_KEYS, KNOWN_SOURCES_KEYS, KeySpec,
-    PASSWORD_HASHERS, RPSL_SET_CLASSES, Reload, STORAGE_KEYS, spec_for,
+    NG_REPLICATION_KEY, PASSWORD_HASHERS, RPSL_SET_CLASSES, Reload, STORAGE_KEYS, spec_for,
 };
 pub use python::{DateTime, Dict, PyException, Value, bytes_repr, str_list_repr, str_repr};
+
+/// v4's logger for configuration messages (`irrd/conf/__init__.py`).
+const LOG_TARGET: &str = "irrd.conf";
 
 /// v4's `CONFIG_PATH_DEFAULT`.
 pub const CONFIG_PATH_DEFAULT: &str = "/etc/irrd.yaml";
@@ -212,11 +215,12 @@ impl Configuration {
         match staging_reload_check(&self.path) {
             Ok(Staging::Valid(config)) => {
                 self.live = config;
-                tracing::info!("{}", messages::reloaded(&self.path, std::process::id()));
+                tracing::info!(target: LOG_TARGET, "{}", messages::reloaded(&self.path, std::process::id()));
                 Ok(())
             }
             Ok(Staging::Invalid(errors)) => {
                 tracing::error!(
+                    target: LOG_TARGET,
                     "{}",
                     messages::continuing_with_current(&str_list_repr(&errors))
                 );
@@ -224,6 +228,7 @@ impl Configuration {
             }
             Err(e) => {
                 tracing::error!(
+                    target: LOG_TARGET,
                     "{}",
                     messages::continuing_with_current_crash(&e.to_string())
                 );

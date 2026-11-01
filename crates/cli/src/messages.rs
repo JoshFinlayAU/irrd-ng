@@ -140,17 +140,91 @@ pub(crate) fn import_store_incomplete(store: &std::path::Path) -> String {
 /// `irrd/daemon/main.py`).
 pub(crate) const DAEMON_NEEDS_LOGFILE: &str = "Unable to start: when not running in the foreground, you must set either log.logfile_path or log.logging_config_path in the settings";
 
-/// irrd-ng's own: detaching is Phase 9.
-pub(crate) const DAEMON_FOREGROUND_ONLY: &str =
-    "irrd-ng does not detach from the terminal yet; running in the foreground";
+/// `IRRd {__version__} starting, PID {pid}, PID file in {piddir}`.
+pub(crate) fn irrd_starting(version: &str, pid: u32, piddir: &str) -> String {
+    format!("IRRd {version} starting, PID {pid}, PID file in {piddir}")
+}
 
-/// v4's `IRRd {__version__} starting, PID {pid}, PID file in {piddir}`,
-/// naming the store instead of the PID file (irrd-ng has none yet).
-pub(crate) fn irrd_starting(version: &str, pid: u32, store: &std::path::Path) -> String {
+/// `IRRd attempting to secure PID`.
+pub(crate) const SECURING_PID: &str = "IRRd attempting to secure PID";
+
+/// A `PidFileError`.
+pub(crate) fn pid_lock_failed(piddir: &str, e: &str) -> String {
+    format!("Failed to start IRRd, unable to lock PID file irrd.pid in {piddir}: {e}")
+}
+
+/// v4's generic handler in `main()`; the exception follows.
+pub(crate) const MAIN_PROCESS_ERROR: &str =
+    "Error occurred in main process, terminating. Error follows:";
+
+/// What `SystemExit` prints after v4 sends itself SIGTERM.
+pub(crate) const TERMINATING_ON_SIGTERM: &str = "Terminating on signal 15";
+
+/// `main()`: started as root without `user` and `group`.
+pub(crate) const ROOT_NEEDS_USER: &str =
+    "Unable to start: user and group must be defined in settings when starting IRRd as root";
+
+/// `main()`: the log file is not writable by the configured user.
+pub(crate) fn logfile_not_writable(path: &str, uid: u32, gid: u32) -> String {
+    format!("Unable to start: logfile {path} not writable by UID {uid} / GID {gid}")
+}
+
+/// `run_irrd()` after SIGTERM.
+pub(crate) const WAITING_FOR_CHILDREN: &str =
+    "Main process waiting for child processes to terminate";
+
+/// `run_irrd()` at the end.
+pub(crate) const MAIN_PROCESS_EXITING: &str = "Main process exiting";
+
+/// `str(OSError)` for an errno: `[Errno N] text`.
+pub(crate) fn errno(e: nix::errno::Errno) -> String {
+    let text = std::io::Error::from_raw_os_error(e as i32).to_string();
+    let text = text.split(" (os error").next().unwrap_or(&text).to_owned();
+    format!("[Errno {}] {text}", e as i32)
+}
+
+/// python-daemon's `DaemonOSEnvironmentError` for the owner change.
+pub(crate) fn owner_change_failed(e: nix::errno::Errno) -> String {
     format!(
-        "IRRd {version} starting, PID {pid}, store in {}",
-        store.display()
+        "daemon.daemon.DaemonOSEnvironmentError: Unable to change process owner ({})",
+        errno(e)
     )
+}
+
+/// python-daemon's `DaemonOSEnvironmentError` for `chdir("/")`.
+pub(crate) fn chdir_failed(e: &std::io::Error) -> String {
+    format!("daemon.daemon.DaemonOSEnvironmentError: Unable to change working directory ({e})")
+}
+
+/// python-daemon's `DaemonProcessDetachError`.
+pub(crate) fn detach_failed(e: &std::io::Error) -> String {
+    format!("daemon.daemon.DaemonProcessDetachError: Failed first fork: {e}")
+}
+
+/// irrd-ng's own: where the store is (v4 has a database URL instead).
+pub(crate) fn store_in(path: &std::path::Path) -> String {
+    format!("Store in {}", path.display())
+}
+
+/// irrd-ng's own: replication configured without a secret.
+pub(crate) const REPLICATION_NEEDS_SECRET: &str = "Unable to start: ng_replication.secret (or IRRD_NG_REPLICATION_SECRET) must be set when ng_replication.port or ng_replication.active_host is set";
+
+/// irrd-ng's own: a standby with nothing to follow.
+pub(crate) const STANDBY_WITHOUT_ACTIVE: &str = "readonly_standby is set but ng_replication.active_host is not: this standby will not receive changes";
+
+/// irrd-ng's own: SIGHUP turned readonly_standby off.
+pub(crate) const STANDBY_PROMOTED: &str = "readonly_standby is no longer set: stopped following the active, this instance now accepts writes";
+
+/// irrd-ng's own: a `logging_config_path` file irrd-ng could not read.
+pub(crate) fn logging_config_unreadable(path: &str, why: &str) -> String {
+    format!(
+        "{path} could not be read as a logging configuration ({why} is not supported); using the default logging to stderr"
+    )
+}
+
+/// irrd-ng's own: part of a `logging_config_path` file left out.
+pub(crate) fn logging_config_notice(notice: &str) -> String {
+    format!("log.logging_config_path: {notice}")
 }
 
 /// irrd-ng's own: a listening socket could not be opened.

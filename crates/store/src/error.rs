@@ -82,6 +82,9 @@ pub enum StoreError {
     /// The writer thread is gone.
     #[error("the store writer thread has stopped")]
     WriterGone,
+    /// A replication log entry or snapshot could not be applied.
+    #[error("replication: {0}")]
+    Replication(String),
     /// The caller's own error, returned from a write closure to roll back.
     #[error("{0}")]
     Aborted(String),

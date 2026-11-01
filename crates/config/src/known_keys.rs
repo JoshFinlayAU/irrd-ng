@@ -371,7 +371,17 @@ pub const KEY_SPECS: &[KeySpec] = &[
         Reload::Sighup,
         "after SIGHUP, at the next NRTM update.",
     ),
+    // irrd-ng only: native standby replication (docs/architecture.md).
+    // v4 has no such key; a v4-valid file never contains it.
+    spec("ng_replication.secret", Reload::Restart, RESTART),
+    spec("ng_replication.interface", Reload::Restart, RESTART),
+    spec("ng_replication.port", Reload::Restart, RESTART),
+    spec("ng_replication.active_host", Reload::Restart, RESTART),
+    spec("ng_replication.active_port", Reload::Restart, RESTART),
 ];
+
+/// The irrd-ng-only top-level key for standby replication.
+pub const NG_REPLICATION_KEY: &str = "ng_replication";
 
 /// The leaf paths of `KNOWN_CONFIG_KEYS` (sources are checked separately).
 fn known_leaves() -> Vec<String> {

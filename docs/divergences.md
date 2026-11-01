@@ -39,6 +39,13 @@ Each entry says what v4 does, what irrd-ng does instead, who can see the differe
 - **Visible to**: anyone who runs `irr_rpsl_submit` with `password:` lines, which now works.
 - **Why**: a plain v4 bug that makes the tool unusable for password authentication, fixed in line with DIV-004. `parity/submit/run.sh` checks that v4's tool still fails, and compares irrd-ng with v4's tool with that one line corrected.
 
+## DIV-006: native standby replication and the `ng_replication` key
+
+- **v4**: a standby is a PostgreSQL streaming replica of the active's database, set up outside IRRd. `readonly_standby: true` tells IRRd not to write.
+- **irrd-ng**: LMDB has no streaming replication, so irrd-ng has its own. The active keeps a log of every committed change to every table and serves it on a TCP port; a standby fetches a snapshot, then follows the log one transaction at a time, reconnecting and resuming after restarts. Both ends prove they hold a shared secret without sending it, and every frame is authenticated. `readonly_standby: true` keeps its v4 meaning, and turning it off with SIGHUP promotes the standby. One new top-level key configures this: `ng_replication` with `secret`, `interface` and `port` on the active, and `active_host` and `active_port` on a standby. It is checked after all of v4's checks, so a v4-valid file gets exactly v4's result. v4 itself rejects a file containing the key.
+- **Visible to**: operators who run a standby; they replace their Postgres replication with this key. Nothing changes for anyone else.
+- **Why**: decision D2 in PLAN.md. The stream is authenticated but not encrypted, so for now it must run over a private network or a tunnel; adding TLS is a Phase 10 item.
+
 ## Not a divergence: comment line stripping
 
 v4's `split_paragraphs_rpsl` (`irrd/utils/text.py:69`) has an operator precedence slip, `strip_comments and line.startswith("%") or line.startswith("#")`, so `#` lines are always dropped and `%` lines only when `strip_comments` is set. Read literally that looks like a bug, but the behaviour it produces is the right one: RPSL treats `#` lines as comments everywhere, while NRTMv3 streams (the one caller that passes `strip_comments=False`) must keep `%` lines for `%START` and `%END`. Correcting the precedence would make irrd-ng keep `#` lines in NRTMv3 streams, which would then reject any mirrored object containing a whole-line comment and any stream with a `#` line after `%END`. irrd-ng therefore implements v4's behaviour, written out explicitly, and produces identical results.
@@ -81,7 +88,7 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 
 ## Proposed, awaiting review
 
-P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 and P-45 to P-48 out of Phase 8 and its follow-up, and P-40 to P-44 out of Phase 7. Each needs a decision: accept it, or keep it open as a bug to fix.
+P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 and P-45 to P-48 out of Phase 8 and its follow-up, P-40 to P-44 out of Phase 7, and P-49 to P-53 out of Phase 9. Each needs a decision: accept it, or keep it open as a bug to fix.
 
 ### RPKI, scope filter and route preference
 
@@ -127,4 +134,12 @@ v4 4.5.4 never returns a result for a GraphQL query sent over the WebSocket at `
 - **P-46 Multipart bodies are parsed in one piece.** v4 parses them in network-sized chunks, which only matters for some malformed bodies split across packets.
 - **P-47 Multi-byte charsets in a multipart `charset=` parameter.** UTF-8, ASCII, Latin-1 and Python's single-byte codecs decode as in v4; multi-byte ones such as UTF-16 fall back to Latin-1.
 - **P-48 Lone surrogates in a WebSocket message `id`.** Echoing one back crashes v4's handler; irrd-ng escapes it.
+
+### Daemon and logging
+
+- **P-49 Partial `logging_config_path`.** v4 executes the file as Python and passes its `LOGGING` dict to `logging.config.dictConfig()`. irrd-ng reads the file as data instead. It supports stream, file, syslog (Unix socket or UDP) and null handlers, formatters, and levels, handlers and propagation per logger. Filters, custom classes, self-rotating handlers and `disable_existing_loggers: True` are not reproduced, `lineno` and `funcName` are approximated, and anything left out is named in a warning at startup. A file it cannot read falls back to stderr with a warning.
+- **P-50 Primary group after dropping privileges.** python-daemon only calls `initgroups()`, so v4 keeps root as its primary group. irrd-ng also switches to the configured `group`.
+- **P-51 Process-model log lines.** irrd-ng is one process, so it does not log `sent SIGHUP/SIGTERM to child processes [...]` or `Some processes left alive`, and logs one reload line where v4 logs one per process.
+- **P-52 SIGHUP does not restart the HTTP server.** v4's uvicorn restarts its workers on SIGHUP, which drops open event-stream WebSockets and in-flight requests. irrd-ng reloads in place.
+- **P-53 No double fork.** v4's python-daemon forks twice; irrd-ng starts itself again in a new session instead, because forking a process that may have threads is not safe in Rust. The daemon stays a session leader, with no functional effect.
 

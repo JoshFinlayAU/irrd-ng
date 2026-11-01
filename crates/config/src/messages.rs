@@ -275,3 +275,26 @@ pub(crate) fn no_hasher_availability(name: &str) -> String {
 pub(crate) fn no_upper(type_name: &str) -> String {
     format!("'{type_name}' object has no attribute 'upper'")
 }
+
+// irrd-ng only: the `ng_replication` key, which v4 does not have.
+
+pub(crate) const NG_REPLICATION_NOT_MAPPING: &str = "Setting ng_replication must be a mapping of secret, interface, port, active_host and active_port.";
+
+pub(crate) const NG_REPLICATION_SECRET: &str =
+    "Setting ng_replication.secret must be a string of at least 16 characters.";
+
+pub(crate) fn ng_replication_port(key: &str) -> String {
+    format!("Setting ng_replication.{key} must be a port number between 1 and 65535.")
+}
+
+pub(crate) const NG_REPLICATION_INTERFACE: &str =
+    "Setting ng_replication.interface must be an IP address.";
+
+pub(crate) const NG_REPLICATION_ACTIVE_HOST: &str =
+    "Setting ng_replication.active_host must be a string.";
+
+pub(crate) const NG_REPLICATION_ACTIVE_NEEDS_STANDBY: &str =
+    "Setting ng_replication.active_host can only be set when readonly_standby is enabled.";
+
+pub(crate) const NG_REPLICATION_ACTIVE_PORT_REQUIRED: &str =
+    "Setting ng_replication.active_port is required when ng_replication.active_host is set.";

@@ -20,6 +20,13 @@
 # servers by nature (times, host names) and accepts a permutation where
 # v4's own order is not fixed. nrtm, submit and cli come with their phases.
 #
+# The rehearsal (rehearsal/run.sh) points the suites at other targets with
+# --ref/--http-ref/--test/--http-test and these: PARITY_V4_SERVICE (the v4
+# compose service to kick and to run v4 tools in, default irrd-v4),
+# PARITY_NG_TOOL (the command that runs an irrd-ng tool on the store under
+# test, default the host binary on $PARITY_WORK/tier1/store), PARITY_NG_CONFIG
+# and PARITY_NG_FILES (its irrd.yaml and where it sees $work's files).
+#
 # Default targets are the Tier 1 setup from parity/load.sh: v4 on
 # 127.0.0.1:9043/9080 and irrd-ng on 127.0.0.1:$NG_WHOIS_PORT/$NG_HTTP_PORT
 # (8043/8080), started with parity/ng.sh if it is not answering.
@@ -43,6 +50,7 @@ repo=$(cd .. && pwd)
 
 suite=whois test=ng ref=127.0.0.1:9043 http_ref=127.0.0.1:9080 http_test=
 bindings=$work/bindings.json scale=1 out= extra=()
+v4_service=${PARITY_V4_SERVICE:-irrd-v4}
 while [[ $# -gt 0 ]]; do
   case $1 in
     --suite) suite=$2; shift 2 ;;
@@ -55,7 +63,7 @@ while [[ $# -gt 0 ]]; do
     --out) out=$2; shift 2 ;;
     --only|--skip|--rerun|--jobs|--timeout|--max-report) extra+=("$1" "$2"); shift 2 ;;
     --redact|--save-responses|--strict) extra+=("$1"); shift ;;
-    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,44p' "$0"; exit 0 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -109,8 +117,9 @@ run_api_suite() {
   python3 -I tools/http_diff.py --suite "$s" --bindings "$bindings" --ref "$http_ref" --test "$http_test" \
     --out "$o" "$@" || status=1
 }
+kick() { v4/preload-kick.sh "$v4_service" "${http_ref##*:}"; }
 graphql_suite() {
-  v4/preload-kick.sh irrd-v4 9080
+  kick
   run_api_suite graphql --corpus corpus/graphql/core.gq --corpus corpus/graphql/errors.gq --corpus corpus/graphql/edge.gq --corpus corpus/graphql/transport.gq
 }
 # One request at a time: v4 stalls when /v1/status/ requests overlap.
@@ -127,21 +136,24 @@ events_live_suite() {
   local o=${out:-$parity/out/events-live-$stamp}
   cp events/EVSTREAM.live events/EVSTREAM.update "$work/"
   local ng_bin=${IRRD_NG:-$repo/target/release/irrd-ng}
+  local ng=${PARITY_NG_TOOL:-IRRD_NG_STORE_PATH=$work/store $ng_bin}
+  local ng_cfg=${PARITY_NG_CONFIG:-$work/irrd-ng.yaml} ng_files=${PARITY_NG_FILES:-$work}
   local upd="irrd_update_database --source EVSTREAM"
+  local v4="docker compose --profile twin exec -T $v4_service"
   python3 -I tools/events_live.py --ref "$http_ref" --test "$http_test" --out "$o" \
-    --v4-cmd "docker compose exec -T irrd-v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.live && sleep 3 && docker compose exec -T irrd-v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.update" \
-    --ng-cmd "IRRD_NG_STORE_PATH=$work/store $ng_bin $upd --config $work/irrd-ng.yaml $work/EVSTREAM.live && sleep 3 && IRRD_NG_STORE_PATH=$work/store $ng_bin $upd --config $work/irrd-ng.yaml $work/EVSTREAM.update" \
+    --v4-cmd "$v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.live && sleep 3 && $v4 $upd --config /etc/irrd/irrd.yaml /tier1/EVSTREAM.update" \
+    --ng-cmd "$ng $upd --config $ng_cfg $ng_files/EVSTREAM.live && sleep 3 && $ng $upd --config $ng_cfg $ng_files/EVSTREAM.update" \
     || status=1
 }
 case $suite in
   whois) run_suite whois "$ref" "$whois_test" ;;
-  http) v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test" ;;
+  http) kick; run_suite http "$http_ref" "$http_test" ;;
   graphql) graphql_suite ;;
   api) api_suite ;;
   events) events_suite ;;
   events-live) events_live_suite ;;
   all)
-    run_suite whois "$ref" "$whois_test"; v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test"
+    run_suite whois "$ref" "$whois_test"; kick; run_suite http "$http_ref" "$http_test"
     graphql_suite; api_suite; events_suite; events_live_suite ;;
   nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
   *) echo "unknown suite $suite" >&2; exit 2 ;;

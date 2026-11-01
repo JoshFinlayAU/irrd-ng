@@ -80,6 +80,9 @@ services:
       context: ${WORK}/irrd-ng-image
     command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
     environment:
+      # Runs as root in an image with no users to switch to: v4's check
+      # for user and group is skipped under CI, as in v4.
+      CI: "1"
       IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
       IRRD_NG_STORE_PATH: /data
       REQUESTS_CA_BUNDLE: /tls/ca.pem
@@ -106,6 +109,9 @@ services:
     profiles: [serve]
     command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
     environment:
+      # Runs as root in an image with no users to switch to: v4's check
+      # for user and group is skipped under CI, as in v4.
+      CI: "1"
       IRRD_TESTING_FAST_SCHEDULER_OVERRIDE: "1"
       IRRD_NG_STORE_PATH: /store
     volumes:

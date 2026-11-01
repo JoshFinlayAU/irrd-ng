@@ -319,6 +319,93 @@ impl Store {
         })
     }
 
+    /// The id of the last committed LMDB transaction, from any process.
+    /// It changes with every write, which makes it a cheap "did anything
+    /// write" check.
+    pub fn last_txn_id(&self) -> usize {
+        self.inner.env.info().last_txn_id
+    }
+
+    /// The replication log state ([`crate::replog`]).
+    pub fn replication_state(&self) -> Result<crate::replog::ReplicationState> {
+        let r = self.read()?;
+        r.with_txn(crate::replog::state)
+    }
+
+    /// Start logging every change for standbys, if not yet enabled.
+    /// Returns the log id.
+    pub fn enable_replication_log(&self) -> Result<String> {
+        self.write(|tx| crate::replog::enable(tx.txn, &tx.t))
+    }
+
+    /// Stop logging and drop the log. Returns whether it was enabled.
+    pub fn disable_replication_log(&self) -> Result<bool> {
+        self.write(|tx| crate::replog::disable(tx.txn, &tx.t))
+    }
+
+    /// Drop log entries committed before `before`, keeping the newest.
+    pub fn trim_replication_log(&self, before: crate::model::Timestamp) -> Result<u64> {
+        self.write(move |tx| crate::replog::trim(tx.txn, &tx.t, before.0))
+    }
+
+    /// Stored log entries after sequence `after`, up to about `max_bytes`
+    /// (at least one if any), with the log id they belong to.
+    pub fn replication_entries(
+        &self,
+        after: u64,
+        max_bytes: usize,
+    ) -> Result<(Option<String>, crate::replog::StoredEntries)> {
+        let r = self.read()?;
+        r.with_txn(|txn, t| {
+            let id = crate::replog::state(txn, t)?.id;
+            Ok((id, crate::replog::entries_after(txn, t, after, max_bytes)?))
+        })
+    }
+
+    /// Every replicated row from one consistent view, passed to `row` as
+    /// (table id, key, value), and the log state of that view. The read
+    /// transaction stays open until `row` has seen the last row.
+    pub fn replication_snapshot(
+        &self,
+        on_state: &mut dyn FnMut(&crate::replog::ReplicationState) -> Result<()>,
+        row: crate::replog::RowSink<'_>,
+    ) -> Result<crate::replog::ReplicationState> {
+        let r = self.read()?;
+        r.with_txn(|txn, t| {
+            let st = crate::replog::state(txn, t)?;
+            on_state(&st)?;
+            crate::replog::snapshot(txn, t, row)?;
+            Ok(st)
+        })
+    }
+
+    /// On a standby: apply entries of log `id` that continue from the last
+    /// one applied. Bypasses `readonly_standby`, which refuses every other
+    /// write. Returns the last sequence applied.
+    pub fn apply_replication_entries(&self, id: &str, entries: Vec<(u64, Vec<u8>)>) -> Result<u64> {
+        let id = id.to_owned();
+        self.write(move |tx| crate::replog::apply_entries(tx.txn, &tx.t, &id, &entries))
+    }
+
+    /// On a standby: replace every replicated row with a snapshot of log
+    /// `id` at `seq`, spooled to `spool`. Returns the rows written.
+    pub fn apply_replication_snapshot(
+        &self,
+        id: &str,
+        seq: u64,
+        spool: &std::path::Path,
+    ) -> Result<u64> {
+        let id = id.to_owned();
+        let spool = spool.to_path_buf();
+        let size = std::fs::metadata(&spool)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+        self.write_reserving(size.saturating_mul(2), move |tx| {
+            crate::replog::apply_snapshot(tx.txn, &tx.t, &id, seq, &spool)
+        })
+        .map(|(rows, _)| rows)
+    }
+
     /// Sources whose interrupted bulk load was found when this store was
     /// opened; their `force_reload` is now set.
     pub fn recovered_interrupted_loads(&self) -> &[String] {
@@ -473,14 +560,20 @@ fn attempt(
 ) -> Result<Attempt> {
     let mut parent = inner.env.write_txn()?;
     env::record_map_size(&mut parent, &inner.tables, inner.env.info().map_size)?;
+    let repl = crate::replog::enabled(&parent, &inner.tables)?;
     let mut results = Vec::with_capacity(batch.len());
     if batch.len() == 1 {
         // A single job runs in the top-level transaction: large loads
         // avoid the cost of a nested transaction.
         let job = &mut batch[0];
+        let capture = crate::replog::begin(repl, inner.bulk_load);
         let mut tx = WriteTx::new(&mut parent, inner.tables, settings, hook);
         let r = (job.run)(&mut tx).and_then(|_| tx.finish());
         drop(tx);
+        let r = r.and_then(|changed| {
+            capture.commit(&mut parent, &inner.tables)?;
+            Ok(changed)
+        });
         match r {
             Err(e) if e.is_map_full() => {
                 parent.abort();
@@ -495,9 +588,14 @@ fn attempt(
     } else {
         for job in batch.iter_mut() {
             let mut nested = inner.env.nested_write_txn(&mut parent)?;
+            let capture = crate::replog::begin(repl, inner.bulk_load);
             let mut tx = WriteTx::new(&mut nested, inner.tables, settings, hook);
             let r = (job.run)(&mut tx).and_then(|_| tx.finish());
             drop(tx);
+            let r = r.and_then(|changed| {
+                capture.commit(&mut nested, &inner.tables)?;
+                Ok(changed)
+            });
             match r {
                 Ok(changed) => match nested.commit() {
                     Ok(()) => results.push(Ok(changed)),

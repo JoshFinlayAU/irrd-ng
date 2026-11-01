@@ -67,6 +67,7 @@ rpki = { path = "crates/rpki" }
 import-v4 = { path = "crates/import-v4" }
 config = { path = "crates/config" }
 mail = { path = "crates/mail" }
+replication = { path = "crates/replication" }
 graphql = { path = "crates/graphql" }
 
 [workspace.lints.rust]

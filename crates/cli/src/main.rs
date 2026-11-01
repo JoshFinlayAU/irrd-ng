@@ -22,6 +22,8 @@ mod job_tool;
 mod logging;
 mod messages;
 mod mirror_tools;
+mod pidfile;
+mod pylogconf;
 mod rpsl_submit;
 mod serving_tools;
 mod settings;

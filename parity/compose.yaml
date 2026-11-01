@@ -63,9 +63,37 @@ services:
       IRRD_REDIS_URL: redis://redis-twin
     volumes:
       - ${PARITY_V4_CONFIG:-./v4/irrd.yaml}:/etc/irrd/irrd.yaml:ro
+      # The same files as irrd-v4, so the twin can stand in for it as the
+      # reference (rehearsal/run.sh runs irrd_update_database in it).
+      - ${PARITY_CACHE:-./.cache}:/cache:ro
+      - ./corpus/whois/data:/synthetic:ro
+      - ${PARITY_TIER1_WORK:-./.work/tier1}:/tier1:ro
     ports:
       - "127.0.0.1:${PARITY_TWIN_WHOIS_PORT:-9243}:8043"
       - "127.0.0.1:${PARITY_TWIN_HTTP_PORT:-9280}:8080"
+
+  # The drop-in rehearsal (rehearsal/run.sh): irrd-ng in v4's place, in
+  # v4's own image, as v4's user, with v4's irrd.yaml, files and ports.
+  # The binary directory (irrd-ng plus the tool name symlinks) is mounted
+  # from the host; the store lives in the irrd user's home on a volume.
+  irrd-ng-rehearsal:
+    profiles: [rehearsal]
+    image: irrd-ng-parity/irrd-v4:4.5.4
+    depends_on:
+      postgres: { condition: service_healthy }
+    entrypoint: ["/opt/irrd-ng/irrd", "--foreground", "--config", "/etc/irrd/irrd.yaml"]
+    environment:
+      IRRD_NG_STORE_PATH: /var/lib/irrd/irrd-ng
+    volumes:
+      - ${PARITY_V4_CONFIG:-./v4/irrd.yaml}:/etc/irrd/irrd.yaml:ro
+      - ${PARITY_CACHE:-./.cache}:/cache:ro
+      - ./corpus/whois/data:/synthetic:ro
+      - ${PARITY_TIER1_WORK:-./.work/tier1}:/tier1:ro
+      - ${PARITY_REHEARSAL_BIN:-./.work/rehearsal/bin}:/opt/irrd-ng:ro
+      - rehearsal-home:/var/lib/irrd
+    ports:
+      - "127.0.0.1:9043:8043"
+      - "127.0.0.1:9080:8080"
 
   redis-twin:
     profiles: [twin]
@@ -73,3 +101,4 @@ services:
 
 volumes:
   pgdata:
+  rehearsal-home:

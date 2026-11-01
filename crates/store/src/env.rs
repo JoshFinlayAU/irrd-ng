@@ -15,9 +15,74 @@ use crate::messages;
 /// add a [`Migration`] from the previous version, and commit a fixture
 /// environment of the new version next to the old one (see
 /// `tests/schema_fixture.rs`).
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
-pub(crate) type Table = Database<'static, Bytes, Bytes>;
+pub(crate) type RawTable = Database<'static, Bytes, Bytes>;
+
+/// One table. Reads go straight to LMDB (through `Deref`); `put`,
+/// `put_with_flags`, `delete` and `clear` also record the change for the
+/// replication log ([`crate::replog`]) when the running write transaction
+/// captures one. Any other way of writing must get a wrapper here too, or
+/// standbys miss the change (the replication crate's two-store test
+/// compares every table).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Table {
+    db: RawTable,
+    /// The table's position in [`TABLE_NAMES`], its id on the wire.
+    pub(crate) id: u8,
+}
+
+impl std::ops::Deref for Table {
+    type Target = RawTable;
+
+    fn deref(&self) -> &RawTable {
+        &self.db
+    }
+}
+
+impl Table {
+    /// `Database::put`, recorded for replication.
+    pub(crate) fn put(&self, txn: &mut RwTxn<'_>, key: &[u8], data: &[u8]) -> heed::Result<()> {
+        self.db.put(txn, key, data)?;
+        crate::replog::record_put(self.id, key, data);
+        Ok(())
+    }
+
+    /// `Database::put_with_flags`, recorded for replication.
+    pub(crate) fn put_with_flags(
+        &self,
+        txn: &mut RwTxn<'_>,
+        flags: heed::PutFlags,
+        key: &[u8],
+        data: &[u8],
+    ) -> heed::Result<()> {
+        self.db.put_with_flags(txn, flags, key, data)?;
+        crate::replog::record_put(self.id, key, data);
+        Ok(())
+    }
+
+    /// `Database::delete`, recorded for replication when a row went.
+    pub(crate) fn delete(&self, txn: &mut RwTxn<'_>, key: &[u8]) -> heed::Result<bool> {
+        let deleted = self.db.delete(txn, key)?;
+        if deleted {
+            crate::replog::record_delete(self.id, key);
+        }
+        Ok(deleted)
+    }
+
+    /// `Database::clear`, recorded for replication.
+    pub(crate) fn clear(&self, txn: &mut RwTxn<'_>) -> heed::Result<()> {
+        self.db.clear(txn)?;
+        crate::replog::record_clear(self.id);
+        Ok(())
+    }
+
+    /// The table without replication capture, for the replication log's
+    /// own bookkeeping.
+    pub(crate) fn raw(&self) -> RawTable {
+        self.db
+    }
+}
 
 macro_rules! tables {
     ($($field:ident = $name:literal),+ $(,)?) => {
@@ -37,8 +102,12 @@ macro_rules! tables {
                 vec![$(($name, self.$field)),+]
             }
 
-            fn from_array(a: [Table; TABLE_COUNT]) -> Self {
-                let mut it = a.into_iter();
+            fn from_array(a: [RawTable; TABLE_COUNT]) -> Self {
+                let mut it = a.into_iter().enumerate().map(|(i, db)| Table {
+                    db,
+                    // TABLE_COUNT is far below 256.
+                    id: i as u8,
+                });
                 Tables {
                     // The array has exactly one entry per field.
                     $($field: it.next().unwrap_or_else(|| unreachable!())),+
@@ -118,6 +187,7 @@ tables! {
     auth_webauthn = "auth_webauthn",
     change_log = "change_log",
     pgp_keyring = "pgp_keyring",
+    replog = "replication_log",
 }
 
 pub(crate) const META_SCHEMA_VERSION: &[u8] = b"schema_version";
@@ -185,6 +255,8 @@ pub(crate) struct Migration {
 ///   keyring. It is created empty, as every table is on open; v4's keyring
 ///   lives outside its database, so there is nothing to carry over.
 ///   `irrd_load_pgp_keys` fills it from the stored key-cert objects.
+/// - 4 to 5: the `replication_log` table ([`crate::replog`]), created
+///   empty. Logging starts when an active enables it.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         from: 1,
@@ -199,6 +271,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         from: 3,
         to: 4,
+        run: |_, _, _| Ok(()),
+    },
+    Migration {
+        from: 4,
+        to: 5,
         run: |_, _, _| Ok(()),
     },
 ];
@@ -257,6 +334,8 @@ pub(crate) struct Inner {
     pub(crate) tables: Tables,
     pub(crate) gate: ReaderGate,
     pub(crate) read_only: bool,
+    /// Opened in bulk-load mode: replication logs a resync, not the rows.
+    pub(crate) bulk_load: bool,
     pub(crate) path: PathBuf,
     /// Sources whose interrupted bulk load was found (and flagged for a
     /// reload) when this store was opened.
@@ -393,6 +472,7 @@ pub(crate) fn open(options: &StoreOptions) -> Result<Arc<Inner>> {
         tables,
         gate: ReaderGate::default(),
         read_only: options.read_only,
+        bulk_load: options.bulk_load,
         path: path.clone(),
         recovered_interrupted_loads: recovered,
     }))

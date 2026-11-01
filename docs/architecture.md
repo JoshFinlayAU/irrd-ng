@@ -76,6 +76,14 @@ irrd-ng irrd --config irrd.yaml --foreground
 
 `irrd` serves whois on `server.whois.interface`/`port` and HTTP (`/v1/whois/`, `/v1/status/`, `/graphql/`, `/metrics/` and the event stream) on `server.http.interface`/`port`. v4's environment overrides work for any setting, e.g. `IRRD_SERVER_WHOIS_PORT=8043`, which is the easy way to run it beside a v4 on the same host. The HTTP server applies v4's trusted-host check against `server.http.url`, so clients must send a matching `Host`.
 
+`irrd` starts the way v4's `irrd/daemon/main.py` does. Without `--foreground` it insists on `log.logfile_path` or `log.logging_config_path`, checks the log file is writable by the configured user, and detaches: the command returns at once with exit status 0, and the daemon carries on in a session of its own with no terminal. python-daemon forks twice to get there; irrd-ng starts itself again instead, because forking a process that may already have threads is not safe in Rust. Both then do what python-daemon's `DaemonContext` does: no core dumps, umask 022, working directory `/`. That last one matters because the configuration file is read again after it, as in v4, so relative paths in `irrd.yaml` (and a relative `--config`) resolve from `/` exactly as they do for v4. `IRRD_NG_STORE_PATH` is resolved before the change, since it is irrd-ng's own.
+
+The PID file is v4's: `irrd.pid` in `piddir`, created, locked with `flock` and written the way the `pid` library v4 uses does, with the same messages when another instance holds it or the file names a running process, and removed on exit. Run as root, the daemon requires `user` and `group` (unless `CI` is set, as in v4), binds the whois port as root, and then switches to that user before it opens the store or binds the HTTP port, which v4 also binds as the unprivileged user. One difference: python-daemon's switch only calls `initgroups()`, which leaves v4 running with root as its primary group; irrd-ng also sets the configured group.
+
+SIGHUP re-reads and re-checks `irrd.yaml` and logs v4's messages. A valid file takes effect the way it does in v4's code, which is not always what v4's documentation says: settings v4 reads at each use (most of them, including `download_timeout` and the status page's view of `server.whois.interface`) change at once, while the ones its processes only read at startup (listening addresses and ports, `server.whois.max_connections`, `server.http.forwarded_allowed_ips`, `piddir`, `user`, `group`, the log destination) keep their startup values until a restart. The root log level follows `log.level` on every reload, as `_commit_staging()` sets it. SIGTERM stops the scheduler's runners, closes the listeners and logs v4's shutdown lines, ending with `Main process exiting`.
+
+Logging is a small model of Python's `logging` rather than a stock Rust logger, because operators' log processing depends on it. The default is v4's: the `verbose` format to stderr, or to `log.logfile_path` through `WatchedFileHandler` semantics, so the file is reopened when log rotation moves it. `log.logging_config_path` names a Python file whose `LOGGING` dictionary v4 hands to `dictConfig()`. irrd-ng reads that file as data, not code: module-level assignments of literals, `dict(...)`, string concatenation, names defined earlier and the `logging` level constants, with imports skipped. From the dictionary it builds formatters (`%`-style formats and `datefmt`), handlers (stream, file, watched file, syslog over a Unix socket or UDP, null) and loggers with levels, handlers and propagation, and applies them with Python's hierarchy rules. Anything it cannot reproduce (filters, custom classes, rotating handlers that rotate themselves, `disable_existing_loggers`) is named in a warning at startup and left out.
+
 Whois connections are served like v4's fixed worker pool: every connection is accepted and waits for one of `server.whois.max_connections` slots, rather than being refused. A panic while answering a query is contained to that query: it is logged with the query, and the client gets v4's internal error, exactly as if v4's code had raised an exception there.
 
 ## The HTTP API
@@ -191,7 +199,9 @@ The v4 import cannot copy a GnuPG keyring, so it rebuilds one from every key-cer
 
 Same `irrd.yaml`, same keys, same defaults, same validation errors in the same order, same unknown-key handling, same environment overrides (`IRRD_<KEY>`), same SIGHUP behaviour. Every setting carries whether it takes effect on restart, on SIGHUP, or on next use, copied from v4.
 
-The one thing irrd-ng needs that v4 doesn't is somewhere to put the store. We didn't want to invent an `irrd.yaml` key, because then a v4 config wouldn't be a valid irrd-ng config (or worse, v4 would choke on an irrd-ng one). So it's an environment variable, `IRRD_NG_STORE_PATH`, defaulting to `/var/lib/irrd-ng`. It's listed as P-18 in `docs/divergences.md`, waiting for review.
+The one thing irrd-ng needs that v4 doesn't is somewhere to put the store. We didn't want to invent an `irrd.yaml` key, because then a v4 config wouldn't be a valid irrd-ng config (or worse, v4 would choke on an irrd-ng one). So it's an environment variable, `IRRD_NG_STORE_PATH`, defaulting to `/var/lib/irrd-ng`. It's listed as P-18 in `docs/divergences.md`.
+
+Standby replication is the one place a key could not be avoided, because both ends need the same secret and the standby needs to know where the active is. It is a single top-level mapping, `ng_replication`, with `secret`, `interface` and `port` on the active and `active_host` and `active_port` on a standby. It is checked after every check v4 makes, so a v4-valid file gets exactly v4's result, and a file that uses it is one v4 would refuse. The secret can come from the environment (`IRRD_NG_REPLICATION_SECRET`), as any setting can.
 
 ## How we know it matches
 
@@ -204,11 +214,21 @@ We don't trust ourselves to read v4 correctly, so most of the testing asks v4 di
 - **A real database.** A read-only copy of the production reference server (taken with `pg_dump`, restored on a separate VM, never written back) is the full-scale test for the importer and, from Phase 3, the load bench. Production auth data in it never leaves that VM.
 - **The rule.** A failing diff gets fixed in the code or gets a reviewed entry in `docs/divergences.md`. We never edit the expected output to make a test go green.
 
+## Standby
+
+v4 runs a standby as a PostgreSQL streaming replica with `readonly_standby: true`. irrd-ng has no PostgreSQL to stream, so it replicates its own store.
+
+When an active is configured to serve standbys (`ng_replication.port`), its store keeps a replication log: every write transaction appends one entry, in the same LMDB transaction, listing the row changes it made to every table. That includes the indexes, the journal, `database_status`, ROAs, suspensions, settings, the web UI tables and the keyring, and it includes writes by the command line tools, because the changes are captured underneath the write API, in the table layer every write goes through. A transaction that writes more than 64 MiB, and anything written in bulk-load mode (the v4 import, `irrd_load_database`), logs a resync marker instead of its rows. Entries are kept for 24 hours. A few `meta` keys are local to each store and never replicated: the schema version, the map size history, bulk-load markers and the replication bookkeeping itself.
+
+A standby (`readonly_standby: true` plus `ng_replication.active_host` and `active_port`) connects to the active and follows the log. The handshake proves both ends hold the shared secret without sending it (HMAC-SHA256 over a nonce from each side) and derives a session key, and every frame after it carries a tag under that key with a frame counter, so nothing can be injected or replayed. The stream is not encrypted. A new standby, one that was away longer than the log is kept, or one that reaches a resync marker gets a snapshot first: every replicated row, read from one consistent read transaction on the active, spooled to a file on the standby and applied in one write transaction. After that it applies the log entry by entry, each in a transaction of its own, so readers on the standby see the active's transactions whole. It reconnects with backoff when the stream drops, and carries on from the last entry it applied after a restart.
+
+The standby keeps v4's meaning of `readonly_standby`: the scheduler runs nothing (no mirroring, imports, exports, NRTMv4 files, ROA, scope filter or route preference jobs), the command line tools that write refuse to run, and the store refuses every write except the replication apply. The two-store test in `crates/replication` checks that a standby converges to the same rows as the active in every table, through restarts of either side, a trimmed log and a resync, and that an idle standby commits nothing at all. Promotion is the v4 one: turn `readonly_standby` off and send SIGHUP or restart. The follower stops at that SIGHUP, before anything else may write.
+
 ## Things that are knowingly different
 
 Beyond the behaviour divergences, a few structural ones are worth calling out:
 
-- **Standby.** v4 standbys are Postgres streaming replicas. LMDB has no equivalent, so irrd-ng will replicate natively: the standby follows the active over an authenticated stream of the store's own change log, and `readonly_standby: true` keeps its v4 meaning. That's Phase 9 and needs one new key, which will be a listed divergence.
+- **Standby.** v4 standbys are Postgres streaming replicas. irrd-ng replicates its store natively (see Standby above), which needs one new top-level key, `ng_replication`, that v4 does not know.
 - **Crashes become errors.** Where a bad input makes v4 die with a Python traceback, irrd-ng reports the same exception as a normal error and, on SIGHUP, keeps running with the old config.
 - **Stable ordering where v4's is random.** v4 sometimes builds output from Python sets, which come out in a different order every run. We can't match a random order, so we use a fixed one (file order, or key order).
 
@@ -218,6 +238,6 @@ irrd-ng is LGPL-2.1-or-later (`LICENSE`). It's a reimplementation of v4, and a l
 
 ## What's still open
 
-- The Phase 2 proposals P-15 to P-20 in `docs/divergences.md`, waiting for review.
+- The proposals still waiting for review in `docs/divergences.md`, and the Phase 9 ones (the `ng_replication` key, partial `logging_config_path` support, the primary group after dropping privileges, SIGHUP not restarting HTTP workers).
 
 The performance story isn't written yet on purpose. We expect queries to be a lot faster than v4, for the structural reasons above, but the rule for this project is that performance claims come with numbers from the load bench against v4 on the same data, and that bench lands in Phase 3.

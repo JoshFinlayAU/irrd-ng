@@ -86,7 +86,9 @@ irrd:
     # load.sh loads events/EVSTREAM.db and then applies EVSTREAM.update
     # with irrd_update_database, so its journal has additions, changes and
     # a deletion. v4 only keeps a journal for authoritative sources and
-    # NRTM mirrors.
+    # NRTM mirrors. It is served over NRTMv3 to the harness, which follows
+    # it across the cutover in rehearsal/run.sh.
     EVSTREAM:
       authoritative: true
       keep_journal: true
+      nrtm_access_list: harness

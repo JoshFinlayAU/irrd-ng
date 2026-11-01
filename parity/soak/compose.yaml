@@ -41,6 +41,9 @@ services:
       context: ${SOAK}/irrd-ng-image
     command: ["irrd", "--config", "/etc/irrd/irrd.yaml", "--foreground"]
     environment:
+      # Runs as root in an image with no users to switch to: v4's check
+      # for user and group is skipped under CI, as in v4.
+      CI: "1"
       IRRD_NG_STORE_PATH: /data
     volumes:
       - ${SOAK}/irrd-ng:/etc/irrd:ro
