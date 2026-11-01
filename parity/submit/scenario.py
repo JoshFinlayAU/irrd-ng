@@ -405,7 +405,7 @@ def record(n, name, results):
 # setup
 # ---------------------------------------------------------------------------
 
-def wait_http(side, timeout=120):
+def wait_http(side, timeout=300):
     end = time.time() + timeout
     while time.time() < end:
         try:
