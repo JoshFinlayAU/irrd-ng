@@ -246,3 +246,72 @@ fn deep_nesting_is_a_recursion_error() {
     assert_eq!(q(&format!("{{ objects(pk: {}", "[".repeat(100_000))), crash);
     assert_eq!(q(&"{ a ".repeat(100_000)), crash);
 }
+
+/// `fragment F0 on <on> {...F1}` ... `fragment F<n> on <on> {<leaf>}`.
+fn fragment_chain(n: usize, on: &str, leaf: &str) -> String {
+    let mut s = String::new();
+    for i in 0..n {
+        s.push_str(&format!("fragment F{i} on {on}{{...F{}}}\n", i + 1));
+    }
+    s.push_str(&format!("fragment F{n} on {on}{{{leaf}}}\n"));
+    s
+}
+
+/// A long chain of fragments is v4's `RecursionError` (a 500), where
+/// graphql-core's and ariadne's validation recurse once or twice per
+/// spread, instead of overflowing the stack and aborting the daemon. Run
+/// on the daemon's 8 MiB worker stack.
+#[test]
+fn long_fragment_chains_are_a_recursion_error() {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(|| {
+            let crash = format!("crash: {}", graphql::parser::RECURSION_ERROR);
+            let chain = |n| fragment_chain(n, "Query", "__typename");
+            // About 700 KB, well under the 32 MiB body limit.
+            let n = 20_000;
+            let attack = format!("query{{...F0}}\n{}", chain(n));
+            assert!(attack.len() > 650_000, "{}", attack.len());
+            assert_eq!(q(&attack), crash);
+            // Wherever the operation is, and when nothing spreads the
+            // chain at all.
+            assert_eq!(q(&format!("{}query{{...F0}}", chain(n))), crash);
+            assert_eq!(q(&format!("{{__typename}}\n{}", chain(n))), crash);
+            // Defined last to first, every fragment's own check is short,
+            // but OverlappingFieldsCanBeMerged follows the whole chain.
+            let mut reversed: Vec<&str> = Vec::new();
+            let text = chain(n);
+            reversed.extend(text.lines().rev());
+            assert_eq!(
+                q(&format!("{{__typename}}\n{}", reversed.join("\n"))),
+                crash
+            );
+            // Under introspection, where the cost validator does not go.
+            assert_eq!(
+                q(&format!(
+                    "{{__schema{{...F0}}}}\n{}",
+                    fragment_chain(n, "__Schema", "description")
+                )),
+                crash
+            );
+            // Shorter chains: where v4 gets to (P-54).
+            assert_eq!(
+                q(&format!("query{{...F0}}\n{}", chain(483))),
+                r#"{"data":{"__typename":"Query"},"extensions":{"execution":0.0}}"#
+            );
+            assert_eq!(q(&format!("query{{...F0}}\n{}", chain(484))), crash);
+            // A subscription over the WebSocket validates the same way.
+            let start = |query: String| {
+                let data = Value::Object(vec![("query".into(), Value::Str(query))]);
+                let schema = Schema::from_sdl(SDL);
+                match graphql::ws_start(&schema, &NoScalars, &data) {
+                    graphql::WsStart::Crash(e) => format!("crash: {e}"),
+                    other => format!("{other:?}"),
+                }
+            };
+            assert_eq!(start(format!("subscription{{...F0}}\n{}", chain(n))), crash);
+        })
+        .expect("thread")
+        .join()
+        .expect("no panic");
+}

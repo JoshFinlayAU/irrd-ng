@@ -1111,9 +1111,12 @@ mod tests {
             let mut f = vec![0x80 | op];
             if payload.len() < 126 {
                 f.push(0x80 | payload.len() as u8);
-            } else {
+            } else if payload.len() <= 0xffff {
                 f.push(0x80 | 126);
                 f.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+            } else {
+                f.push(0x80 | 127);
+                f.extend_from_slice(&(payload.len() as u64).to_be_bytes());
             }
             f.extend_from_slice(&mask);
             f.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
@@ -1236,6 +1239,40 @@ mod tests {
             graphql_ws(&[(8, b"\x0f\xa0\xff")]).await,
             ["close:03ef", "eof"]
         );
+    }
+
+    /// A subscription spreading a long chain of fragments is v4's
+    /// `RecursionError`, which drops the connection as other crashes do,
+    /// instead of overflowing the stack and aborting the daemon. Run on the
+    /// daemon's 8 MiB worker stack.
+    #[test]
+    fn graphql_ws_fragment_chain_drops_the_connection() {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("runtime");
+                rt.block_on(async {
+                    let n = 20_000;
+                    let mut query = String::from("subscription{...F0} ");
+                    for i in 0..n {
+                        query.push_str(&format!("fragment F{i} on Query{{...F{}}} ", i + 1));
+                    }
+                    query.push_str(&format!("fragment F{n} on Query{{__typename}}"));
+                    let start =
+                        format!(r#"{{"type":"start","id":"1","payload":{{"query":"{query}"}}}}"#);
+                    assert!(start.len() > 650_000);
+                    assert_eq!(
+                        graphql_ws(&[INIT, (1, start.as_bytes())]).await,
+                        [ACK, "eof"]
+                    );
+                });
+            })
+            .expect("thread")
+            .join()
+            .expect("no panic");
     }
 
     #[test]

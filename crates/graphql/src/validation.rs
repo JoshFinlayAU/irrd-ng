@@ -12,6 +12,28 @@ use crate::suggest::{did_you_mean_with, natural_cmp, suggestion_list};
 
 const MAX_ERRORS: usize = 100;
 
+/// The Python frames a validation rule's own recursion can use in v4
+/// before `RecursionError`: `sys.getrecursionlimit()` (1000) less the
+/// frames below the rule method.
+///
+/// Rules that follow fragment spreads (the cost validator,
+/// `NoFragmentCycles`, `OverlappingFieldsCanBeMerged` and
+/// `MaxIntrospectionDepth`) recurse once or twice per spread in
+/// graphql-core and ariadne, so a long chain of fragments ends in a
+/// `RecursionError` (P-54). irrd-ng counts the frames each of them would
+/// use, and stops with the same error where Python would, instead of
+/// recursing until its own stack runs out.
+///
+/// Measured with graphql-core 3.3.0 and ariadne 1.1.1 on Python 3.13:
+/// with 7 frames below the rule method, 993 are left (a chain of 496
+/// fragments ends the cost validator, 987 unused ones
+/// `OverlappingFieldsCanBeMerged`). Under uvicorn, Starlette and
+/// ariadne's handler v4 has about 24 more below it, which is also why
+/// selection sets end at around 240 levels there and 246 bare: 969 left,
+/// so a chain of 484 fragments spread from an operation is a
+/// `RecursionError` in v4 and in irrd-ng.
+pub(crate) const PY_STACK_FRAMES: usize = 969;
+
 // ---- nodes ----
 
 /// What a directive is attached to.
@@ -256,9 +278,12 @@ pub(crate) struct Ctx<'a> {
     pub aborted: bool,
     /// Whether the current top-level definition is SDL.
     pub in_sdl: bool,
-    /// The cost validator recursed through a fragment cycle, which ends
-    /// in a `RecursionError` in v4.
+    /// A rule recursed past [`Ctx::py_frames`] (or through a fragment
+    /// cycle in the cost validator), which ends in a `RecursionError` in
+    /// v4. Validation stops at once, as the exception would stop it.
     pub recursion_error: bool,
+    /// [`PY_STACK_FRAMES`], or another budget in tests.
+    pub py_frames: usize,
     fragments: HashMap<&'a str, &'a FragmentDefinition>,
 }
 
@@ -276,6 +301,11 @@ impl<'a> Ctx<'a> {
     /// The type info's parent type.
     pub(crate) fn ti_parent_type(&self) -> Option<TypeId> {
         self.ti.get_parent_type()
+    }
+
+    /// Validation has ended: too many errors, or a `RecursionError`.
+    fn stopped(&self) -> bool {
+        self.aborted || self.recursion_error
     }
 
     fn report(&mut self, e: GraphQLError) {
@@ -502,7 +532,7 @@ impl<'a> Walker<'a, '_> {
     fn enter(&mut self, n: N<'a>) {
         self.cx.ti.enter(self.cx.schema, &n);
         for i in 0..self.rules.len() {
-            if self.cx.aborted {
+            if self.cx.stopped() {
                 return;
             }
             if self.skipping[i].is_none() && self.rules[i].enter(&mut self.cx, &n) == Flow::Skip {
@@ -513,7 +543,7 @@ impl<'a> Walker<'a, '_> {
 
     fn leave(&mut self, n: N<'a>) {
         for i in 0..self.rules.len() {
-            if self.cx.aborted {
+            if self.cx.stopped() {
                 return;
             }
             match self.skipping[i] {
@@ -543,7 +573,7 @@ impl<'a> Walker<'a, '_> {
                     self.type_system(t);
                 }
             }
-            if self.cx.aborted {
+            if self.cx.stopped() {
                 return;
             }
         }
@@ -786,6 +816,19 @@ pub(crate) fn validate(
     body: &[char],
     cost_limit: Option<i64>,
 ) -> Result<Vec<GraphQLError>, ()> {
+    validate_with_frames(schema, scalars, doc, body, cost_limit, PY_STACK_FRAMES)
+}
+
+/// [`validate`] with `py_frames` Python frames for a rule's recursion
+/// instead of [`PY_STACK_FRAMES`]. `Err` is the `RecursionError`.
+pub(crate) fn validate_with_frames(
+    schema: &Schema,
+    scalars: &dyn ScalarParsers,
+    doc: &Document,
+    body: &[char],
+    cost_limit: Option<i64>,
+    py_frames: usize,
+) -> Result<Vec<GraphQLError>, ()> {
     // A dict comprehension: the last fragment of a name wins.
     let mut fragments: HashMap<&str, &FragmentDefinition> = HashMap::new();
     for d in &doc.definitions {
@@ -802,6 +845,7 @@ pub(crate) fn validate(
         aborted: false,
         in_sdl: false,
         recursion_error: false,
+        py_frames,
         fragments,
     };
     let mut rules: Vec<Box<dyn Rule<'_>>> = vec![
@@ -1321,26 +1365,56 @@ struct NoFragmentCycles<'a> {
     spread_path: Vec<&'a FragmentSpread>,
     index: HashMap<String, usize>,
 }
+/// One `detect_cycle_recursive()` call on [`NoFragmentCycles`]'s explicit
+/// stack: the fragment and the spreads it has yet to follow.
+struct CycleFrame<'a> {
+    name: &'a str,
+    spreads: Vec<&'a FragmentSpread>,
+    next: usize,
+}
+
 impl<'a> NoFragmentCycles<'a> {
+    /// `detect_cycle_recursive()` from `f`, depth first as graphql-core
+    /// recurses, but on an explicit stack. graphql-core uses a frame per
+    /// fragment on the path plus one for `get_fragment_spreads()`; past
+    /// [`Ctx::py_frames`] that is its `RecursionError`.
     fn detect(&mut self, cx: &mut Ctx<'a>, f: &'a FragmentDefinition) {
-        let name = f.name.value.clone();
-        if self.visited.contains(&name) {
-            return;
+        let mut stack: Vec<CycleFrame<'a>> = Vec::new();
+        if let Some(frame) = self.enter_fragment(cx, f, 0) {
+            stack.push(frame);
         }
-        self.visited.insert(name.clone());
-        let spreads = cx.get_fragment_spreads(&f.selection_set);
-        if spreads.is_empty() {
-            return;
-        }
-        self.index.insert(name.clone(), self.spread_path.len());
-        for sp in spreads {
-            let sname = sp.name.value.clone();
-            let cycle = self.index.get(&sname).copied();
+        while let Some(top) = stack.last_mut() {
+            if cx.recursion_error {
+                return;
+            }
+            let Some(&sp) = top.spreads.get(top.next) else {
+                // The call returns: its fragment leaves the path, and the
+                // spread that led to it is popped in the caller.
+                self.index.remove(top.name);
+                stack.pop();
+                if !stack.is_empty() {
+                    self.spread_path.pop();
+                }
+                continue;
+            };
+            top.next += 1;
+            let sname = sp.name.value.as_str();
+            let cycle = self.index.get(sname).copied();
             self.spread_path.push(sp);
             match cycle {
                 None => {
-                    if let Some(sf) = cx.get_fragment(&sname) {
-                        self.detect(cx, sf);
+                    let depth = stack.len();
+                    match cx.get_fragment(sname) {
+                        Some(sf) => match self.enter_fragment(cx, sf, depth) {
+                            // Popped from spread_path when the call returns.
+                            Some(frame) => stack.push(frame),
+                            None => {
+                                self.spread_path.pop();
+                            }
+                        },
+                        None => {
+                            self.spread_path.pop();
+                        }
                     }
                 }
                 Some(ci) => {
@@ -1359,11 +1433,44 @@ impl<'a> NoFragmentCycles<'a> {
                     };
                     let positions = path.iter().map(|s| s.pos).collect();
                     cx.report(GraphQLError::new(msg, positions));
+                    self.spread_path.pop();
                 }
             }
-            self.spread_path.pop();
         }
-        self.index.remove(&name);
+    }
+
+    /// The start of a `detect_cycle_recursive()` call made with `depth`
+    /// calls below it: `None` when it returns at once (already visited,
+    /// no spreads, or a `RecursionError`).
+    fn enter_fragment(
+        &mut self,
+        cx: &mut Ctx<'a>,
+        f: &'a FragmentDefinition,
+        depth: usize,
+    ) -> Option<CycleFrame<'a>> {
+        if depth + 1 > cx.py_frames {
+            cx.recursion_error = true;
+            return None;
+        }
+        let name = f.name.value.as_str();
+        if !self.visited.insert(name.to_owned()) {
+            return None;
+        }
+        // get_fragment_spreads() is one frame more.
+        if depth + 2 > cx.py_frames {
+            cx.recursion_error = true;
+            return None;
+        }
+        let spreads = cx.get_fragment_spreads(&f.selection_set);
+        if spreads.is_empty() {
+            return None;
+        }
+        self.index.insert(name.to_owned(), self.spread_path.len());
+        Some(CycleFrame {
+            name,
+            spreads,
+            next: 0,
+        })
     }
 }
 impl<'a> Rule<'a> for NoFragmentCycles<'a> {
@@ -1628,13 +1735,23 @@ impl DeferStreamOnValidOperations {
             .map(|a| &a.value)
     }
 
+    /// `forbid_unconditional_defer_stream()`, the `frames`-th Python frame
+    /// of its recursion (one per selection set, and one more for the
+    /// `get_directive()` it calls on each selection).
     fn forbid<'a>(
         cx: &mut Ctx<'a>,
         set: &'a SelectionSet,
         parents: &[usize],
         visited: &mut HashSet<String>,
+        frames: usize,
     ) {
+        if frames + 1 > cx.py_frames {
+            cx.recursion_error = true;
+        }
         for sel in &set.selections {
+            if cx.recursion_error {
+                return;
+            }
             let dirs = sel.directives();
             if let Some(skip) = dirs.iter().find(|d| d.name.value == "skip") {
                 let can = match Self::if_arg(skip) {
@@ -1687,16 +1804,16 @@ impl DeferStreamOnValidOperations {
                     if let Some(f) = cx.get_fragment(&fs.name.value) {
                         let mut p = vec![fs.pos];
                         p.extend_from_slice(parents);
-                        Self::forbid(cx, &f.selection_set, &p, visited);
+                        Self::forbid(cx, &f.selection_set, &p, visited, frames + 1);
                     }
                 }
                 Selection::Field(f) => {
                     if let Some(ss) = &f.selection_set {
-                        Self::forbid(cx, ss, parents, visited);
+                        Self::forbid(cx, ss, parents, visited, frames + 1);
                     }
                 }
                 Selection::InlineFragment(i) => {
-                    Self::forbid(cx, &i.selection_set, parents, visited)
+                    Self::forbid(cx, &i.selection_set, parents, visited, frames + 1)
                 }
             }
         }
@@ -1708,7 +1825,7 @@ impl<'a> Rule<'a> for DeferStreamOnValidOperations {
             && o.operation == OperationType::Subscription
         {
             let mut visited = HashSet::new();
-            Self::forbid(cx, &o.selection_set, &[], &mut visited);
+            Self::forbid(cx, &o.selection_set, &[], &mut visited, 1);
         }
         Flow::Continue
     }
@@ -2112,46 +2229,79 @@ impl<'a> Rule<'a> for UniqueInputFieldNames {
 }
 
 struct MaxIntrospectionDepth;
+
+/// `_check_depth()`'s walk: the fragments on the current path, the Python
+/// frames it is using, and whether it ran out of them.
+struct DepthWalk {
+    visited: Vec<String>,
+    frames: usize,
+    limit: usize,
+    overflow: bool,
+}
+
+impl DepthWalk {
+    /// A `_check_depth()` call: false past the frame limit, which is
+    /// graphql-core's `RecursionError`.
+    fn call(&mut self) -> bool {
+        self.frames += 1;
+        if self.frames > self.limit {
+            self.overflow = true;
+        }
+        !self.overflow
+    }
+}
+
 impl MaxIntrospectionDepth {
-    fn check(cx: &Ctx<'_>, sel: &Selection, depth: usize, visited: &mut Vec<String>) -> bool {
-        match sel {
+    /// `_check_depth(sel)`, one Python frame, plus one for the fragment
+    /// definition a spread is checked through.
+    fn check(cx: &Ctx<'_>, sel: &Selection, depth: usize, w: &mut DepthWalk) -> bool {
+        if !w.call() {
+            return false;
+        }
+        let r = match sel {
             Selection::FragmentSpread(fs) => {
                 let name = &fs.name.value;
-                if visited.contains(name) {
-                    return false;
+                match cx.get_fragment(name) {
+                    Some(f) if !w.visited.contains(name) => {
+                        w.visited.push(name.clone());
+                        let r = w.call() && Self::check_set(cx, &f.selection_set, depth, w);
+                        w.frames -= 1;
+                        w.visited.pop();
+                        r
+                    }
+                    _ => false,
                 }
-                let Some(f) = cx.get_fragment(name) else {
-                    return false;
-                };
-                visited.push(name.clone());
-                let r = Self::check_set(cx, &f.selection_set, depth, visited);
-                visited.pop();
-                r
             }
             Selection::Field(f) => {
                 let mut depth = depth;
+                let mut reached = false;
                 if matches!(
                     f.name.value.as_str(),
                     "fields" | "interfaces" | "possibleTypes" | "inputFields"
                 ) {
                     depth += 1;
-                    if depth >= 3 {
-                        return true;
+                    reached = depth >= 3;
+                }
+                if reached {
+                    true
+                } else {
+                    match &f.selection_set {
+                        Some(ss) => Self::check_set(cx, ss, depth, w),
+                        None => false,
                     }
                 }
-                match &f.selection_set {
-                    Some(ss) => Self::check_set(cx, ss, depth, visited),
-                    None => false,
-                }
             }
-            Selection::InlineFragment(i) => Self::check_set(cx, &i.selection_set, depth, visited),
-        }
+            Selection::InlineFragment(i) => Self::check_set(cx, &i.selection_set, depth, w),
+        };
+        w.frames -= 1;
+        r
     }
 
-    fn check_set(cx: &Ctx<'_>, ss: &SelectionSet, depth: usize, visited: &mut Vec<String>) -> bool {
+    fn check_set(cx: &Ctx<'_>, ss: &SelectionSet, depth: usize, w: &mut DepthWalk) -> bool {
         ss.selections
             .iter()
-            .any(|s| Self::check(cx, s, depth, visited))
+            .any(|s| Self::check(cx, s, depth, w) || w.overflow)
+            && !w.overflow
     }
 }
 impl<'a> Rule<'a> for MaxIntrospectionDepth {
@@ -2159,11 +2309,21 @@ impl<'a> Rule<'a> for MaxIntrospectionDepth {
         if let N::Field(f) = n
             && matches!(f.name.value.as_str(), "__schema" | "__type")
         {
-            let mut visited = Vec::new();
+            // _check_depth(node) on the field itself is the first frame.
+            let mut w = DepthWalk {
+                visited: Vec::new(),
+                frames: 1,
+                limit: cx.py_frames,
+                overflow: false,
+            };
             let deep = match &f.selection_set {
-                Some(ss) => Self::check_set(cx, ss, 0, &mut visited),
+                Some(ss) => Self::check_set(cx, ss, 0, &mut w),
                 None => false,
             };
+            if w.overflow {
+                cx.recursion_error = true;
+                return Flow::Skip;
+            }
             if deep {
                 cx.report(GraphQLError::new(
                     "Maximum introspection depth exceeded",
@@ -2261,3 +2421,195 @@ fn use_default(
 }
 
 use crate::value::Value;
+
+/// Fragment chains against graphql-core: where each rule that follows
+/// spreads runs out of Python frames.
+#[cfg(test)]
+mod recursion_tests {
+    use super::*;
+    use crate::coerce::ScalarError;
+
+    struct Scalars;
+    impl ScalarParsers for Scalars {
+        fn parse_value(&self, _: &str, v: &Value) -> Result<Value, ScalarError> {
+            Ok(v.clone())
+        }
+    }
+
+    const SDL: &str = "type Query { a: Obj }\ntype Obj { x: Int }\n";
+
+    fn chain(n: usize, on: &str, leaf: &str, body: &dyn Fn(usize) -> String) -> String {
+        let mut s = String::new();
+        for i in 0..n {
+            s.push_str(&format!("fragment F{i} on {on}{{{}}}\n", body(i)));
+        }
+        s.push_str(&format!("fragment F{n} on {on}{{{leaf}}}\n"));
+        s
+    }
+
+    fn spread(i: usize) -> String {
+        format!("...F{}", i + 1)
+    }
+
+    /// `Err` is the `RecursionError`.
+    fn run(schema: &Schema, doc: &str, frames: usize) -> Result<usize, ()> {
+        let body: Vec<char> = doc.chars().collect();
+        let d = crate::parser::parse(&body).expect("parses");
+        validate_with_frames(schema, &Scalars, &d, &body, Some(2500), frames).map(|e| e.len())
+    }
+
+    /// Whether a chain of `n` is the shortest that is a `RecursionError`
+    /// (each rule's frame count grows with the chain).
+    fn first_fails_at(
+        schema: &Schema,
+        frames: usize,
+        mk: &dyn Fn(usize) -> String,
+        n: usize,
+    ) -> bool {
+        run(schema, &mk(n - 1), frames).is_ok() && run(schema, &mk(n), frames).is_err()
+    }
+
+    /// On the daemon's 8 MiB worker stack.
+    fn on_big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(f)
+            .expect("thread")
+            .join()
+            .expect("no panic");
+    }
+
+    /// The shortest failing chains graphql-core 3.3.0 and ariadne 1.1.1
+    /// give on Python 3.13 with 993 frames to spare above the rule method
+    /// (a bare `validate()` call), and the same at v4's 969.
+    #[test]
+    fn fragment_chains_fail_where_graphql_core_does() {
+        on_big_stack(|| {
+            let schema = Schema::from_sdl(SDL);
+            let s = &schema;
+            let q = |n| chain(n, "Query", "__typename", &spread);
+            let used = |n| format!("query{{...F0}}\n{}", q(n));
+            let used_after = |n| format!("{}query{{...F0}}\n", q(n));
+            let unused = |n| format!("query{{__typename}}\n{}", q(n));
+            let unused_before = |n| format!("{}query{{__typename}}\n", q(n));
+            let two_heads = |n: usize| format!("query{{...F0 ...F{}}}\n{}", n / 2, q(n));
+            let inline = |i: usize| format!("...on Query{{...F{}}}", i + 1);
+            let inline_used = |n| {
+                format!(
+                    "query{{...F0}}\n{}",
+                    chain(n, "Query", "__typename", &inline)
+                )
+            };
+            let inline_unused = |n| {
+                format!(
+                    "query{{__typename}}\n{}",
+                    chain(n, "Query", "__typename", &inline)
+                )
+            };
+            let intro = |n| {
+                format!(
+                    "query{{__schema{{...F0}}}}\n{}",
+                    chain(n, "__Schema", "description", &spread)
+                )
+            };
+            let intro_inline = |n| {
+                let body = |i: usize| format!("...on __Schema{{...F{}}}", i + 1);
+                format!(
+                    "query{{__schema{{...F0}}}}\n{}",
+                    chain(n, "__Schema", "description", &body)
+                )
+            };
+            // The cost validator: two frames per spread.
+            assert!(first_fails_at(s, 993, &used, 496));
+            assert!(first_fails_at(s, 993, &used_after, 496));
+            assert!(first_fails_at(s, 993, &two_heads, 496));
+            assert!(first_fails_at(s, 993, &inline_used, 331));
+            // OverlappingFieldsCanBeMerged, from each fragment definition.
+            assert!(first_fails_at(s, 993, &unused, 987));
+            assert!(first_fails_at(s, 993, &unused_before, 987));
+            // graphql-core: 986, two more __hash__ frames in its deepest
+            // lookup.
+            assert!(first_fails_at(s, 993, &inline_unused, 987));
+            // Subscriptions: the cost validator follows spreads, but not
+            // fields (no subscription type); then OverlappingFields.
+            let sub = |n| format!("subscription{{...F0}}\n{}", q(n));
+            let sub_field = |n| format!("subscription{{a{{...F0}}}}\n{}", q(n));
+            assert!(first_fails_at(s, 993, &sub, 496));
+            assert!(first_fails_at(s, 993, &sub_field, 986));
+            // MaxIntrospectionDepth: the cost validator skips __schema.
+            assert!(first_fails_at(s, 993, &intro, 495));
+            assert!(first_fails_at(s, 993, &intro_inline, 330));
+            // In v4.
+            assert!(first_fails_at(s, PY_STACK_FRAMES, &used, 484));
+            assert!(first_fails_at(s, PY_STACK_FRAMES, &unused, 963));
+        });
+    }
+
+    /// NoFragmentCycles on its own: a frame per fragment on the path and
+    /// one for get_fragment_spreads().
+    #[test]
+    fn no_fragment_cycles_counts_frames() {
+        on_big_stack(|| {
+            let schema = Schema::from_sdl(SDL);
+            let doc = |n| chain(n, "Query", "__typename", &spread);
+            let check = |n: usize, frames: usize| {
+                let text = doc(n);
+                let body: Vec<char> = text.chars().collect();
+                let d = crate::parser::parse(&body).expect("parses");
+                let mut cx = Ctx {
+                    schema: &schema,
+                    body: &body,
+                    coercer: Coercer {
+                        schema: &schema,
+                        scalars: &Scalars,
+                    },
+                    ti: TypeInfo::default(),
+                    errors: Vec::new(),
+                    aborted: false,
+                    in_sdl: false,
+                    recursion_error: false,
+                    py_frames: frames,
+                    fragments: d
+                        .definitions
+                        .iter()
+                        .filter_map(|x| match x {
+                            Definition::Fragment(f) => Some((f.name.value.as_str(), f)),
+                            _ => None,
+                        })
+                        .collect(),
+                };
+                let Some(Definition::Fragment(f0)) = d.definitions.first() else {
+                    unreachable!()
+                };
+                NoFragmentCycles::default().detect(&mut cx, f0);
+                !cx.recursion_error
+            };
+            // F0..Fn: n + 1 calls, then get_fragment_spreads() in Fn.
+            assert!(check(991, 993));
+            assert!(!check(992, 993));
+            assert!(check(20_000, 20_002));
+            assert!(!check(20_000, 20_001));
+        });
+    }
+
+    /// Cycles are still reported, along every path, as before.
+    #[test]
+    fn fragment_cycles_are_reported() {
+        let schema = Schema::from_sdl(SDL);
+        let doc = "query{...A}\nfragment A on Query{...B ...C}\nfragment B on Query{...A}\nfragment C on Query{...C ...B}\n";
+        // The cost validator recurses through the cycle: RecursionError.
+        assert_eq!(run(&schema, doc, PY_STACK_FRAMES), Err(()));
+        let body: Vec<char> = doc.chars().collect();
+        let d = crate::parser::parse(&body).expect("parses");
+        let errors = validate_with_frames(&schema, &Scalars, &d, &body, None, PY_STACK_FRAMES)
+            .expect("no RecursionError without the cost validator");
+        let messages: Vec<&str> = errors.iter().map(|e| e.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            [
+                "Cannot spread fragment 'A' within itself via 'B'.",
+                "Cannot spread fragment 'C' within itself.",
+            ]
+        );
+    }
+}

@@ -12,8 +12,21 @@ use crate::validation::{Ctx, Flow, N, Rule};
 
 const MAX_FIELD_COMPARISONS: usize = 250_000;
 
+/// Frames graphql-core uses below its deepest counted call (the memo
+/// lookups and their `__hash__` methods, collecting a fragment's fields):
+/// a chain of 987 unused fragments is its `RecursionError` with 993
+/// frames to spare, as measured on graphql-core 3.3.0.
+const LEAF_FRAMES: usize = 5;
+
+/// Why the rule stopped early.
 #[derive(Debug)]
-struct BudgetExceeded;
+enum Stop {
+    /// More than [`MAX_FIELD_COMPARISONS`]: reported as an error.
+    BudgetExceeded,
+    /// Python's `RecursionError`: validation ends.
+    Recursion,
+}
+use Stop::BudgetExceeded;
 
 /// `(parent_type, node, def_type)`; `def_type` is `None` when the field
 /// has no definition.
@@ -46,6 +59,9 @@ pub(crate) struct OverlappingFields<'a> {
     /// `PairSet`
     compared_fragments: HashMap<String, HashMap<String, bool>>,
     budget_exceeded: bool,
+    /// The calls of the rule's own functions on the stack, a Python frame
+    /// each in graphql-core.
+    frames: usize,
 }
 
 fn reason_message(r: &ReasonMsg) -> String {
@@ -131,6 +147,110 @@ fn do_types_conflict(s: &Schema, t1: &TypeRef, t2: &TypeRef) -> bool {
 }
 
 impl<'a> OverlappingFields<'a> {
+    /// Run `f` as one more Python frame: `RecursionError` past
+    /// `Ctx::py_frames`.
+    fn frame<T>(
+        &mut self,
+        cx: &Ctx<'a>,
+        f: impl FnOnce(&mut Self) -> Result<T, Stop>,
+    ) -> Result<T, Stop> {
+        if self.frames + 1 + LEAF_FRAMES > cx.py_frames {
+            return Err(Stop::Recursion);
+        }
+        self.frames += 1;
+        let r = f(self);
+        self.frames -= 1;
+        r
+    }
+
+    // The rule's functions, each one Python frame as in graphql-core.
+
+    fn within_selection_set(
+        &mut self,
+        cx: &Ctx<'a>,
+        parent: Option<TypeId>,
+        set: &'a SelectionSet,
+    ) -> Result<Vec<Conflict>, Stop> {
+        self.frame(cx, |me| me.within_selection_set_body(cx, parent, set))
+    }
+
+    fn between_fields_and_fragment(
+        &mut self,
+        cx: &Ctx<'a>,
+        conflicts: &mut Vec<Conflict>,
+        excl: bool,
+        fm: &FieldMap<'a>,
+        fm_key: usize,
+        sp: &Spread<'a>,
+    ) -> Result<(), Stop> {
+        self.frame(cx, |me| {
+            me.between_fields_and_fragment_body(cx, conflicts, excl, fm, fm_key, sp)
+        })
+    }
+
+    fn between_fragments(
+        &mut self,
+        cx: &Ctx<'a>,
+        conflicts: &mut Vec<Conflict>,
+        excl: bool,
+        s1: &Spread<'a>,
+        s2: &Spread<'a>,
+    ) -> Result<(), Stop> {
+        self.frame(cx, |me| {
+            me.between_fragments_body(cx, conflicts, excl, s1, s2)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn between_sub_selection_sets(
+        &mut self,
+        cx: &Ctx<'a>,
+        excl: bool,
+        p1: Option<TypeId>,
+        ss1: &'a SelectionSet,
+        p2: Option<TypeId>,
+        ss2: &'a SelectionSet,
+    ) -> Result<Vec<Conflict>, Stop> {
+        self.frame(cx, |me| {
+            me.between_sub_selection_sets_body(cx, excl, p1, ss1, p2, ss2)
+        })
+    }
+
+    fn collect_within(
+        &mut self,
+        cx: &Ctx<'a>,
+        conflicts: &mut Vec<Conflict>,
+        fm: &FieldMap<'a>,
+    ) -> Result<(), Stop> {
+        self.frame(cx, |me| me.collect_within_body(cx, conflicts, fm))
+    }
+
+    fn collect_between(
+        &mut self,
+        cx: &Ctx<'a>,
+        conflicts: &mut Vec<Conflict>,
+        excl: bool,
+        fm1: &FieldMap<'a>,
+        fm2: &FieldMap<'a>,
+    ) -> Result<(), Stop> {
+        self.frame(cx, |me| {
+            me.collect_between_body(cx, conflicts, excl, fm1, fm2)
+        })
+    }
+
+    fn find_conflict(
+        &mut self,
+        cx: &Ctx<'a>,
+        parent_excl: bool,
+        name: &str,
+        f1: &NodeAndDef<'a>,
+        f2: &NodeAndDef<'a>,
+    ) -> Result<Option<Conflict>, Stop> {
+        self.frame(cx, |me| {
+            me.find_conflict_body(cx, parent_excl, name, f1, f2)
+        })
+    }
+
     fn fields_and_spreads(
         &mut self,
         cx: &Ctx<'a>,
@@ -162,12 +282,12 @@ impl<'a> OverlappingFields<'a> {
         self.fields_and_spreads(cx, t, &f.selection_set)
     }
 
-    fn within_selection_set(
+    fn within_selection_set_body(
         &mut self,
         cx: &Ctx<'a>,
         parent: Option<TypeId>,
         set: &'a SelectionSet,
-    ) -> Result<Vec<Conflict>, BudgetExceeded> {
+    ) -> Result<Vec<Conflict>, Stop> {
         let mut conflicts = Vec::new();
         let (fm, spreads) = self.fields_and_spreads(cx, parent, set);
         let fm_key = set as *const _ as usize;
@@ -181,7 +301,7 @@ impl<'a> OverlappingFields<'a> {
         Ok(conflicts)
     }
 
-    fn between_fields_and_fragment(
+    fn between_fields_and_fragment_body(
         &mut self,
         cx: &Ctx<'a>,
         conflicts: &mut Vec<Conflict>,
@@ -189,7 +309,7 @@ impl<'a> OverlappingFields<'a> {
         fm: &FieldMap<'a>,
         fm_key: usize,
         sp: &Spread<'a>,
-    ) -> Result<(), BudgetExceeded> {
+    ) -> Result<(), Stop> {
         if let Some(m) = self.compared_fields_fragments.get(&fm_key)
             && let Some(&r) = m.get(&sp.key)
             && (excl || excl == r)
@@ -231,14 +351,14 @@ impl<'a> OverlappingFields<'a> {
             .insert(k2.to_owned(), excl);
     }
 
-    fn between_fragments(
+    fn between_fragments_body(
         &mut self,
         cx: &Ctx<'a>,
         conflicts: &mut Vec<Conflict>,
         excl: bool,
         s1: &Spread<'a>,
         s2: &Spread<'a>,
-    ) -> Result<(), BudgetExceeded> {
+    ) -> Result<(), Stop> {
         if s1.key == s2.key {
             return Ok(());
         }
@@ -265,7 +385,7 @@ impl<'a> OverlappingFields<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn between_sub_selection_sets(
+    fn between_sub_selection_sets_body(
         &mut self,
         cx: &Ctx<'a>,
         excl: bool,
@@ -273,7 +393,7 @@ impl<'a> OverlappingFields<'a> {
         ss1: &'a SelectionSet,
         p2: Option<TypeId>,
         ss2: &'a SelectionSet,
-    ) -> Result<Vec<Conflict>, BudgetExceeded> {
+    ) -> Result<Vec<Conflict>, Stop> {
         let mut conflicts = Vec::new();
         let (fm1, sp1) = self.fields_and_spreads(cx, p1, ss1);
         let (fm2, sp2) = self.fields_and_spreads(cx, p2, ss2);
@@ -294,12 +414,12 @@ impl<'a> OverlappingFields<'a> {
         Ok(conflicts)
     }
 
-    fn collect_within(
+    fn collect_within_body(
         &mut self,
         cx: &Ctx<'a>,
         conflicts: &mut Vec<Conflict>,
         fm: &FieldMap<'a>,
-    ) -> Result<(), BudgetExceeded> {
+    ) -> Result<(), Stop> {
         for (name, fields) in fm {
             if fields.len() > 1 {
                 for i in 0..fields.len() {
@@ -316,14 +436,14 @@ impl<'a> OverlappingFields<'a> {
         Ok(())
     }
 
-    fn collect_between(
+    fn collect_between_body(
         &mut self,
         cx: &Ctx<'a>,
         conflicts: &mut Vec<Conflict>,
         excl: bool,
         fm1: &FieldMap<'a>,
         fm2: &FieldMap<'a>,
-    ) -> Result<(), BudgetExceeded> {
+    ) -> Result<(), Stop> {
         for (name, f1s) in fm1 {
             let Some((_, f2s)) = fm2.iter().find(|(k, _)| k == name) else {
                 continue;
@@ -339,14 +459,14 @@ impl<'a> OverlappingFields<'a> {
         Ok(())
     }
 
-    fn find_conflict(
+    fn find_conflict_body(
         &mut self,
         cx: &Ctx<'a>,
         parent_excl: bool,
         name: &str,
         f1: &NodeAndDef<'a>,
         f2: &NodeAndDef<'a>,
-    ) -> Result<Option<Conflict>, BudgetExceeded> {
+    ) -> Result<Option<Conflict>, Stop> {
         self.comparisons += 1;
         if self.comparisons > MAX_FIELD_COMPARISONS {
             return Err(BudgetExceeded);
@@ -465,6 +585,10 @@ impl<'a> Rule<'a> for OverlappingFields<'a> {
         }
         let parent = cx.ti_parent_type();
         match self.within_selection_set(cx, parent, ss) {
+            Err(Stop::Recursion) => {
+                // graphql-core's RecursionError ends validation.
+                cx.recursion_error = true;
+            }
             Err(BudgetExceeded) => {
                 self.budget_exceeded = true;
                 cx.report_pub(GraphQLError::new(

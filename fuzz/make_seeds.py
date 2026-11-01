@@ -51,7 +51,23 @@ def graphql():
             s = line.strip()
             if s.startswith(("query", "{", "mutation", "subscription", "fragment")):
                 queries.append(s)
-    for q in queries[:2000]:
+    # Chains of fragment spreads, which validation follows once or twice
+    # per spread. Inputs stay under libFuzzer's default max_len, far too
+    # short for a chain long enough to matter (about 500 spreads in v4),
+    # so the long ones are unit tests (graphql's validation.rs and
+    # tests/engine.rs, http's tests/limits.rs and websocket.rs); run with
+    # -max_len=1000000 to let the fuzzer grow these.
+    def chain(n, head, on="Query", leaf="__typename"):
+        return head + "\n" + "".join(
+            f"fragment F{i} on {on}{{...F{i + 1}}}\n" for i in range(n)
+        ) + f"fragment F{n} on {on}{{{leaf}}}\n"
+    queries += [
+        chain(60, "query{...F0}"),
+        chain(60, "{__typename}"),
+        chain(60, "subscription{a{...F0}}"),
+        chain(60, "{__schema{...F0}}", "__Schema", "description"),
+    ]
+    for q in queries[:2000] + queries[-4:]:
         put("graphql_document", q)
         put("graphql_request", json.dumps({"query": q}))
         put("multipart", 'boundary=b\n--b\r\nContent-Disposition: form-data; name="operations"\r\n\r\n'
