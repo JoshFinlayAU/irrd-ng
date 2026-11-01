@@ -82,6 +82,7 @@ jobs:
           IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite graphql --test ng
           IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite api --test ng
           IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite events --test ng
+          IRRD_NG=$PWD/target/debug/irrd-ng parity/run.sh --suite events-live --test ng
       - name: HTTP API suite reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

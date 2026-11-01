@@ -2,7 +2,8 @@
 # Differential parity run: replay the query corpus against v4 and irrd-ng
 # and byte-diff every response (CLAUDE.md, "Differential parity testing").
 #
-#   parity/run.sh [--suite whois|http|graphql|api|events|all] [--test ng|v4-twin|HOST:PORT]
+#   parity/run.sh [--suite whois|http|graphql|api|events|events-live|all]
+#                 [--test ng|v4-twin|HOST:PORT]
 #                 [--http-test HOST:PORT] [--ref HOST:PORT] [--http-ref HOST:PORT]
 #                 [--bindings FILE] [--scale K] [--only TAG,...] [--jobs N]
 #                 [--timeout S] [--redact] [--save-responses] [--strict] [--out DIR]
@@ -11,7 +12,10 @@
 # (/v1/whois/, single queries), graphql (/graphql/, corpus/graphql/*.gq),
 # api (/v1/status/, /metrics/, the explorer and routing,
 # corpus/http/api.gq) and events (the event stream WebSocket and its
-# initial download, corpus/http/events.gq). graphql, api and events run
+# initial download, corpus/http/events.gq) and events-live (both streams
+# while the same change is applied to both servers; it leaves their clocks'
+# timestamps in the data, so it runs last and needs a fresh load.sh before
+# the other suites run again). graphql, api and events run
 # through tools/http_diff.py, which masks what differs between two
 # servers by nature (times, host names) and accepts a permutation where
 # v4's own order is not fixed. nrtm, submit and cli come with their phases.
@@ -111,12 +115,15 @@ graphql_suite() {
 }
 # One request at a time: v4 stalls when /v1/status/ requests overlap.
 api_suite() { run_api_suite api --corpus corpus/http/api.gq --jobs 1; }
-events_suite() {
-  run_api_suite events --corpus corpus/http/events.gq
-  # Live: both streams while the same two irrd_update_database runs change
-  # the journaled source on each server. The pause between them is for
-  # irrd-ng, which notices a write by another process within two seconds
-  # (one event per source for everything written in that time).
+events_suite() { run_api_suite events --corpus corpus/http/events.gq; }
+# Live: both streams while the same two irrd_update_database runs change
+# the journaled source on each server. The pause between them is for
+# irrd-ng, which notices a write by another process within two seconds
+# (one event per source for everything written in that time). Each server
+# stamps the change with its own clock, so afterwards the timestamps of
+# EVSTREAM differ between them (!J, /v1/status/, the event stream): run it
+# last, and run parity/load.sh again before the other suites.
+events_live_suite() {
   local o=${out:-$parity/out/events-live-$stamp}
   cp events/EVSTREAM.live events/EVSTREAM.update "$work/"
   local ng_bin=${IRRD_NG:-$repo/target/release/irrd-ng}
@@ -132,9 +139,10 @@ case $suite in
   graphql) graphql_suite ;;
   api) api_suite ;;
   events) events_suite ;;
+  events-live) events_live_suite ;;
   all)
     run_suite whois "$ref" "$whois_test"; v4/preload-kick.sh irrd-v4 9080; run_suite http "$http_ref" "$http_test"
-    graphql_suite; api_suite; events_suite ;;
+    graphql_suite; api_suite; events_suite; events_live_suite ;;
   nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
   *) echo "unknown suite $suite" >&2; exit 2 ;;
 esac
