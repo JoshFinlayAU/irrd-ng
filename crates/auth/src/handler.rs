@@ -83,6 +83,7 @@ pub fn process(
 ) -> Result<Handler, Internal> {
     let objects = submission_object_count(&submission);
     tracing::info!(target: LOG_TARGET, "Processing change requests for {objects} object(s), metadata is {}", meta.py_repr());
+    let bcrypt = Arc::new(precompute_bcrypt(store, &submission));
     // Large enough that the closure does not run twice for a map resize.
     let reserve = 64 << 20;
     let (handler, _) = store.write_reserving(reserve, move |tx| {
@@ -90,19 +91,96 @@ pub fn process(
             Ok(k) => k,
             Err(e) => return Ok(Err(e)),
         };
-        let r = run(
-            tx,
-            settings.clone(),
-            submission.clone(),
-            meta.clone(),
-            &keyring,
-        );
+        let r = rpsl::auth::with_precomputed_bcrypt(bcrypt.clone(), || {
+            run(
+                tx,
+                settings.clone(),
+                submission.clone(),
+                meta.clone(),
+                &keyring,
+            )
+        });
         for (fpr, bytes) in keyring.dirty_entries() {
             tx.put_pgp_key(&fpr, &bytes)?;
         }
         Ok(r)
     })?;
     handler
+}
+
+/// The bcrypt checks this submission is likely to need, done before the
+/// write lock is taken (see [`rpsl::auth::precompute_bcrypt`]). The hashes
+/// are the `BCRYPT-PW` values in the submitted text and on every stored
+/// mntner it names; the passwords are the request's, or the text's
+/// `password:` lines read as v4 reads them. Anything missed here is checked
+/// under the lock as before, so the results are the same either way.
+fn precompute_bcrypt(store: &Store, submission: &Submission) -> rpsl::auth::BcryptResults {
+    let (texts, mut passwords): (Vec<&str>, Vec<String>) = match submission {
+        Submission::TextBlob { text, .. } => (
+            vec![text.as_str()],
+            text.lines()
+                .filter_map(|l| l.strip_prefix("password:"))
+                .map(|p| p.trim().to_owned())
+                .collect(),
+        ),
+        Submission::Change {
+            objects, passwords, ..
+        } => (
+            objects.iter().map(|o| o.text.as_str()).collect(),
+            passwords.clone(),
+        ),
+        Submission::Suspension { .. } => return Default::default(),
+    };
+    passwords.sort();
+    passwords.dedup();
+    if passwords.is_empty() {
+        return Default::default();
+    }
+    let mut hashes = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
+    for text in &texts {
+        bcrypt_hashes_in(text, &mut hashes);
+        for token in text.split(|c: char| c.is_whitespace() || c == ',') {
+            if !token.is_empty()
+                && token.len() <= 128
+                && token
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                names.insert(token.to_ascii_uppercase());
+            }
+        }
+    }
+    if let Ok(r) = store.read() {
+        let view = r.view();
+        if let Ok(sources) = view.object_sources() {
+            for name in &names {
+                for source in &sources {
+                    if let Ok(Some(m)) = view.object(source, "mntner", name) {
+                        bcrypt_hashes_in(m.object_text, &mut hashes);
+                    }
+                }
+            }
+        }
+    }
+    hashes.sort();
+    hashes.dedup();
+    if hashes.is_empty() {
+        return Default::default();
+    }
+    rpsl::auth::precompute_bcrypt(&hashes, &passwords)
+}
+
+/// Every token following a `BCRYPT-PW` token, in any case.
+fn bcrypt_hashes_in(text: &str, out: &mut Vec<String>) {
+    let mut tokens = text.split_whitespace();
+    while let Some(t) = tokens.next() {
+        if t.eq_ignore_ascii_case("BCRYPT-PW")
+            && let Some(hash) = tokens.next()
+        {
+            out.push(hash.to_owned());
+        }
+    }
 }
 
 fn submission_object_count(s: &Submission) -> usize {

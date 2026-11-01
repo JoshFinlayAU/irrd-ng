@@ -8,6 +8,10 @@
 //! schemes, and any malformed hash raises `ValueError`; v4 treats both as a
 //! failed check.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::fields::{PASSWORD_HASH_DUMMY_VALUE, RPSL_MNTNER_AUTH_INTERNAL};
 use crate::parser::{RpslObject, Value};
 use crate::py;
@@ -55,7 +59,75 @@ fn md5_crypt_verify(password: &str, hash: &str) -> bool {
     pwhash::md5_crypt::verify(password.as_bytes(), hash)
 }
 
+/// bcrypt results worked out ahead of time, keyed by (hash, password).
+pub type BcryptResults = HashMap<(String, String), bool>;
+
+thread_local! {
+    static PRECOMPUTED: RefCell<Option<Arc<BcryptResults>>> = const { RefCell::new(None) };
+}
+
+/// Check every password against every bcrypt hash in parallel, so the
+/// results can be used later without doing the work again. Bcrypt at the
+/// highest cost v4 allows takes seconds per check, and a submission is
+/// checked while the store's single write lock is held, so the
+/// submission handler does this first, outside the lock.
+pub fn precompute_bcrypt(hashes: &[String], passwords: &[String]) -> BcryptResults {
+    let pairs: Vec<(&String, &String)> = hashes
+        .iter()
+        .flat_map(|h| passwords.iter().map(move |p| (h, p)))
+        .collect();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(8)
+        .min(pairs.len().max(1));
+    let chunk = pairs.len().div_ceil(threads).max(1);
+    let mut out = BcryptResults::with_capacity(pairs.len());
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = pairs
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || {
+                    part.iter()
+                        .map(|(h, p)| (((*h).clone(), (*p).clone()), bcrypt_verify_now(p, h)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        for w in workers {
+            if let Ok(results) = w.join() {
+                out.extend(results);
+            }
+        }
+    });
+    out
+}
+
+/// Run `f` with `results` consulted before any bcrypt check on this thread.
+/// A check that is not in `results` is done as usual.
+pub fn with_precomputed_bcrypt<R>(results: Arc<BcryptResults>, f: impl FnOnce() -> R) -> R {
+    // Restored on drop, so a panic in `f` does not leave the results on a
+    // thread that handles other work afterwards.
+    struct Restore(Option<Arc<BcryptResults>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            PRECOMPUTED.with(|c| *c.borrow_mut() = previous);
+        }
+    }
+    let _restore = Restore(PRECOMPUTED.with(|c| c.replace(Some(results))));
+    f()
+}
+
 fn bcrypt_verify(password: &str, hash: &str) -> bool {
+    let known = PRECOMPUTED.with(|c| {
+        c.borrow()
+            .as_ref()
+            .and_then(|m| m.get(&(hash.to_owned(), password.to_owned())).copied())
+    });
+    known.unwrap_or_else(|| bcrypt_verify_now(password, hash))
+}
+
+fn bcrypt_verify_now(password: &str, hash: &str) -> bool {
     // passlib accepts 2a, 2b and 2y (its backend refuses 2 and 2x), any
     // cost from 4 to 31, and raises on a config string without checksum.
     if !hash_shape_ok_ignoring_cost(hash) {
@@ -252,5 +324,27 @@ mod tests {
         let h = "$2b$12$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW";
         assert!(verify_password(PasswordHasher::BcryptPw, "x", h));
         assert!(!verify_password(PasswordHasher::BcryptPw, "y", h));
+    }
+
+    // The precomputed results agree with checking directly, and are what a
+    // check under with_precomputed_bcrypt uses.
+    #[test]
+    fn bcrypt_precomputed() {
+        let h = "$2b$12$68P0mc5.vVbdrqqSAnLtKuxfpUpqglWcjtR4QNxdwJL8iy.sOvWdW".to_owned();
+        let results =
+            precompute_bcrypt(std::slice::from_ref(&h), &["x".to_owned(), "y".to_owned()]);
+        assert_eq!(results.get(&(h.clone(), "x".to_owned())), Some(&true));
+        assert_eq!(results.get(&(h.clone(), "y".to_owned())), Some(&false));
+
+        let mut forged = BcryptResults::new();
+        forged.insert((h.clone(), "y".to_owned()), true);
+        let used = with_precomputed_bcrypt(Arc::new(forged), || {
+            (
+                verify_password(PasswordHasher::BcryptPw, "y", &h),
+                verify_password(PasswordHasher::BcryptPw, "x", &h),
+            )
+        });
+        assert_eq!(used, (true, true));
+        assert!(!verify_password(PasswordHasher::BcryptPw, "y", &h));
     }
 }
