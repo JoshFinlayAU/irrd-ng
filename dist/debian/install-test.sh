@@ -109,7 +109,10 @@ for f in /etc/apt/sources.list.d/irrd-ng.sources /etc/apt/apt.conf.d/52irrd-ng-u
 done
 grep -q '^ExecStart=/usr/bin/irrd --foreground --config /etc/irrd.yaml$' /usr/lib/systemd/system/irrd-ng.service ||
   fail "unit ExecStart"
-apt-config dump | grep -q 'origin=irrd-ng' || fail "Unattended-Upgrade::Origins-Pattern not set"
+# Captured first: grep -q stops reading at the first match, and under
+# pipefail the writer's SIGPIPE would fail the pipeline now and then.
+apt_config=$(apt-config dump)
+grep -q 'origin=irrd-ng' <<<"$apt_config" || fail "Unattended-Upgrade::Origins-Pattern not set"
 
 step "2. irrd.yaml and a fake IRRd v4 on the whois port"
 mkdir -p /run/irrd
@@ -193,7 +196,8 @@ printf '%s\n' "$out"
 contains "$out" "was not running before the upgrade, so it is left stopped"
 lacks "$(calls)" " start "
 lacks "$(calls)" " restart "
-dpkg -s irrd-ng | grep -q "^Version: $pkg_version\$" || fail "version"
+status=$(dpkg -s irrd-ng)
+grep -q "^Version: $pkg_version\$" <<<"$status" || fail "version"
 
 step "5. remove, then purge"
 systemctl start irrd-ng.service
