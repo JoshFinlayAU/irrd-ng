@@ -1,4 +1,4 @@
-//! Native standby replication (PLAN.md D2).
+//! Native standby replication (DIV-006 in docs/divergences.md).
 //!
 //! v4 runs a standby as a PostgreSQL streaming replica. irrd-ng has no
 //! PostgreSQL, so it replicates its own store: the active keeps a

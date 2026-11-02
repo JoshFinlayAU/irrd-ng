@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Three-way load check (PLAN.md, "Testing and parity strategy").
+# Three-way load check.
 #
 # For each dump: load it into v4 with v4's irrd_load_database and export
 # v4's database; load the same dump with irrd-ng's irrd_load_database into a

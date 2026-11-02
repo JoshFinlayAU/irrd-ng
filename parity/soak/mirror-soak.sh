@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mirroring soak (PLAN.md Phase 4 exit): IRRd v4 4.5.4 and irrd-ng mirror the
+# Mirroring soak: IRRd v4 4.5.4 and irrd-ng mirror the
 # same public upstreams side by side for days; after every cycle their object
 # sets and database_status are compared per source, and memory is recorded.
 #

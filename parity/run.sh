@@ -155,7 +155,7 @@ case $suite in
   all)
     run_suite whois "$ref" "$whois_test"; kick; run_suite http "$http_ref" "$http_test"
     graphql_suite; api_suite; events_suite; events_live_suite ;;
-  nrtm|submit|cli) echo "suite $suite arrives with its phase (PLAN.md); not implemented yet" >&2; exit 2 ;;
+  nrtm|submit|cli) echo "suite $suite is covered by parity/mirror/run.sh, parity/mirror/serve.sh and parity/submit/run.sh" >&2; exit 2 ;;
   *) echo "unknown suite $suite" >&2; exit 2 ;;
 esac
 exit $status

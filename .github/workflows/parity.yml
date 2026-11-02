@@ -1,6 +1,6 @@
 name: parity
 
-# Tier 1 differential parity against the pinned IRRd v4 (see PLAN.md).
+# Tier 1 differential parity against the pinned IRRd v4.
 # Real IRR dumps are fetched into a weekly cache and never committed.
 
 on:

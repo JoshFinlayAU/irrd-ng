@@ -1,6 +1,6 @@
 #!/bin/sh
 # Full-scale import of a v4 database copy (Tier 2: the production reference
-# copy on the parity VM, PLAN.md D3). Run on that host. Rows never leave it;
+# copy on the parity VM). Run on that host. Rows never leave it;
 # only timings, sizes, samples and the diff summaries are read back.
 #
 #   PG_CONTAINER=<name> scale-import.sh

@@ -1,5 +1,5 @@
 # IRRd v4 parity baseline. Bumping any line here is its own deliberate change
-# with a full parity run. See PLAN.md, "Baseline".
+# with a full parity run.
 irrd_version=4.5.4
 irrd_tag=v4.5.4
 irrd_commit=8e8080dab744a348b7d0e6efcb53f403301dd075

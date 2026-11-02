@@ -1,6 +1,0 @@
-name = "IRRd-NG"
-type = "software"
-description = "Complete drop in replacement for IRRd version 4 written in rust."
-created = "2026-10-31"
-remote_control = true  # launch claude with --remote-control <slug>
-shared_memory = true  # false = isolated from the hub's shared memory

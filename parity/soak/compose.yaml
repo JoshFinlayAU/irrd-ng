@@ -1,4 +1,4 @@
-# 7-day mirroring soak (PLAN.md Phase 4 exit): IRRd v4 4.5.4 and irrd-ng
+# 7-day mirroring soak: IRRd v4 4.5.4 and irrd-ng
 # mirror the same public upstreams side by side, on the parity VM.
 # Started and checked by parity/soak/mirror-soak.sh. Every process has a
 # memory cap; the VM has 32 GB and runs other workloads.

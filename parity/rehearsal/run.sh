@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The drop-in rehearsal (PLAN.md Phase 9 exit): replace a loaded v4 with
+# The drop-in rehearsal: replace a loaded v4 with
 # irrd-ng the way an operator would, then prove no client can tell.
 #
 #   parity/rehearsal/run.sh [--skip-load] [--keep] [--suite SUITE]

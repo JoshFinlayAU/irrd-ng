@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # First load bench: whois QPS, p50/p99 latency and server memory for v4 and
-# irrd-ng on the same data and the same query mix (PLAN.md Phase 3, item 5).
+# irrd-ng on the same data and the same query mix.
 # Runs on the Tier 2 VM after parity/tier2/setup.sh; see bench/README.md.
 #
 #   bench/load.sh [--concurrency "4 10"] [--duration S] [--warmup S] [--servers "v4 ng"]
