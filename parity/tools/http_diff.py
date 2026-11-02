@@ -175,14 +175,41 @@ def dechunk(body):
     return out
 
 
-def gql_request(item):
+def gql_literal(v):
+    """A JSON value as a GraphQL literal."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if v is None:
+        return "null"
+    if isinstance(v, (int, float)):
+        return json.dumps(v)
+    if isinstance(v, str):
+        return json.dumps(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(gql_literal(x) for x in v) + "]"
+    return "{" + ", ".join(f"{k}: {gql_literal(x)}" for k, x in v.items()) + "}"
+
+
+def inline_variables(query, variables):
+    """The query with its variable definitions removed and each `$name`
+    replaced by the variable's value as a literal."""
+    query = re.sub(r"^(\s*(?:query|mutation)\b\s*\w*)\s*\([^)]*\)", r"\1", query, count=1)
+    return re.sub(r"\$(\w+)", lambda m: gql_literal(variables[m.group(1)]), query)
+
+
+def gql_request(item, inline=False):
     query_lines, variables = [], None
     for ln in item.lines:
         if ln.startswith("@variables "):
             variables = json.loads(ln[len("@variables "):])
         else:
             query_lines.append(ln)
-    payload = {"query": "\n".join(query_lines)}
+    query = "\n".join(query_lines)
+    if inline and variables is not None:
+        # DIV-008: stock v4 rejects a variable in a required argument, so
+        # the reference gets the same query with the values written in.
+        query, variables = inline_variables(query, variables), None
+    payload = {"query": query}
     if variables is not None:
         payload["variables"] = variables
     if item.head:
@@ -354,10 +381,10 @@ GEN_RE = re.compile(rb'"generated_(at|on)":"[^"]*"')
 EVENT_ID_RE = re.compile(rb'"event_id":"[0-9]+-[0-9]+"')
 
 
-def run_item(addr, item, suite, timeout):
+def run_item(addr, item, suite, timeout, inline=False):
     if item.kind == "ws":
         return run_ws(addr, item, timeout)
-    method, path, headers, body = gql_request(item) if item.kind == "gql" else raw_request(item)
+    method, path, headers, body = gql_request(item, inline) if item.kind == "gql" else raw_request(item)
     try:
         raw = http_request(addr, method, path, headers, body, timeout)
     except OSError as e:
@@ -479,7 +506,7 @@ def main():
 
     def one(item):
         with cf.ThreadPoolExecutor(2) as ex:
-            fr = ex.submit(run_item, args.ref, item, args.suite, args.timeout)
+            fr = ex.submit(run_item, args.ref, item, args.suite, args.timeout, "div-008" in item.tags)
             ft = ex.submit(run_item, args.test, item, args.suite, args.timeout)
             ref, test = fr.result(), ft.result()
         return item, ref, test, compare(ref, test, args.strict, "limit-unordered" in item.tags)

@@ -233,10 +233,32 @@ query($pk: [String!]) { rpslObjects(rpslPk: $pk) { rpslPk source } }
 @variables {"pk": ["{aut_num}"]}
 @end
 
+# DIV-008: a variable in a required argument. Stock v4 rejects it ("Invalid
+# argument"), so the reference gets the values written into the query.
+# This is irrexplorer's set expansion query.
+@tags variables,div-008
 @gql
 query($names: [String!]!) { recursiveSetMembers(setNames: $names, depth: 1) { rpslPk rootSource members } }
 @variables {"names": ["{as_set}"]}
 @end
+
+@gql
+query($names: [String!]!) { s: recursiveSetMembers(setNames: $names) { rpslPk members } }
+@variables {"names": ["{as_set}", "{as_set_hier}"]}
+@end
+
+# The same with the variable not supplied: still v4's error.
+@tags variables
+@limit 1
+@gql
+query($names: [String!]!) { recursiveSetMembers(setNames: $names, depth: 1) { rpslPk } }
+@end
+
+# With variables sent but this one missing, the error is graphql-core's
+# own (DIV-008); crates/graphql/tests/engine.rs checks that text.
+
+@tags variables
+@limit 3
 
 @gql
 query($asn: [ASN!]) { r: rpslObjects(asn: $asn, objectClass: ["route", "route6"], rpkiStatus: [valid, invalid, not_found]) { rpslPk source ... on RPSLRoute { prefix asn } ... on RPSLRoute6 { prefix asn } } }

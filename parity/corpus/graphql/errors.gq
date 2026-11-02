@@ -303,6 +303,8 @@ fragment A on RPSLObject { objectText source mntBy mntByObjs { rpslPk objectText
 fragment A2 on RPSLRoute { route origin descr adminC techC memberOf mntBy changed source remarks notify }
 @end
 
+# DIV-008: the reference gets the values written into the query.
+@tags cost,div-008
 @gql
 query($a: [String!]!) { recursiveSetMembers(setNames: $a) { rpslPk } asSetPrefixes(setNames: $a) { rpslPk } }
 @variables {"a": ["AS-X"]}

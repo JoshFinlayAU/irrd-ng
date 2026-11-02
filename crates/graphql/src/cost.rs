@@ -2,15 +2,17 @@
 //! configures it: no cost map and no `@cost` directives, so every field
 //! costs 1 plus the cost of its selections.
 //!
-//! It computes field arguments without variables, so a variable in a
-//! non-null argument makes `get_argument_values()` raise, and ariadne
-//! reports `str(error)` (the message with its source location printed)
-//! as a validation error. IRRd 4.5.4 behaves exactly so, and irrd-ng does
-//! too.
+//! Stock IRRd 4.5.4 builds it without the request's variables, so a
+//! variable in a non-null argument makes `get_argument_values()` raise, and
+//! ariadne reports `str(error)` (the message with its source location
+//! printed) as a validation error: every such query fails. irrd-ng passes
+//! the request's variables, as `cost_validator(..., variables=...)` does
+//! (DIV-008); a variable the request does not supply still fails as in v4.
 
 use std::collections::HashMap;
 
 use crate::ast::*;
+use crate::coerce::Variables;
 use crate::error::GraphQLError;
 use crate::schema::{Kind, TypeId};
 use crate::validation::{Ctx, Flow, N, Rule, get_argument_values};
@@ -28,11 +30,14 @@ pub(crate) struct CostValidator {
     /// ariadne fails with `RecursionError` (two frames per fragment
     /// spread, one per field or inline fragment).
     frames: usize,
+    /// The request's `variables`, as given (ariadne does not coerce them).
+    variables: Option<Variables>,
 }
 
 impl CostValidator {
-    pub(crate) fn new(maximum: i64) -> Self {
+    pub(crate) fn new(maximum: i64, variables: Option<Variables>) -> Self {
         CostValidator {
+            variables,
             maximum,
             cost: 0,
             fragment_costs: HashMap::new(),
@@ -92,9 +97,13 @@ impl CostValidator {
                         continue;
                     };
                     let field_type = def.type_.named();
-                    if let Err(e) =
-                        get_argument_values(&cx.coercer, &def.args, &f.arguments, f.pos, None)
-                    {
+                    if let Err(e) = get_argument_values(
+                        &cx.coercer,
+                        &def.args,
+                        &f.arguments,
+                        f.pos,
+                        self.variables.as_ref(),
+                    ) {
                         let msg = e.to_str(cx.body);
                         cx.report_pub(GraphQLError::plain(msg));
                     }

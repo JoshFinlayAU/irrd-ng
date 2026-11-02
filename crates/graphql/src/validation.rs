@@ -816,7 +816,36 @@ pub(crate) fn validate(
     body: &[char],
     cost_limit: Option<i64>,
 ) -> Result<Vec<GraphQLError>, ()> {
-    validate_with_frames(schema, scalars, doc, body, cost_limit, PY_STACK_FRAMES)
+    validate_with_frames(
+        schema,
+        scalars,
+        doc,
+        body,
+        cost_limit,
+        PY_STACK_FRAMES,
+        None,
+    )
+}
+
+/// [`validate`] for a request: the cost validator sees its `variables`
+/// (DIV-008).
+pub(crate) fn validate_request(
+    schema: &Schema,
+    scalars: &dyn ScalarParsers,
+    doc: &Document,
+    body: &[char],
+    cost_limit: Option<i64>,
+    variables: Option<crate::coerce::Variables>,
+) -> Result<Vec<GraphQLError>, ()> {
+    validate_with_frames(
+        schema,
+        scalars,
+        doc,
+        body,
+        cost_limit,
+        PY_STACK_FRAMES,
+        variables,
+    )
 }
 
 /// [`validate`] with `py_frames` Python frames for a rule's recursion
@@ -828,6 +857,7 @@ pub(crate) fn validate_with_frames(
     body: &[char],
     cost_limit: Option<i64>,
     py_frames: usize,
+    variables: Option<crate::coerce::Variables>,
 ) -> Result<Vec<GraphQLError>, ()> {
     // A dict comprehension: the last fragment of a name wins.
     let mut fragments: HashMap<&str, &FragmentDefinition> = HashMap::new();
@@ -881,7 +911,7 @@ pub(crate) fn validate_with_frames(
         Box::new(MaxIntrospectionDepth),
     ];
     if let Some(limit) = cost_limit {
-        rules.push(Box::new(crate::cost::CostValidator::new(limit)));
+        rules.push(Box::new(crate::cost::CostValidator::new(limit, variables)));
     }
     let n = rules.len();
     let mut w = Walker {
@@ -2489,7 +2519,7 @@ mod recursion_tests {
     fn run(schema: &Schema, doc: &str, frames: usize) -> Result<usize, ()> {
         let body: Vec<char> = doc.chars().collect();
         let d = crate::parser::parse(&body).expect("parses");
-        validate_with_frames(schema, &Scalars, &d, &body, Some(2500), frames).map(|e| e.len())
+        validate_with_frames(schema, &Scalars, &d, &body, Some(2500), frames, None).map(|e| e.len())
     }
 
     /// Whether a chain of `n` is the shortest that is a `RecursionError`
@@ -2676,8 +2706,9 @@ mod recursion_tests {
         assert_eq!(run(&schema, doc, PY_STACK_FRAMES), Err(()));
         let body: Vec<char> = doc.chars().collect();
         let d = crate::parser::parse(&body).expect("parses");
-        let errors = validate_with_frames(&schema, &Scalars, &d, &body, None, PY_STACK_FRAMES)
-            .expect("no RecursionError without the cost validator");
+        let errors =
+            validate_with_frames(&schema, &Scalars, &d, &body, None, PY_STACK_FRAMES, None)
+                .expect("no RecursionError without the cost validator");
         let messages: Vec<&str> = errors.iter().map(|e| e.message.as_str()).collect();
         assert_eq!(
             messages,

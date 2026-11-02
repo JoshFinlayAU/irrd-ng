@@ -103,12 +103,54 @@ fn syntax_error_location_at_line_start_reports_previous_line() {
 
 #[test]
 fn cost_validator_rejects_variables_in_required_arguments() {
-    // ariadne computes argument values without variables, and reports
-    // str(error) with the printed source location.
+    // A variable the request does not supply: ariadne computes argument
+    // values without it, and reports str(error) with the printed source
+    // location, as stock v4 does for every such query.
     let out = q("query($n: [String!]!) { sets(names: $n) { pk } }");
     assert!(
         out.starts_with(r#"{"errors":[{"message":"Invalid argument\n\nGraphQL request:1:37\n1 | query($n: [String!]!) { sets(names: $n) { pk } }\n  |                                     ^"}"#),
         "{out}"
+    );
+}
+
+// DIV-008: with the request's variables, the cost validator accepts a
+// variable in a required argument, so irrexplorer's set expansion query
+// validates and runs.
+#[test]
+fn cost_validator_sees_request_variables() {
+    let (_, out) = run(
+        r#"{"query": "query($n: [String!]!) { sets(names: $n, depth: 1) { pk } }", "variables": {"n": ["AS-X"]}}"#,
+    );
+    assert!(!out.contains("Invalid argument"), "{out}");
+    assert!(out.contains(r#""data":{"sets":null}"#), "{out}");
+    let (ok, out) = run(
+        r#"{"query": "query($n: [String!]!) { objects(pk: $n) { pk } }", "variables": {"n": ["A"]}}"#,
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains(r#""objects":[{"pk":"A"}]"#), "{out}");
+}
+
+// DIV-008 with the variable missing from the variables sent: the
+// messages graphql-core 3.3.0 and ariadne 1.1.1 give with
+// cost_validator(variables=...), recorded in the pinned v4 image.
+#[test]
+fn cost_validator_with_variables_missing_one() {
+    let msg = |vars: &str| {
+        let (ok, out) = run(&format!(
+            r#"{{"query": "query($n: [String!]!) {{ sets(names: $n) {{ pk }} }}", "variables": {vars}}}"#
+        ));
+        assert!(!ok, "{out}");
+        out
+    };
+    assert!(
+        msg("{}").starts_with(r#"{"errors":[{"message":"Argument 'names' has invalid value: Expected variable '$n' provided to type '[String!]!' to provide a runtime value.\n\nGraphQL request:1:37"#),
+        "{}",
+        msg("{}")
+    );
+    assert!(
+        msg(r#"{"n": null}"#).starts_with(r#"{"errors":[{"message":"Argument 'names' has invalid value: Expected variable '$n' provided to non-null type '[String!]!' not to be None.\n\nGraphQL request:1:37"#),
+        "{}",
+        msg(r#"{"n": null}"#)
     );
 }
 

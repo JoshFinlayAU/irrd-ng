@@ -104,7 +104,19 @@ pub fn graphql(
         }
     };
 
-    let errors = validation::validate(schema, scalars, &doc, &body_chars, Some(MAX_QUERY_COST));
+    // DIV-008: the cost validator gets the request's variables.
+    let cost_variables = match &variables {
+        Some(Value::Object(fields)) => Some(fields.iter().cloned().collect()),
+        _ => None,
+    };
+    let errors = validation::validate_request(
+        schema,
+        scalars,
+        &doc,
+        &body_chars,
+        Some(MAX_QUERY_COST),
+        cost_variables,
+    );
     let errors = match errors {
         Ok(e) => e,
         Err(()) => {
