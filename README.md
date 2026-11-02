@@ -6,7 +6,7 @@ It is one static binary with an embedded LMDB store. There is no PostgreSQL, no 
 
 ## Status
 
-irrd-ng is in its release phase and has not had a tagged release yet. Every surface listed below is implemented and tested against IRRd 4.5.4 by the differential harness in `parity/`. Treat it as pre-release software: run it beside v4 first, and keep v4's database until you are happy (see `docs/migration.md`).
+irrd-ng 1.0.0 is the first release. Every surface listed below is implemented and tested against IRRd 4.5.4 by the differential harness in `parity/`, and every known difference from v4 is listed in `docs/divergences.md`. As with any replacement, run it beside v4 first, and keep v4's database until you are happy (see `docs/migration.md`).
 
 The v4 web UI (user accounts, two-factor authentication, mntner migration) is not part of irrd-ng yet. Its data is carried through the import untouched so that a later version can serve it.
 
