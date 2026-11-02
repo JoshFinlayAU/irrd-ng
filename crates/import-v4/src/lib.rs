@@ -22,10 +22,13 @@ use tracing::info;
 pub mod canonical;
 mod dsn;
 pub mod messages;
+mod probe;
 pub mod rows;
 pub mod to_store;
 pub mod types;
 
+pub use dsn::{MASK, mask_password};
+pub use probe::{SourceSize, probe_size};
 pub use rows::Batch;
 use rows::{
     AuthApiToken, AuthMntner, AuthPermission, AuthUser, AuthWebauthn, ChangeLog, DatabaseStatus,
@@ -114,13 +117,26 @@ impl Stats {
 /// Connect to the source database. `dsn` is a libpq URL or key=value string,
 /// or v4's own `database_url`.
 pub fn connect(dsn: &str) -> Result<Client, ImportError> {
+    connect_as(dsn, "irrd-ng import", None)
+}
+
+/// [`connect`] under another `application_name`, giving up on the
+/// connection after `timeout` if one is given.
+pub(crate) fn connect_as(
+    dsn: &str,
+    application_name: &str,
+    timeout: Option<std::time::Duration>,
+) -> Result<Client, ImportError> {
     let parsed = dsn::parse(dsn)?;
     let mut config: postgres::Config = parsed
         .config
         .parse()
         .map_err(|e: postgres::Error| ImportError::Dsn(e.to_string()))?;
     config.ssl_mode(parsed.mode);
-    config.application_name("irrd-ng import");
+    config.application_name(application_name);
+    if let Some(t) = timeout {
+        config.connect_timeout(t);
+    }
     if parsed.mode == postgres::config::SslMode::Disable {
         config.connect(NoTls).map_err(ImportError::Connect)
     } else {
