@@ -26,6 +26,45 @@ The deliberate differences are all listed in [`docs/divergences.md`](docs/diverg
 
 How irrd-ng is built inside, and why it looks the way it does, is in [`docs/architecture.md`](docs/architecture.md).
 
+## Debian and Ubuntu
+
+Each release has a Debian package for amd64 and for arm64. It is built from the static musl binary, so the same package installs on every Debian and Ubuntu release; each one is tested on Debian 12 and 13 and Ubuntu 22.04 and 24.04 before it is published. Install it from the latest release:
+
+```sh
+version=$(curl -fsSL https://api.github.com/repos/JoshFinlayAU/irrd-ng/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+arch=$(dpkg --print-architecture)
+curl -LO https://github.com/JoshFinlayAU/irrd-ng/releases/download/v$version/irrd-ng_${version}_$arch.deb
+sudo apt install ./irrd-ng_${version}_$arch.deb
+```
+
+or add the APT repository and its signing key, and install from there:
+
+```sh
+sudo curl -fsSLo /usr/share/keyrings/irrd-ng-archive-keyring.gpg https://joshfinlayau.github.io/irrd-ng/apt/irrd-ng-archive-keyring.gpg
+sudo curl -fsSLo /etc/apt/sources.list.d/irrd-ng.sources https://joshfinlayau.github.io/irrd-ng/apt/irrd-ng.sources
+sudo apt update && sudo apt install irrd-ng
+```
+
+The repository is signed with the key `8F07 C3D3 B0DE A2A6 3644  FE36 EC45 6733 FAF7 9C2A`.
+
+The package installs `irrd-ng` and the twelve v4 tool names in `/usr/bin`, the systemd unit `irrd-ng.service`, the documentation and a man page. It creates the `irrd` user and group if they do not exist yet (v4's documented deployment already has them) and the store directory `/var/lib/irrd-ng`. It does not ship an `irrd.yaml`: irrd-ng reads v4's `/etc/irrd.yaml`.
+
+Installing the package never stops IRRd v4 and never starts irrd-ng too early. After installing, it runs `irrd-ng migrate-check`, and starts irrd-ng only if that check passes. If IRRd v4 is still running (its systemd unit, its PID file, or anything else on the configured whois and HTTP ports), if the v4 database has not been imported yet, or if there is no `/etc/irrd.yaml`, the service is left alone and the check's findings and the remaining steps are printed instead: how to stop v4, the exact import command (with the password from `database_url` masked), how much disk space the import needs and whether the store's filesystem has enough, how to start and check irrd-ng, and how to go back to v4. Run the check yourself at any time:
+
+```sh
+sudo irrd-ng migrate-check
+```
+
+It exits 0 when irrd-ng is ready to start, 10 while IRRd v4 (or another program on its ports) is running, 11 before the import, 12 when there is not enough disk space for the import and 13 for a missing or invalid `irrd.yaml`. `--json` prints the findings as JSON and `--quiet` only sets the exit code. [`docs/migration.md`](docs/migration.md) walks through the whole move.
+
+### Automatic upgrades
+
+Both ways of installing leave the APT repository configured in `/etc/apt/sources.list.d/irrd-ng.sources`, and the package adds `/etc/apt/apt.conf.d/52irrd-ng-unattended-upgrades`, which lets unattended-upgrades install new irrd-ng releases from it (unattended-upgrades itself has to be enabled, as it is by default on Ubuntu). After an upgrade, whether by hand or unattended, the package restarts irrd-ng if it was running before, and leaves it stopped otherwise. It also tells needrestart to leave irrd-ng to the package.
+
+To opt out of automatic upgrades, delete `/etc/apt/apt.conf.d/52irrd-ng-unattended-upgrades` (dpkg keeps it deleted on later upgrades), or hold the package with `sudo apt-mark hold irrd-ng`. To stop using the repository altogether, set `Enabled: no` in `/etc/apt/sources.list.d/irrd-ng.sources`.
+
+`sudo apt remove irrd-ng` stops irrd-ng and removes the program, and keeps the store and the repository configuration. `sudo apt purge irrd-ng` also removes the repository configuration, and the `irrd` user and group if the package created them. The store in `/var/lib/irrd-ng` is never deleted by the package.
+
 ## Install from a release
 
 Each release has four tarballs: static musl builds for x86_64 and aarch64, which run on any Linux, and glibc builds for both (glibc 2.36 or newer). The musl builds are the recommended ones.
@@ -86,7 +125,10 @@ cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.36
 cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36
 file target/x86_64-unknown-linux-musl/release/irrd-ng    # "statically linked"
 dist/package.sh x86_64-unknown-linux-musl 0.1.0 dist/out
+dist/debian/build-deb.sh target/x86_64-unknown-linux-musl/release/irrd-ng amd64 0.1.0 dist/out
 ```
+
+`dist/debian/install-test.sh` install-tests a package inside a throwaway Debian or Ubuntu container, as the release workflow does.
 
 The source builds without the `vendor/irrd-v4` git submodule. The submodule (IRRd 4.5.4 at its release tag) is only needed for the parity harness and for one test that checks irrd-ng's copies of v4's GraphiQL files against it.
 

@@ -191,8 +191,18 @@ impl Configuration {
     /// `Configuration(path)`: read and check the file, failing as v4 fails at
     /// startup. `None` uses [`CONFIG_PATH_DEFAULT`].
     pub fn load(path: Option<&str>) -> Result<Self, ConfigError> {
+        Self::load_with_fs(path, &check::real_is_dir)
+    }
+
+    /// [`Self::load`], with `os.path.isdir` answered by `is_dir`, to check
+    /// a file against the filesystem a service will see once started (a
+    /// `piddir` that systemd creates as the unit's runtime directory).
+    pub fn load_with_fs(
+        path: Option<&str>,
+        is_dir: &dyn Fn(&str) -> bool,
+    ) -> Result<Self, ConfigError> {
         let path = path.unwrap_or(CONFIG_PATH_DEFAULT).to_owned();
-        let live = match staging_reload_check(&path) {
+        let live = match check_source_with_fs(&path, std::fs::read(&path), is_dir) {
             Ok(Staging::Valid(config)) => config,
             Ok(Staging::Invalid(errors)) => return Err(ConfigError::Invalid { errors }),
             Err(e) => return Err(ConfigError::Crash(e)),

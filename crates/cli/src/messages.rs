@@ -371,3 +371,354 @@ pub(crate) fn unknown_job(job: &str) -> String {
 pub(crate) fn import_keyring(keys: usize) -> String {
     format!("pgp_keyring: {keys} keys loaded from key-cert objects")
 }
+
+/// irrd-ng: `irrd-ng migrate-check`, the pre-flight for moving from IRRd v4.
+/// Plain operator English; the package's maintainer scripts print it as is.
+pub(crate) mod migrate {
+    use std::fmt::Write as _;
+
+    pub(crate) const USAGE: &str = "usage: irrd-ng migrate-check [--config CONFIG_FILE_PATH] [--quiet | --json]\n\n\
+Checks whether irrd-ng can take over from IRRd v4 on this host: whether v4 is\n\
+still running, whether the irrd-ng store holds an imported database, how large\n\
+the v4 database is and whether there is enough free disk space for the import.\n\
+Prints the steps to finish the migration.\n\n\
+options:\n  \
+--config PATH  the irrd.yaml to read (default: /etc/irrd.yaml)\n  \
+--quiet        print nothing, only set the exit code\n  \
+--json         print the findings as one JSON object\n\n\
+exit codes: 0 ready to start, 10 IRRd v4 (or another program on its ports) is\n\
+running, 11 the store is not imported, 12 not enough disk space for the import,\n\
+13 configuration problem, 2 usage error.";
+
+    pub(crate) fn bad_arg(arg: &str) -> String {
+        format!("irrd-ng migrate-check: error: unrecognized arguments: {arg}")
+    }
+
+    pub(crate) fn missing_value(flag: &str) -> String {
+        format!("irrd-ng migrate-check: error: argument {flag}: expected one argument")
+    }
+
+    pub(crate) const QUIET_AND_JSON: &str =
+        "irrd-ng migrate-check: error: --quiet and --json cannot be combined";
+
+    pub(crate) const TITLE: &str = "irrd-ng migration check";
+
+    /// `1370000` as `1,370,000`.
+    pub(crate) fn grouped(n: u64) -> String {
+        let digits = n.to_string();
+        let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// A labelled line of the report, continuation lines indented under
+    /// the value.
+    pub(crate) fn field(out: &mut String, label: &str, lines: &[String]) {
+        for (i, line) in lines.iter().enumerate() {
+            let label = if i == 0 { label } else { "" };
+            let _ = writeln!(out, "{label:<14}{line}");
+        }
+    }
+
+    pub(crate) const L_CONFIG: &str = "Config:";
+    pub(crate) const L_V4: &str = "IRRd v4:";
+    pub(crate) const L_NG: &str = "irrd-ng:";
+    pub(crate) const L_STORE: &str = "Store:";
+    pub(crate) const L_DB: &str = "v4 database:";
+    pub(crate) const L_SPACE: &str = "Disk space:";
+    pub(crate) const L_NOTES: &str = "Notes:";
+
+    pub(crate) fn config_valid(path: &str) -> String {
+        format!("{path} is valid")
+    }
+
+    pub(crate) fn config_missing(path: &str) -> String {
+        format!("{path} does not exist")
+    }
+
+    pub(crate) fn config_invalid(path: &str) -> String {
+        format!("{path} is not valid:")
+    }
+
+    pub(crate) const V4_NOT_RUNNING: &str = "not running";
+    pub(crate) const V4_RUNNING: &str = "RUNNING";
+
+    pub(crate) const V4_SYSTEMD: &str = "- systemd reports irrd.service as active";
+
+    pub(crate) fn v4_pidfile(path: &str, pid: u32, command: &str) -> String {
+        format!("- PID {pid} from {path} is IRRd v4: {command}")
+    }
+
+    pub(crate) fn port_held_by_v4(port: u16, what: &str, pid: u32, command: &str) -> String {
+        format!("- port {port} ({what}) is held by IRRd v4, PID {pid}: {command}")
+    }
+
+    pub(crate) fn port_held_by_other(port: u16, what: &str, pid: u32, command: &str) -> String {
+        format!("- port {port} ({what}) is held by another program, PID {pid}: {command}")
+    }
+
+    pub(crate) fn port_held_unknown(port: u16, what: &str) -> String {
+        format!(
+            "- port {port} ({what}) is in use by a program this check cannot see; run it as root to find out which"
+        )
+    }
+
+    pub(crate) const NG_RUNNING: &str = "running";
+    pub(crate) const NG_NOT_RUNNING: &str = "not running";
+
+    pub(crate) fn store_imported(path: &str, sources: usize, objects: u64, size: &str) -> String {
+        format!(
+            "{path} holds imported data: {sources} sources, {} objects, {size} on disk",
+            grouped(objects)
+        )
+    }
+
+    pub(crate) fn store_needs_upgrade(path: &str, size: &str) -> String {
+        format!(
+            "{path} holds data from an older irrd-ng ({size} on disk); irrd-ng upgrades it when it starts"
+        )
+    }
+
+    pub(crate) fn store_absent(path: &str) -> String {
+        format!("{path} holds no store yet: nothing has been imported")
+    }
+
+    pub(crate) fn store_empty(path: &str) -> String {
+        format!("{path} holds an empty store: nothing has been imported")
+    }
+
+    pub(crate) fn store_incomplete(path: &str) -> String {
+        format!(
+            "{path} holds an import or load that did not finish (or is running right now); irrd-ng will not open it until an import completes"
+        )
+    }
+
+    pub(crate) fn store_unusable(path: &str, why: &str) -> String {
+        format!("{path} cannot be used: {why}")
+    }
+
+    pub(crate) const DB_SKIPPED_IMPORTED: &str =
+        "not checked, because the store is already imported";
+    pub(crate) const DB_SKIPPED_NO_CONFIG: &str =
+        "not checked, because there is no valid irrd.yaml";
+    pub(crate) const DB_NO_URL: &str = "irrd.yaml sets no database_url";
+
+    pub(crate) fn db_size(
+        target: &str,
+        db_bytes: Option<&str>,
+        objects: u64,
+        journal: u64,
+        roas: u64,
+        approximate: bool,
+    ) -> Vec<String> {
+        let size = db_bytes.map_or_else(String::new, |s| format!(", {s} in PostgreSQL"));
+        let about = if approximate { "about " } else { "" };
+        vec![
+            format!("{target}{size}"),
+            format!(
+                "{about}{} RPSL objects, {about}{} journal entries, {about}{} ROAs",
+                grouped(objects),
+                grouped(journal),
+                grouped(roas)
+            ),
+        ]
+    }
+
+    pub(crate) fn db_unreachable(target: &str, error: &str, masked_url: &str) -> Vec<String> {
+        vec![
+            format!("could not read {target}: {error}"),
+            "The import needs this database. Check that PostgreSQL is running and that this works:"
+                .to_owned(),
+            format!("  psql '{masked_url}' -c 'select count(*) from rpsl_objects'"),
+            "If database_url uses a local socket with peer authentication, run this check as the irrd user: sudo -u irrd irrd-ng migrate-check".to_owned(),
+        ]
+    }
+
+    pub(crate) fn space_known(
+        estimate: &str,
+        needed: &str,
+        fs_path: &str,
+        free: &str,
+        enough: bool,
+    ) -> Vec<String> {
+        let verdict = if enough { "ENOUGH" } else { "NOT ENOUGH" };
+        vec![
+            format!("the store will be about {estimate}; the import needs {needed} free"),
+            format!("on the filesystem holding {fs_path}, which has {free} free: {verdict}"),
+            "(estimate: 1.45 KB per RPSL object, journal entry and ROA, from measured imports; needed: twice the estimate, because LMDB writes copies of pages and a full import can briefly need double, plus 1 GiB for the next step of map growth, less what the store already uses)".to_owned(),
+        ]
+    }
+
+    pub(crate) fn space_unknown(fs_path: &str, free: &str) -> Vec<String> {
+        vec![
+            format!("{free} free on the filesystem holding {fs_path}; UNKNOWN whether that is enough"),
+            "Without the v4 database's size there is no estimate. As a guide, allow 3 KB of free space per RPSL object and journal entry (a full RADB mirror of 1.4 million objects builds a 1.8 GB store).".to_owned(),
+        ]
+    }
+
+    pub(crate) fn space_imported(store: &str, fs_path: &str, free: &str) -> String {
+        format!(
+            "the store uses {store}; {free} free on the filesystem holding {fs_path} (keep at least the store's size free, so it can grow)"
+        )
+    }
+
+    pub(crate) fn space_unreadable(fs_path: &str, error: &str) -> String {
+        format!("could not read the free space of {fs_path}: {error}")
+    }
+
+    pub(crate) fn note_piddir(piddir: &str) -> String {
+        format!(
+            "piddir in irrd.yaml is {piddir}, but the irrd-ng service expects /run/irrd. Either set piddir: /run/irrd, or run systemctl edit irrd-ng and set PIDFile={piddir}/irrd.pid in the [Service] section."
+        )
+    }
+
+    pub(crate) fn note_config_path(path: &str) -> String {
+        format!(
+            "the irrd-ng service reads /etc/irrd.yaml, not {path}. Link or copy the file there, or change ExecStart with systemctl edit irrd-ng."
+        )
+    }
+
+    pub(crate) fn note_no_user(user: &str) -> String {
+        format!(
+            "irrd.yaml sets user {user}, which does not exist on this host; irrd-ng will refuse to start until it does."
+        )
+    }
+
+    pub(crate) fn note_store_owner(path: &str, owner: &str, user: &str) -> String {
+        format!(
+            "{path} belongs to {owner}, but irrd-ng runs as {user}. Fix it with: sudo chown -R {user}: {path}"
+        )
+    }
+
+    pub(crate) const NOTE_NO_USER_SETTING: &str = "irrd.yaml sets no user. irrd-ng, like v4, refuses to keep running as root; set user and group (usually irrd).";
+
+    pub(crate) const RESULT_READY: &str = "Result: READY. irrd-ng can be started.";
+    pub(crate) const RESULT_RUNNING: &str = "Result: READY. irrd-ng is running.";
+    pub(crate) const RESULT_CONFIG: &str =
+        "Result: NOT READY, because irrd.yaml is missing or not valid.";
+    pub(crate) const RESULT_V4: &str =
+        "Result: NOT READY, because IRRd v4 (or another program on its ports) is still running.";
+    pub(crate) const RESULT_SPACE: &str =
+        "Result: NOT READY, because there is not enough free disk space for the import.";
+    pub(crate) const RESULT_NOT_IMPORTED: &str =
+        "Result: NOT READY, because the v4 database has not been imported yet.";
+
+    pub(crate) const NEXT: &str = "Next steps:";
+
+    pub(crate) fn step_config_missing(path: &str) -> String {
+        format!(
+            "Put the irrd.yaml of your IRRd v4 installation at {path}. irrd-ng reads the same file, unchanged. If v4 keeps it elsewhere, link it: sudo ln -s /path/to/irrd.yaml {path}. For a new installation with no v4, write one as for IRRd 4.5 (database_url and redis_url are required but not used). Then run: {}",
+            recheck(path)
+        )
+    }
+
+    pub(crate) fn step_config_invalid(path: &str) -> String {
+        format!(
+            "Fix the errors in {path} listed above (irrd-ng accepts exactly what IRRd 4.5.4 accepts), then run: {}",
+            recheck(path)
+        )
+    }
+
+    pub(crate) const STEP_STOP_V4: &str = "Stop IRRd v4 and keep it from starting again:";
+    pub(crate) const STOP_V4_SYSTEMD: [&str; 2] =
+        ["sudo systemctl stop irrd", "sudo systemctl disable irrd"];
+
+    pub(crate) fn stop_v4_pidfile(pidfile: &str) -> String {
+        format!("sudo kill $(cat {pidfile})")
+    }
+
+    pub(crate) fn stop_v4_no_systemd(pidfile: &str) -> String {
+        format!(
+            "If v4 is not run by systemd, stop it with its PID file (v4 shuts down cleanly on SIGTERM) and remove whatever starts it at boot. Check it is gone before going on: no process listening on its ports, and no {pidfile}."
+        )
+    }
+
+    pub(crate) fn stop_other(port: u16) -> String {
+        format!(
+            "Stop the program holding port {port}, or move irrd-ng to another port in irrd.yaml."
+        )
+    }
+
+    pub(crate) const KEEP_PG: &str =
+        "Keep PostgreSQL running: the import reads from it. Redis can be stopped.";
+
+    pub(crate) const STEP_IMPORT: &str =
+        "Import the v4 database into the irrd-ng store, as the user irrd-ng runs as:";
+
+    pub(crate) fn import_command(user: &str, store: &str, masked_url: &str) -> String {
+        format!(
+            "sudo -u {user} env IRRD_NG_STORE_PATH={store} irrd-ng import --from-postgres '{masked_url}'"
+        )
+    }
+
+    pub(crate) fn import_note(mask: &str, has_password: bool) -> String {
+        let safe = "The import only reads from PostgreSQL, keeps every NRTM serial, and is safe to run again.";
+        if has_password {
+            format!("Replace {mask} with the password from database_url in irrd.yaml. {safe}")
+        } else {
+            safe.to_owned()
+        }
+    }
+
+    pub(crate) fn import_command_no_url(user: &str, store: &str) -> String {
+        format!(
+            "sudo -u {user} env IRRD_NG_STORE_PATH={store} irrd-ng import --from-postgres 'postgresql://USER:PASSWORD@HOST/DATABASE'"
+        )
+    }
+
+    pub(crate) const IMPORT_URL_NOTE: &str = "Use the database_url from the irrd.yaml of your IRRd v4 installation. The import only reads from PostgreSQL, keeps every NRTM serial, and is safe to run again.";
+
+    pub(crate) fn recheck(config_path: &str) -> String {
+        if config_path == config::CONFIG_PATH_DEFAULT {
+            "sudo irrd-ng migrate-check".to_owned()
+        } else {
+            format!("sudo irrd-ng migrate-check --config {config_path}")
+        }
+    }
+
+    pub(crate) fn import_space(needed: &str, free: &str, enough: bool) -> String {
+        if enough {
+            format!("It needs about {needed} free disk space; {free} is free, which is enough.")
+        } else {
+            format!(
+                "It needs about {needed} free disk space, but only {free} is free. Free up space first, or set IRRD_NG_STORE_PATH (here and in the service, with systemctl edit irrd-ng) to a larger filesystem."
+            )
+        }
+    }
+
+    pub(crate) const NEW_INSTALL: &str = "If this is a new installation with no IRRd v4 data to bring over, skip the import: irrd-ng creates the store when it starts and fills it by mirroring or with irrd_load_database.";
+
+    pub(crate) const STEP_START: &str = "Start irrd-ng, now and at boot:";
+    pub(crate) const START_COMMAND: &str = "sudo systemctl enable --now irrd-ng";
+
+    pub(crate) const STEP_CHECK: &str = "Check that it answers:";
+
+    pub(crate) fn check_commands(whois_port: u16) -> [String; 3] {
+        let port = if whois_port == 43 {
+            String::new()
+        } else {
+            format!(" -p {whois_port}")
+        };
+        [
+            format!("whois -h localhost{port} '!v'      (answers with version 4.5.4, as v4 did)"),
+            "systemctl status irrd-ng".to_owned(),
+            "journalctl -u irrd-ng".to_owned(),
+        ]
+    }
+
+    pub(crate) const STEP_ROLLBACK: &str = "To go back to IRRd v4 (its database is untouched):";
+    pub(crate) const ROLLBACK_COMMANDS: [&str; 2] = [
+        "sudo systemctl disable --now irrd-ng",
+        "sudo systemctl enable --now irrd",
+    ];
+
+    pub(crate) const PG_REDIS: &str = "irrd-ng does not use PostgreSQL or Redis. Keep v4's PostgreSQL, Redis and a pg_dump of its database until you are satisfied with irrd-ng, so rolling back stays possible.";
+
+    pub(crate) const RUNBOOK: &str =
+        "The full runbook is /usr/share/doc/irrd-ng/docs/migration.md.";
+}

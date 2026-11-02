@@ -5,7 +5,7 @@
 //! `irrd_*` scripts keep the binary names, flags and exit codes operators
 //! already use. Invoked as `irrd-ng`, the first argument names the tool
 //! instead (`irrd-ng irrd_load_database ...`), plus the irrd-ng-only
-//! `import` command.
+//! `import` command and its pre-flight, `migrate-check`.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -21,6 +21,7 @@ mod import;
 mod job_tool;
 mod logging;
 mod messages;
+mod migrate_check;
 mod mirror_tools;
 mod pidfile;
 mod pylogconf;

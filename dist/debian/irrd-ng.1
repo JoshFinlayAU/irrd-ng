@@ -1,0 +1,85 @@
+.TH IRRD-NG 1 "" "irrd-ng" "User Commands"
+.SH NAME
+irrd-ng \- Internet Routing Registry daemon, drop-in replacement for IRRd 4.5
+.SH SYNOPSIS
+.B irrd-ng
+.I tool
+.RI [ arguments ...]
+.br
+.B irrd
+.RB [ \-\-config
+.IR path ]
+.RB [ \-\-foreground ]
+.br
+.B irrd-ng migrate-check
+.RB [ \-\-config
+.IR path ]
+.RB [ \-\-quiet " | " \-\-json ]
+.br
+.B irrd-ng import \-\-from-postgres
+.I dsn
+.SH DESCRIPTION
+.B irrd-ng
+is a drop-in replacement for IRRd 4.5, the Internet Routing Registry
+daemon. It reads the same
+.IR irrd.yaml ,
+answers whois and HTTP queries as IRRd 4.5.4 does, and keeps its data in
+an embedded store instead of PostgreSQL and Redis.
+.PP
+It is one binary installed under several names. Started under one of the
+names IRRd v4 installs, it behaves as that tool, with the same options,
+output and exit codes:
+.BR irrd ,
+.BR irrdctl ,
+.BR irrd_submit_email ,
+.BR irrd_load_database ,
+.BR irrd_update_database ,
+.BR irrd_mirror_force_reload ,
+.BR irrd_set_last_modified_auth ,
+.BR irrd_expire_journal ,
+.BR irrd_load_pgp_keys ,
+.BR irr_rpsl_submit ,
+.B irrd_database_upgrade
+and
+.BR irrd_database_downgrade .
+Run as
+.BR irrd-ng ,
+the first argument names the tool instead.
+.SH COMMANDS
+.TP
+.B import \-\-from-postgres \fIdsn\fP
+Import an IRRd 4.5 PostgreSQL database into the store, read-only on the
+source and keeping every NRTM serial. The
+.I dsn
+may be the
+.B database_url
+from
+.IR irrd.yaml .
+Run it as the user irrd-ng runs as.
+.TP
+.B migrate-check
+Check whether irrd-ng can take over from IRRd v4 on this host: whether v4
+is still running, whether the store holds an imported database, the size
+of the v4 database and whether there is enough free disk space for the
+import. It prints the steps that remain. Exit codes: 0 ready to start, 10
+IRRd v4 (or another program on its ports) is running, 11 the store is not
+imported, 12 not enough disk space for the import, 13 configuration
+problem, 2 usage error.
+.SH ENVIRONMENT
+.TP
+.B IRRD_NG_STORE_PATH
+The store directory, by default
+.IR /var/lib/irrd-ng .
+.SH FILES
+.TP
+.I /etc/irrd.yaml
+The configuration, the same file IRRd v4 reads.
+.TP
+.I /var/lib/irrd-ng
+The store.
+.TP
+.I /usr/lib/systemd/system/irrd-ng.service
+The systemd unit.
+.SH SEE ALSO
+.IR /usr/share/doc/irrd-ng/README.md ,
+.I /usr/share/doc/irrd-ng/docs/migration.md

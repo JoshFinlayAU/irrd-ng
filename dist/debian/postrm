@@ -1,0 +1,67 @@
+#!/bin/sh
+# postrm for irrd-ng. The store is never deleted, by remove or by purge.
+# On purge, the irrd user and group are removed only if this package
+# created them.
+set -e
+
+UNIT=irrd-ng.service
+STORE_DEFAULT=/var/lib/irrd-ng
+STATE_DIR=/var/lib/irrd-ng-package
+WAS_RUNNING=/run/irrd-ng.dpkg-was-running
+
+say() {
+	echo "irrd-ng: $*"
+}
+
+store_path() {
+	if [ -r "$STATE_DIR/store-path" ]; then
+		cat "$STATE_DIR/store-path"
+	else
+		echo "$STORE_DEFAULT"
+	fi
+}
+
+case "$1" in
+remove)
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+	fi
+	if command -v deb-systemd-helper >/dev/null; then
+		deb-systemd-helper mask "$UNIT" >/dev/null || true
+	fi
+	say "the store at $(store_path) was kept. The irrd-ng APT repository stays configured until the package is purged (apt purge irrd-ng)."
+	;;
+
+purge)
+	if command -v deb-systemd-helper >/dev/null; then
+		deb-systemd-helper purge "$UNIT" >/dev/null || true
+		deb-systemd-helper unmask "$UNIT" >/dev/null || true
+	fi
+	store=$(store_path)
+	if [ -r "$STATE_DIR/created-user" ]; then
+		user=$(cat "$STATE_DIR/created-user")
+		if getent passwd "$user" >/dev/null && command -v deluser >/dev/null; then
+			deluser --system --quiet "$user" || say "warning: could not remove the system user $user"
+			say "removed the system user $user, which this package created"
+		fi
+		if [ -r "$STATE_DIR/created-group" ] && getent group "$user" >/dev/null &&
+			command -v delgroup >/dev/null; then
+			delgroup --system --quiet --only-if-empty "$user" || true
+		fi
+	fi
+	rm -rf "$STATE_DIR"
+	rm -f "$WAS_RUNNING"
+	if [ -e "$store" ]; then
+		say "the store at $store was kept, with its files owned as before. Delete it yourself if you no longer need it: rm -rf $store"
+	fi
+	;;
+
+upgrade | failed-upgrade | abort-install | abort-upgrade | disappear) ;;
+
+*)
+	echo "postrm called with unknown argument '$1'" >&2
+	exit 1
+	;;
+esac
+
+exit 0

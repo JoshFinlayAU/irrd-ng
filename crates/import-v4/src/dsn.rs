@@ -168,6 +168,104 @@ fn unquote(v: &str) -> String {
     v.trim_matches('\'').to_owned()
 }
 
+/// What a masked password is shown as.
+pub const MASK: &str = "****";
+
+/// `dsn` with any password replaced by [`MASK`], for showing to an
+/// operator: the `user:password@` of a URL, a `password=` URL parameter,
+/// and the `password` keyword of a `key=value` string (quoted or not).
+/// Everything else is kept as written, so the result can be pasted back
+/// once the password is filled in.
+pub fn mask_password(dsn: &str) -> String {
+    if let Some((scheme, rest)) = dsn.split_once("://") {
+        let (head, query) = match rest.split_once('?') {
+            Some((h, q)) => (h, Some(q)),
+            None => (rest, None),
+        };
+        // The user info ends at the last `@` before the path: a password
+        // may itself hold an unencoded `@`.
+        let host_from = head.rfind('@').map_or(0, |at| at + 1);
+        let path_start = head[host_from..]
+            .find('/')
+            .map_or(head.len(), |p| host_from + p);
+        let authority = &head[..path_start];
+        let path = &head[path_start..];
+        let authority = match authority.rsplit_once('@') {
+            Some((userinfo, host)) => match userinfo.split_once(':') {
+                Some((user, _)) => format!("{user}:{MASK}@{host}"),
+                None => format!("{userinfo}@{host}"),
+            },
+            None => authority.to_owned(),
+        };
+        let mut out = format!("{scheme}://{authority}{path}");
+        if let Some(q) = query {
+            let pairs: Vec<String> = q
+                .split('&')
+                .map(|pair| match pair.split_once('=') {
+                    Some(("password", _)) => format!("password={MASK}"),
+                    _ => pair.to_owned(),
+                })
+                .collect();
+            out.push('?');
+            out.push_str(&pairs.join("&"));
+        }
+        return out;
+    }
+    mask_keyword_password(dsn)
+}
+
+/// [`mask_password`] for libpq's `key = value` form, where values may be
+/// single-quoted with backslash escapes and `=` may have spaces around it.
+fn mask_keyword_password(dsn: &str) -> String {
+    let b = dsn.as_bytes();
+    let mut out = String::with_capacity(dsn.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_whitespace() {
+            out.push(char::from(b[i]));
+            i += 1;
+            continue;
+        }
+        // One `key = value` pair.
+        let key_start = i;
+        while i < b.len() && !b[i].is_ascii_whitespace() && b[i] != b'=' {
+            i += 1;
+        }
+        let key = &dsn[key_start..i];
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= b.len() || b[i] != b'=' {
+            // Not a pair: keep it as written.
+            out.push_str(&dsn[key_start..i]);
+            continue;
+        }
+        i += 1;
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let value_start = i;
+        if i < b.len() && b[i] == b'\'' {
+            i += 1;
+            while i < b.len() && b[i] != b'\'' {
+                i += if b[i] == b'\\' { 2 } else { 1 };
+            }
+            i = (i + 1).min(b.len());
+        } else {
+            while i < b.len() && !b[i].is_ascii_whitespace() {
+                i += 1;
+            }
+        }
+        out.push_str(&dsn[key_start..value_start]);
+        if key == "password" {
+            out.push_str(MASK);
+        } else {
+            out.push_str(&dsn[value_start..i]);
+        }
+    }
+    out
+}
+
 /// libpq's choice of root certificates and checks: `sslrootcert`, or
 /// `root.crt` under `home`; a file that does not exist means no checks,
 /// which the verifying modes refuse.
@@ -533,5 +631,48 @@ mod tests {
     fn bad_scheme_and_sslmode_are_rejected() {
         assert!(parse("mysql://h/db").is_err());
         assert!(parse("host=h sslmode=bogus").is_err());
+    }
+
+    #[test]
+    fn passwords_are_masked_in_urls() {
+        for (dsn, want) in [
+            (
+                "postgresql://irrd:s3cret@localhost/irrd",
+                "postgresql://irrd:****@localhost/irrd",
+            ),
+            (
+                "postgresql+psycopg2://irrd:p@ss:w/rd@db.example.net:5433/irrd?sslmode=require",
+                "postgresql+psycopg2://irrd:****@db.example.net:5433/irrd?sslmode=require",
+            ),
+            (
+                "postgresql://irrd@localhost/irrd?password=x&sslmode=disable",
+                "postgresql://irrd@localhost/irrd?password=****&sslmode=disable",
+            ),
+            ("postgresql:///irrd", "postgresql:///irrd"),
+            (
+                "postgres://irrd:pw@[::1]:5432",
+                "postgres://irrd:****@[::1]:5432",
+            ),
+        ] {
+            assert_eq!(mask_password(dsn), want, "{dsn}");
+        }
+    }
+
+    #[test]
+    fn passwords_are_masked_in_keyword_strings() {
+        for (dsn, want) in [
+            (
+                "host=localhost dbname=irrd user=irrd password=s3cret",
+                "host=localhost dbname=irrd user=irrd password=****",
+            ),
+            (
+                "host=h password = 'a b\\' c' dbname=irrd",
+                "host=h password = **** dbname=irrd",
+            ),
+            ("host=h dbname=irrd", "host=h dbname=irrd"),
+            ("passwordx=1 password=", "passwordx=1 password=****"),
+        ] {
+            assert_eq!(mask_password(dsn), want, "{dsn}");
+        }
     }
 }

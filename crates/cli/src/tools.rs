@@ -1,7 +1,8 @@
 //! The table of tools the multicall binary answers to.
 //!
 //! The twelve names are the console scripts IRRd 4.5.4 installs (its
-//! `pyproject.toml`), plus `import` for the v4 PostgreSQL migration.
+//! `pyproject.toml`), plus `import` for the v4 PostgreSQL migration and
+//! `migrate-check`, its pre-flight.
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -30,6 +31,7 @@ const TOOLS: &[(&str, Tool)] = &[
     ("irr_rpsl_submit", crate::rpsl_submit::run),
     ("irrd_load_pgp_keys", crate::submit_tools::load_pgp_keys),
     ("import", crate::import::run),
+    ("migrate-check", crate::migrate_check::run),
 ];
 
 /// Tools only reachable as `irrd-ng <tool>`, not listed in the usage.

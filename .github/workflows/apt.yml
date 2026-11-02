@@ -1,0 +1,131 @@
+name: apt
+
+# Builds the signed APT repository from the Debian packages of every
+# published release and deploys it to GitHub Pages, under /apt:
+# https://joshfinlayau.github.io/irrd-ng/apt. The irrd-ng package points
+# apt and unattended-upgrades there.
+#
+# Runs when a release is published, and by hand (workflow_dispatch) to
+# rebuild the repository, for example after deleting a release.
+#
+# The github-pages environment accepts deployments from main only, and a
+# release event runs on the release's tag. So the release event just starts
+# this workflow again on main (GITHUB_TOKEN may start workflow_dispatch
+# runs), and that run builds and deploys.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Pinned: the image, and the exact apt-ftparchive and gpg versions that
+  # dist/debian/apt-pinned.sh installs into it.
+  DEBIAN_IMAGE: debian:13@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+  DEBIAN_SNAPSHOT: 20261101T000000Z
+  APT_UTILS_VERSION: 3.0.3
+  GPG_VERSION: 2.4.7-21+deb13u1+b5
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dispatch:
+    name: rebuild from main
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start this workflow on the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run apt.yml --ref "$BRANCH"
+
+  build:
+    name: build the repository
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Only from the default branch
+        env:
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/$BRANCH" ]; then
+            echo "::error::run this workflow on $BRANCH; github-pages accepts deployments from it only"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: false
+      - name: Download the packages of every published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p debs
+          gh release list --exclude-drafts --exclude-pre-releases --limit 1000 \
+            --json tagName --jq '.[].tagName' > tags
+          while read -r tag; do
+            if ! gh release download "$tag" --pattern 'irrd-ng_*.deb' --dir debs; then
+              echo "::notice::$tag has no Debian packages"
+            fi
+          done < tags
+          ls -l debs
+          if [ -z "$(ls debs)" ]; then
+            echo "::error::no published release has Debian packages yet"
+            exit 1
+          fi
+      - name: Build and sign
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          mkdir -p site
+          docker run --rm -e APT_GPG_PRIVATE_KEY \
+            -v "$PWD:/src:ro" -v "$PWD/debs:/debs:ro" -v "$PWD/site:/site" "$DEBIAN_IMAGE" sh -c '
+              sh /src/dist/debian/apt-pinned.sh "$1" "apt-utils=$2" "gpg=$3" "gpg-agent=$3" "gpgv=$3" &&
+              sh /src/dist/apt/build-repo.sh /debs /site &&
+              chown -R "$4" /site' \
+            sh "$DEBIAN_SNAPSHOT" "$APT_UTILS_VERSION" "$GPG_VERSION" "$(id -u):$(id -g)"
+      # What a user does: trust the published key, add the published
+      # sources file (here pointed at the local copy, under another name so
+      # the package's own copy installs cleanly), install with apt.
+      - name: Install from the repository with apt
+        run: |
+          docker run --rm -v "$PWD/site:/site:ro" "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852" bash -c '
+            set -euo pipefail
+            cp /site/apt/irrd-ng-archive-keyring.gpg /usr/share/keyrings/
+            sed "s|^URIs: .*|URIs: file:/site/apt|" /site/apt/irrd-ng.sources > /etc/apt/sources.list.d/local.sources
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends irrd-ng
+            irrd-ng migrate-check --json || true'
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}apt/
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
