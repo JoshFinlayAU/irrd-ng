@@ -10,6 +10,21 @@ irrd-ng 1.0.0 is the first release. Every surface listed below is implemented an
 
 The v4 web UI (user accounts, two-factor authentication, mntner migration) is not part of irrd-ng yet. Its data is carried through the import untouched so that a later version can serve it.
 
+## Performance
+
+IRRd v4 is mature, well-engineered software, and its design (Python workers in front of PostgreSQL and Redis) makes good sense for a project that values flexibility and a familiar stack. irrd-ng takes a different route, with one compiled process reading from an embedded, memory-mapped store, and that route turns out to be quick. On the same data, with the same configuration and query mix:
+
+| | IRRd 4.5.4 | irrd-ng 1.0.0 |
+|---|---|---|
+| whois queries per second (16 clients) | 2,067 | 10,508 |
+| REST (`/v1/whois/`, status) requests per second (16 clients) | 1,071 | 27,473 |
+| GraphQL requests per second (16 clients) | 404 | 16,494 |
+| Memory while serving (v4 includes PostgreSQL and Redis) | about 2.5 GiB | 150 to 660 MiB |
+| Mirror catching up on 200,000 NRTMv3 changes | 1,452 s | 75 s |
+| ROA import of 1,000,000 ROAs | 587 to 617 s | 46 to 51 s |
+
+Latency is lower too, at the median and the 99th percentile, at every concurrency we measured. These figures come from a shared development machine and a test data set of about 37,000 objects, so treat them as a comparison rather than a promise for your hardware. A production-sized run is still to come. [`bench/RESULTS.md`](bench/RESULTS.md) has every number, the machine, the method and the scripts to reproduce them.
+
 ## The compatibility promise
 
 irrd-ng behaves exactly like IRRd 4.5.4 on everything a client or an operator can see:
