@@ -696,6 +696,12 @@ async fn spool_is_private_and_cleaned_up() {
     // Cut off by the connection.
     let fol = start_follower(&standby, pport, &sdir);
     wait_for_pause(&mut seen).await;
+    // The proxy has forwarded the rows; the follower may not have read them
+    // yet on a slow machine.
+    wait_until("the spool", || {
+        std::fs::symlink_metadata(&spool).is_ok_and(|m| m.file_type().is_file())
+    })
+    .await;
     assert_eq!(std::fs::read(&target_file).expect("read"), b"keep me");
     let meta = std::fs::symlink_metadata(&spool).expect("spool exists");
     assert!(meta.file_type().is_file(), "a file, not the old link");
@@ -708,7 +714,7 @@ async fn spool_is_private_and_cleaned_up() {
 
     // Cut off by the follower stopping.
     wait_for_pause(&mut seen).await;
-    assert!(spool.exists());
+    wait_until("the second spool", || spool.exists()).await;
     fol.stop().await;
     assert!(!spool.exists());
     cut.send_modify(|n| *n += 1);
