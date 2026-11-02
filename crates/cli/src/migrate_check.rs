@@ -433,12 +433,30 @@ fn describe(argv: &[String], exe: Option<&str>) -> String {
     }
 }
 
+/// A process [`classify`] cannot place, from the name the kernel keeps
+/// for it (`/proc/<pid>/comm`, at most 15 bytes). v4's process titles set
+/// that name as well as the command line, and it stays visible where the
+/// command line does not show the title, for example under an emulator
+/// such as qemu-user.
+pub(crate) fn classify_comm(comm: &str) -> ProcKind {
+    let comm = comm.trim_end();
+    if comm.starts_with("irrd-") && !comm.starts_with("irrd-ng") {
+        ProcKind::V4
+    } else {
+        ProcKind::Other
+    }
+}
+
 fn classify_pid(pid: u32) -> Option<(ProcKind, String)> {
     let (exe, target, argv) = process(pid)?;
-    Some((
-        classify(exe.as_deref(), target.as_deref(), &argv),
-        describe(&argv, exe.as_deref()),
-    ))
+    let kind = classify(exe.as_deref(), target.as_deref(), &argv);
+    if kind == ProcKind::Other
+        && let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        && classify_comm(&comm) == ProcKind::V4
+    {
+        return Some((ProcKind::V4, comm.trim_end().to_owned()));
+    }
+    Some((kind, describe(&argv, exe.as_deref())))
 }
 
 /// The PIDs holding each of `inodes` open, from `/proc/*/fd`.
@@ -1402,5 +1420,14 @@ mod tests {
             load.abandon_for_tests();
         }
         assert!(matches!(check_store(&path).state, StoreState::Incomplete));
+    }
+
+    #[test]
+    fn kernel_name_identifies_v4_titles() {
+        assert_eq!(classify_comm("irrd-whois-serv\n"), ProcKind::V4);
+        assert_eq!(classify_comm("irrd-http-serve\n"), ProcKind::V4);
+        assert_eq!(classify_comm("irrd-ng\n"), ProcKind::Other);
+        assert_eq!(classify_comm("perl\n"), ProcKind::Other);
+        assert_eq!(classify_comm("nginx\n"), ProcKind::Other);
     }
 }
