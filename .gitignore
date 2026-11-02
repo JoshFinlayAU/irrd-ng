@@ -25,3 +25,4 @@ __pycache__/
 # Local planning and workspace files
 /PLAN.md
 /.sandbox.toml
+/security/
