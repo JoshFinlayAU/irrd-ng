@@ -2,7 +2,7 @@
 
 irrd-ng matches IRRd 4.5.4 byte for byte on every surface listed under "The compatibility promise" in the README. This file is the complete list of places where it deliberately does not. Anything that differs from v4 and is not listed here is a bug.
 
-The file has four parts. The DIV entries are deliberate fixes and additions that anyone can see. The accepted minor divergences (P-01 to P-20) are corner cases that were reviewed and accepted. The proposed ones (P-21 onwards) are corner cases still waiting for that review. Each entry says what v4 does, what irrd-ng does instead, who can see the difference, and why. Entries are added only after review, never to make a failing parity diff pass.
+The file has three parts. The DIV entries are deliberate fixes and additions that anyone can see. The accepted minor divergences (P-01 to P-61) are corner cases that were reviewed and accepted. Each entry says what v4 does, what irrd-ng does instead, who can see the difference, and why. Entries are added only after review, never to make a failing parity diff pass.
 
 ## DIV-001: NRTMv4 keep_journal configuration error is formatted
 
@@ -59,7 +59,7 @@ v4's `split_paragraphs_rpsl` (`irrd/utils/text.py:69`) has an operator precedenc
 
 ## Accepted minor divergences
 
-These are corner cases where irrd-ng cannot or does not match v4 exactly. None of them shows up on the fixture data from eight real registries or on the oracle corpora. P-01 to P-14 were reviewed and accepted on 2026-11-01, and P-15 to P-20 later the same day, on the condition that none of them changes what a client sees. They keep their P numbers because code and test comments refer to them.
+These are corner cases where irrd-ng cannot or does not match v4 exactly. None of them shows up on the fixture data from eight real registries or on the oracle corpora. P-01 to P-14 were reviewed and accepted on 2026-11-01, P-15 to P-20 later the same day on the condition that none of them changes what a client sees, and P-21 to P-61 on 2026-11-02 for the 1.0.0 release. They keep their P numbers because code and test comments refer to them.
 
 ### Configuration
 
@@ -93,10 +93,6 @@ These are corner cases where irrd-ng cannot or does not match v4 exactly. None o
 - **P-19 Fixed order where v4 uses Python set order in loaders.** v4 lists unknown object classes, and applies the deletions in `irrd_update_database`, in Python set order, which changes between runs. It applies that tool's modifications in whatever order Postgres stores the rows, which is stable in practice but not defined. irrd-ng lists unknown classes in first-seen order and applies both deletions and modifications in key order, so the journal for one `irrd_update_database` run can list the same changes in a different order.
 - **P-20 Small faithfulness gaps in stored metadata.** `rpsl_objects.ip_size` is derived from `ip_first` and `ip_last` instead of being stored. `database_status.updated` is the transaction time, not the moment of the statement. Store log lines come from an `irrd_ng.store` logger, which v4 does not have.
 
-## Proposed, awaiting review
-
-P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8, P-40 to P-44 out of Phase 7, P-45 to P-48 out of the Phase 8 follow-up on the GraphQL transports, P-49 to P-53 out of Phase 9, and P-54 to P-61 out of the Phase 10 hardening and review. P-22 has since been withdrawn. Each of the others needs a decision: accept it, or keep it open as a bug to fix.
-
 ### RPKI, scope filter and route preference
 
 - **P-21 Journal order inside one status batch.** When a ROA import, scope filter run or route preference run changes many objects at once, irrd-ng writes the journal entries in the store's key order. v4 writes them in the order its unordered table scan returns. The serials, operations and object texts are the same; only the order within the batch differs.
@@ -123,7 +119,7 @@ P-21 to P-29 came out of Phases 5 and 6, P-30 to P-39 out of Phase 8, P-40 to P-
 - **P-36 Event stream without Redis.** Changes are announced in-process. Writes by other processes, such as the command-line tools, are announced within 2 seconds, with one event per source per 2-second window. Compressed frame bytes and ping timing differ.
 - **P-37 Row order in `/v1/event-stream/initial/`.** Follows irrd-ng's object order.
 - **P-38 pydantic error text for invalid event stream messages.** Approximated.
-- **P-39 LMDB map size in `/v1/status/`.** Not shown, because v4 prints nothing like it. The project brief (CLAUDE.md) asks for it to be shown; adding one line would change the status text, so it waits for a decision.
+- **P-39 LMDB map size in `/v1/status/`.** Not shown, because v4 prints nothing like it and adding a line would change the status text. The map size is in the store's own metadata and the logs.
 
 ### Submissions and mail
 
