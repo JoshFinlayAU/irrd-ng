@@ -2,7 +2,15 @@
 
 This is the runbook for replacing an IRRd 4.5 installation with irrd-ng on the same host, keeping the same `irrd.yaml`, the same ports and the same NRTM serials, so that neither query clients nor downstream mirrors notice. It also covers a standby, checking the result, and going back to v4.
 
-The examples assume v4's documented layout: the configuration in `/etc/irrd.yaml`, v4 running as root under systemd as `irrd.service` and dropping to an `irrd` user and group, and irrd-ng installed in `/usr/local/bin` from a release tarball. Adjust paths to match your installation.
+The examples assume v4's documented layout: the configuration in `/etc/irrd.yaml`, v4 running as root under systemd as `irrd.service` and dropping to an `irrd` user and group, and irrd-ng installed from its Debian package, which puts the binaries in `/usr/bin`. Where a release tarball is used instead, the binaries are wherever you copied them, `/usr/local/bin` in the examples. Adjust paths to match your installation.
+
+`irrd-ng migrate-check` does most of the checking in this runbook for you. It reads `/etc/irrd.yaml` (or `--config`) and reports whether v4 is still running, whether the irrd-ng store already holds an import, how large v4's database is, how much disk space the import needs and whether there is enough, and then prints the remaining steps with the exact commands for this host. The Debian package runs it after every install and upgrade, and starts irrd-ng only when it passes. Run it again after each step below:
+
+```sh
+sudo irrd-ng migrate-check
+```
+
+Its exit code says where things stand: 0 ready to start, 10 IRRd v4 (or another program on its ports) is running, 11 the store is not imported, 12 not enough disk space for the import, 13 the configuration is missing or invalid. `--json` prints the findings as JSON and `--quiet` prints nothing.
 
 ## What changes and what does not
 
@@ -22,12 +30,14 @@ A few settings behave slightly differently, each listed in `docs/divergences.md`
 - IRRd 4.5.x with its database at the 4.5 schema revision. The import checks the Alembic revision and refuses anything else. If v4 was upgraded recently, make sure `irrd_database_upgrade` has been run.
 - Network access from the irrd-ng host to v4's PostgreSQL with the credentials in `database_url`. The import only reads.
 - Disk space for the store (see the next section) on the filesystem that holds `IRRD_NG_STORE_PATH`.
-- The irrd-ng release tarball for your architecture. The static musl build has no runtime dependencies at all.
+- The irrd-ng Debian package for your architecture (amd64 or arm64; one package for every Debian and Ubuntu release), or the release tarball. Both contain the static musl build, which has no runtime dependencies at all.
 - A maintenance window long enough for the import. irrd-ng serves nothing until the import has finished, and v4 should not accept changes while it runs.
 
 ## Sizing the store
 
-The store holds the same data as v4's PostgreSQL database, in a more compact form. As a guide, expect about 1.4 KB per RPSL object for objects and indexes, plus the NRTM journal and ROAs. To estimate, count what v4 holds:
+The store holds the same data as v4's PostgreSQL database, in a more compact form. `irrd-ng migrate-check` estimates it for you: it connects to `database_url` read-only, with short timeouts, counts the rows of `rpsl_objects`, `rpsl_database_journal` and `roa_object`, and allows 1.45 KB per row. That figure comes from measured imports: a full RADB mirror of 1.37 million objects built a 1,839 MB store, and a production database of 6,444,813 rows a 7.7 GB store. For the free space the import needs, it doubles the estimate, because LMDB writes changed pages to new places and only frees the old ones when a transaction commits, so a full import can briefly need about twice the final size, and adds 1 GiB for the next step of map growth. It compares that with the free space on the filesystem that holds the store and says ENOUGH or NOT ENOUGH.
+
+To estimate by hand instead, count what v4 holds:
 
 ```sh
 psql "$DSN" -Atc "select count(*) from rpsl_objects"
@@ -41,16 +51,24 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
 
 ## Before the cutover
 
-1. Install irrd-ng beside v4. Extract the tarball and copy the binaries and their symlinks:
+1. Install irrd-ng beside v4. With the Debian package (see the README for adding the APT repository instead):
+
+   ```sh
+   sudo apt install ./irrd-ng_${version}_$(dpkg --print-architecture).deb
+   ```
+
+   The package sees that v4 is running and does not start irrd-ng. It creates the `irrd` user and group only if they do not exist, and the store directory `/var/lib/irrd-ng` owned by `irrd`, and then prints the migration check: what is still running, the size of v4's database and whether there is enough disk space for the import.
+
+   With a release tarball instead, extract it and copy the binaries and their symlinks:
 
    ```sh
    tar -xzf irrd-ng-$version-$target.tar.gz
    sudo cp -a irrd-ng-$version-$target/bin/. /usr/local/bin/
    ```
 
-   If v4's tools are also on the `PATH`, call irrd-ng's by their full path (`/usr/local/bin/irrd`) until v4 is gone.
+   If v4's tools are also on the `PATH`, call irrd-ng's by their full path (`/usr/bin/irrd` from the package, `/usr/local/bin/irrd` from the tarball) until v4 is gone.
 
-2. Create the store directory, owned by the user irrd-ng will run as. That is the `user` and `group` from `irrd.yaml`, since irrd-ng opens the store only after dropping privileges:
+2. The store directory must belong to the user irrd-ng will run as. That is the `user` and `group` from `irrd.yaml`, since irrd-ng opens the store only after dropping privileges. The package creates it for the `irrd` user; with a tarball, or if `irrd.yaml` names another user, create or change it yourself (`irrd-ng migrate-check` points out a mismatch):
 
    ```sh
    sudo install -d -o irrd -g irrd -m 0750 /var/lib/irrd-ng
@@ -60,7 +78,7 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
 
    ```sh
    scratch=$(sudo -u irrd mktemp -d)
-   sudo -u irrd env IRRD_NG_STORE_PATH=$scratch /usr/local/bin/irrd_database_upgrade --config /etc/irrd.yaml
+   sudo -u irrd env IRRD_NG_STORE_PATH=$scratch /usr/bin/irrd_database_upgrade --config /etc/irrd.yaml
    sudo rm -rf "$scratch"
    ```
 
@@ -85,14 +103,16 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
    sudo systemctl disable irrd
    ```
 
-   PostgreSQL must stay up for the import. Redis can be stopped.
+   PostgreSQL must stay up for the import. Redis can be stopped. `sudo irrd-ng migrate-check` should now report v4 as not running; if it still sees something on v4's ports or a live PID in v4's PID file, deal with that first.
 
 2. Import the v4 database. Run it as the irrd user so the store's files belong to that user. The connection string can be v4's `database_url` exactly as it appears in `irrd.yaml`, including the `postgresql+psycopg2://` form, or any libpq URL or `key=value` string:
 
    ```sh
    sudo -u irrd env IRRD_NG_STORE_PATH=/var/lib/irrd-ng \
-     /usr/local/bin/irrd-ng import --from-postgres 'postgresql://irrd@localhost/irrd'
+     irrd-ng import --from-postgres 'postgresql://irrd@localhost/irrd'
    ```
+
+   `irrd-ng migrate-check` prints this command with your own `database_url`, its password masked.
 
    The import reads every table in one consistent, read-only snapshot: RPSL objects, the journal with its serials, `database_status` including NRTMv4 client and server state, ROAs, suppressed objects, protected names, settings and the web UI tables (users, permissions, API keys, WebAuthn, change log). It prints a line per table and a summary. `sslmode` and `sslrootcert` follow libpq: the verifying modes check against `sslrootcert`, by default `~/.postgresql/root.crt`, and refuse to connect when that file is missing; `require` checks the chain too when the file exists. `sslrootcert=system` uses the Mozilla roots built into the binary and requires `verify-full`.
 
@@ -100,7 +120,15 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
 
    The import is safe to run again: a second run over the same store changes nothing and duplicates nothing. If an import is interrupted, the store refuses to open until an import completes, so it can never serve partial data.
 
-3. Install and start the systemd unit from the tarball. Read the comments at the top of it first: `piddir` in `irrd.yaml` must match its `PIDFile`, which is `/run/irrd` as shipped. If your `piddir` is elsewhere (v4's guide uses `/home/irrd`), change `PIDFile` and `RuntimeDirectory` in the unit, or `piddir` in the file.
+3. Start irrd-ng. Check first that `sudo irrd-ng migrate-check` says READY. `piddir` in `irrd.yaml` must match the unit's `PIDFile`, which is `/run/irrd/irrd.pid` as shipped; the check warns if it does not. If your `piddir` is elsewhere (v4's guide uses `/home/irrd`), override `PIDFile` with `sudo systemctl edit irrd-ng`, or change `piddir` in the file.
+
+   The Debian package has already installed the unit, so:
+
+   ```sh
+   sudo systemctl enable --now irrd-ng
+   ```
+
+   With a tarball, install the unit from it first, changing `/usr/local/bin` in `ExecStart` if you put the binaries elsewhere:
 
    ```sh
    sudo install -m 0644 irrd-ng-$version-$target/systemd/irrd-ng.service /etc/systemd/system/
@@ -108,9 +136,11 @@ A full RADB mirror of about 1.4 million objects takes a little under 2 GB. The s
    sudo systemctl enable --now irrd-ng
    ```
 
+   From now on the package's upgrades, including unattended ones, restart irrd-ng when it was running before the upgrade.
+
    The unit starts `irrd --foreground --config /etc/irrd.yaml` as root, exactly as v4's documented unit does. irrd-ng writes `irrd.pid` in `piddir`, binds the whois port, switches to `user` and `group`, and then opens the store and binds the HTTP port. Its log goes where `irrd.yaml` says, in v4's format.
 
-4. Point anything that called v4's tools by their virtualenv path at the new ones. The usual one is the mail server's pipe to `irrd_submit_email`, for example `/home/irrd/irrd-venv/bin/irrd_submit_email` becomes `/usr/local/bin/irrd_submit_email`. Cron jobs that run `irrd_expire_journal` or `irrd_load_database` need the same change. The tools read the store from `IRRD_NG_STORE_PATH`, so set it in their environment if you do not use the default.
+4. Point anything that called v4's tools by their virtualenv path at the new ones. The usual one is the mail server's pipe to `irrd_submit_email`, for example `/home/irrd/irrd-venv/bin/irrd_submit_email` becomes `/usr/bin/irrd_submit_email` (or `/usr/local/bin/irrd_submit_email` with a tarball). Cron jobs that run `irrd_expire_journal` or `irrd_load_database` need the same change. The tools read the store from `IRRD_NG_STORE_PATH`, so set it in their environment if you do not use the default.
 
 ## Checking the result
 
@@ -187,3 +217,5 @@ What v4 does not have is anything that changed while irrd-ng was running:
 For that reason, a cautious cutover keeps the window between starting irrd-ng and taking the first authoritative change short, or checks everything before re-enabling submissions.
 
 Once you are satisfied with irrd-ng, PostgreSQL, Redis, the v4 virtualenv and the GnuPG keyring directory can be removed. Keep a final `pg_dump` of the v4 database for a while.
+
+If you also remove the irrd-ng package, `apt remove` keeps the store and `apt purge` removes the package's configuration and the `irrd` user if the package created it; neither deletes `/var/lib/irrd-ng`.
