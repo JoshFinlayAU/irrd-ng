@@ -1,9 +1,13 @@
 name: release
 
 # Builds the release artefacts for a version tag and attaches them to a
-# draft GitHub release, which a maintainer reviews and publishes by hand.
-# The tag must match the workspace version in Cargo.toml (v1.2.3 for
-# version = "1.2.3").
+# draft GitHub release, which a maintainer reviews and publishes by hand:
+# the four binary tarballs, and Debian packages for amd64 and arm64 built
+# from the static musl binaries, which are checked with lintian and
+# install-tested on Debian 12 and 13 and Ubuntu 22.04 and 24.04 first.
+# Publishing the release runs apt.yml, which adds the packages to the APT
+# repository. The tag must match the workspace version in Cargo.toml
+# (v1.2.3 for version = "1.2.3").
 
 on:
   push:
@@ -20,6 +24,12 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: -D warnings
+  # Pinned images and tools for the package checks. The Debian image is
+  # also where lintian runs; dist/debian/apt-pinned.sh installs exactly
+  # these versions, from snapshot.debian.org once the mirror moves on.
+  DEBIAN_IMAGE: debian:13@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+  DEBIAN_SNAPSHOT: 20261101T000000Z
+  LINTIAN_VERSION: 2.122.0
 
 defaults:
   run:
@@ -34,10 +44,10 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, zig_target: x86_64-unknown-linux-musl, static: true }
-          - { target: aarch64-unknown-linux-musl, zig_target: aarch64-unknown-linux-musl, static: true }
-          - { target: x86_64-unknown-linux-gnu, zig_target: x86_64-unknown-linux-gnu.2.36, static: false }
-          - { target: aarch64-unknown-linux-gnu, zig_target: aarch64-unknown-linux-gnu.2.36, static: false }
+          - { target: x86_64-unknown-linux-musl, zig_target: x86_64-unknown-linux-musl, static: true, deb_arch: amd64 }
+          - { target: aarch64-unknown-linux-musl, zig_target: aarch64-unknown-linux-musl, static: true, deb_arch: arm64 }
+          - { target: x86_64-unknown-linux-gnu, zig_target: x86_64-unknown-linux-gnu.2.36, static: false, deb_arch: "" }
+          - { target: aarch64-unknown-linux-gnu, zig_target: aarch64-unknown-linux-gnu.2.36, static: false, deb_arch: "" }
     steps:
       # Without the v4 submodule: the release is built the way a source
       # tarball is.
@@ -93,10 +103,85 @@ jobs:
           path: dist/out/*.tar.gz
           if-no-files-found: error
           retention-days: 7
+      # One package per architecture, from the static build, for every
+      # Debian and Ubuntu release.
+      - name: Debian package
+        if: matrix.static
+        run: |
+          dist/debian/build-deb.sh target/${{ matrix.target }}/release/irrd-ng \
+            ${{ matrix.deb_arch }} ${{ steps.version.outputs.version }} dist/deb
+          dpkg-deb --info dist/deb/*.deb
+          dpkg-deb --contents dist/deb/*.deb
+      - if: matrix.static
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deb-${{ matrix.deb_arch }}
+          path: dist/deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  lintian:
+    name: lintian
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: deb-*
+          path: debs
+          merge-multiple: true
+      - name: lintian
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/debs:/debs:ro" "$DEBIAN_IMAGE" sh -c '
+            sh /src/dist/debian/apt-pinned.sh "$1" "lintian=$2" &&
+            useradd --create-home lint &&
+            su lint -c "lintian --fail-on error,warning --display-info /debs/*.deb"' \
+            sh "$DEBIAN_SNAPSHOT" "$LINTIAN_VERSION"
+
+  install-test:
+    name: install ${{ matrix.os.name }} ${{ matrix.arch }}
+    needs: build
+    runs-on: ubuntu-24.04
+    # arm64 runs under QEMU user emulation.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        os:
+          - { name: debian-12, image: "debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880" }
+          - { name: debian-13, image: "debian:13@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1" }
+          - { name: ubuntu-22.04, image: "ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11" }
+          - { name: ubuntu-24.04, image: "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: deb-${{ matrix.arch }}
+          path: debs
+      - if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+      # install, the v4 and not-imported guards, start, upgrade, remove and
+      # purge; see the script for what each step checks.
+      - name: Install test
+        run: |
+          deb=$(basename debs/*.deb)
+          docker run --rm --platform linux/${{ matrix.arch }} \
+            -v "$PWD:/src:ro" -v "$PWD/debs:/debs:ro" "${{ matrix.os.image }}" \
+            bash /src/dist/debian/install-test.sh "/debs/$deb"
 
   publish:
     name: draft release
-    needs: build
+    needs: [build, lintian, install-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -107,12 +192,17 @@ jobs:
           pattern: release-*
           path: out
           merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: deb-*
+          path: out
+          merge-multiple: true
       - name: Checksums
         working-directory: out
         run: |
-          sha256sum -- *.tar.gz > SHA256SUMS
+          sha256sum -- *.tar.gz *.deb > SHA256SUMS
           cat SHA256SUMS
-          test "$(wc -l < SHA256SUMS)" -eq 4
+          test "$(wc -l < SHA256SUMS)" -eq 6
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -124,4 +214,4 @@ jobs:
             exit 1
           fi
           gh release create "$tag" --draft --verify-tag --title "irrd-ng ${tag#v}" --generate-notes \
-            out/*.tar.gz out/SHA256SUMS
+            out/*.tar.gz out/*.deb out/SHA256SUMS
