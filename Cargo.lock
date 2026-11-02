@@ -469,6 +469,7 @@ dependencies = [
  "reqwest",
  "rpki",
  "rpsl",
+ "serde_json",
  "socket2",
  "store",
  "tempfile",
