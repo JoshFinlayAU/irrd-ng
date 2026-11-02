@@ -1,0 +1,9 @@
+# The irrd-ng APT repository, added by the irrd-ng package so that apt and
+# unattended-upgrades keep irrd-ng up to date. To stop updates from it, set
+# "Enabled: no" below or delete this file; dpkg keeps your change on
+# upgrade.
+Types: deb
+URIs: https://joshfinlayau.github.io/irrd-ng/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/irrd-ng-archive-keyring.gpg

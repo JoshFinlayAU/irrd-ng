@@ -1,0 +1,135 @@
+#!/bin/sh
+# postinst for irrd-ng.
+#
+# On configure: create the irrd system user and group if they do not exist
+# (v4's documented deployment already has them), create the store
+# directory, then ask "irrd-ng migrate-check" whether irrd-ng can run here.
+# It is started (first install) or restarted (upgrade, if it was running
+# before) only when the check passes. While IRRd v4 still runs, before the
+# v4 database is imported, or without /etc/irrd.yaml, the service is left
+# alone and the check's guidance is printed instead. This script never
+# fails the installation because irrd-ng cannot start yet.
+set -e
+
+UNIT=irrd-ng.service
+USER_NAME=irrd
+STORE_DEFAULT=/var/lib/irrd-ng
+STATE_DIR=/var/lib/irrd-ng-package
+WAS_RUNNING=/run/irrd-ng.dpkg-was-running
+
+say() {
+	echo "irrd-ng: $*"
+}
+
+systemd_running() {
+	[ -d /run/systemd/system ]
+}
+
+# The store directory the service uses: IRRD_NG_STORE_PATH from the unit
+# and its drop-ins, else the default.
+store_path() {
+	p=
+	if systemd_running && command -v systemctl >/dev/null; then
+		p=$(systemctl show --property=Environment --value "$UNIT" 2>/dev/null |
+			tr ' ' '\n' | sed -n 's/^IRRD_NG_STORE_PATH=//p' | tail -n 1) || p=
+	fi
+	echo "${p:-$STORE_DEFAULT}"
+}
+
+create_user() {
+	if getent passwd "$USER_NAME" >/dev/null; then
+		return 0
+	fi
+	mkdir -p "$STATE_DIR"
+	if getent group "$USER_NAME" >/dev/null; then
+		adduser --system --quiet --ingroup "$USER_NAME" --home "$STORE_DEFAULT" \
+			--no-create-home --shell /usr/sbin/nologin "$USER_NAME"
+	else
+		adduser --system --quiet --group --home "$STORE_DEFAULT" \
+			--no-create-home --shell /usr/sbin/nologin "$USER_NAME"
+		echo "$USER_NAME" >"$STATE_DIR/created-group"
+	fi
+	echo "$USER_NAME" >"$STATE_DIR/created-user"
+	say "created system user $USER_NAME"
+}
+
+create_store_dir() {
+	# Only ever create it. An existing store, and everything in it, is left
+	# exactly as it is.
+	if [ ! -e "$1" ]; then
+		install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$1"
+		say "created the store directory $1"
+	fi
+	mkdir -p "$STATE_DIR"
+	echo "$1" >"$STATE_DIR/store-path"
+}
+
+# Enable the unit as debhelper does: on first installation, and again on
+# upgrades unless the administrator disabled it.
+enable_unit() {
+	if deb-systemd-helper --quiet was-enabled "$UNIT"; then
+		deb-systemd-helper enable "$UNIT" >/dev/null || true
+	else
+		deb-systemd-helper update-state "$UNIT" >/dev/null || true
+	fi
+}
+
+case "$1" in
+configure)
+	create_user
+	store=$(store_path)
+	create_store_dir "$store"
+
+	deb-systemd-helper unmask "$UNIT" >/dev/null || true
+	if systemd_running; then
+		systemctl --system daemon-reload >/dev/null || true
+	fi
+
+	was_running=no
+	if [ -e "$WAS_RUNNING" ]; then
+		was_running=yes
+		rm -f "$WAS_RUNNING"
+	fi
+
+	rc=0
+	report=$(IRRD_NG_STORE_PATH="$store" /usr/bin/irrd-ng migrate-check 2>&1) || rc=$?
+
+	if [ "$rc" -eq 0 ]; then
+		enable_unit
+		if ! systemd_running; then
+			say "ready, but systemd is not running here, so irrd-ng was not started"
+		elif [ -z "$2" ]; then
+			say "ready: starting $UNIT"
+			deb-systemd-invoke start "$UNIT" ||
+				say "warning: $UNIT did not start; see: journalctl -u irrd-ng"
+		elif [ "$was_running" = yes ]; then
+			say "ready: restarting $UNIT after the upgrade"
+			deb-systemd-invoke restart "$UNIT" ||
+				say "warning: $UNIT did not restart; see: journalctl -u irrd-ng"
+		else
+			say "ready, but $UNIT was not running before the upgrade, so it is left stopped. Start it with: systemctl enable --now irrd-ng"
+		fi
+	else
+		deb-systemd-helper update-state "$UNIT" >/dev/null || true
+		if [ "$was_running" = yes ]; then
+			say "not restarting $UNIT: the check below did not pass (exit code $rc). The running irrd-ng keeps the previous version until you fix this and run: systemctl restart irrd-ng"
+		else
+			say "installed, but not starting $UNIT: the check below did not pass (exit code $rc)."
+		fi
+		echo
+		echo "$report"
+		echo
+	fi
+	;;
+
+abort-upgrade | abort-remove | abort-deconfigure)
+	rm -f "$WAS_RUNNING"
+	;;
+
+*)
+	echo "postinst called with unknown argument '$1'" >&2
+	exit 1
+	;;
+esac
+
+exit 0

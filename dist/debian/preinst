@@ -1,0 +1,24 @@
+#!/bin/sh
+# preinst for irrd-ng: before an upgrade, remember whether irrd-ng was
+# running, so that postinst restarts it only then. The old package's prerm
+# records the same; whichever runs, the answer is the same.
+set -e
+
+UNIT=irrd-ng.service
+WAS_RUNNING=/run/irrd-ng.dpkg-was-running
+
+case "$1" in
+install | upgrade)
+	if [ -n "$2" ] && [ -d /run/systemd/system ] &&
+		systemctl --quiet is-active "$UNIT" 2>/dev/null; then
+		: >"$WAS_RUNNING"
+	fi
+	;;
+abort-upgrade) ;;
+*)
+	echo "preinst called with unknown argument '$1'" >&2
+	exit 1
+	;;
+esac
+
+exit 0

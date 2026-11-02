@@ -1,0 +1,24 @@
+Package: irrd-ng
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Josh Finlay <josh@athenanetworks.com.au>
+Installed-Size: @SIZE@
+Depends: adduser
+Recommends: unattended-upgrades
+Section: net
+Priority: optional
+Homepage: https://github.com/JoshFinlayAU/irrd-ng
+Description: Internet Routing Registry daemon, drop-in replacement for IRRd 4.5
+ irrd-ng is a drop-in replacement for IRRd 4.5, the Internet Routing
+ Registry daemon, written in Rust. It reads the same irrd.yaml, answers
+ whois and HTTP queries byte for byte as IRRd 4.5.4 does, serves and
+ mirrors NRTM, and installs the same command line tools (irrd, irrdctl,
+ irrd_load_database and the rest), all from one static binary with an
+ embedded store. It needs no PostgreSQL, Redis or Python.
+ .
+ Moving from IRRd v4 takes a one-shot import of the v4 database. The
+ package does not start irrd-ng while IRRd v4 is running or before the
+ import; run "irrd-ng migrate-check" for the steps that remain.
+ .
+ The package also adds the irrd-ng APT repository, so that
+ unattended-upgrades keeps irrd-ng up to date.

@@ -1,0 +1,9 @@
+// Added by the irrd-ng package: let unattended-upgrades install new irrd-ng
+// releases from the irrd-ng APT repository. The package's maintainer
+// scripts restart irrd-ng after an upgrade if it was running before.
+//
+// To opt out of automatic irrd-ng upgrades, delete this file (dpkg keeps
+// it deleted on upgrade), or hold the package with: apt-mark hold irrd-ng
+Unattended-Upgrade::Origins-Pattern {
+        "origin=irrd-ng,label=irrd-ng,codename=stable";
+};

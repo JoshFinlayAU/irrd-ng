@@ -1,0 +1,28 @@
+#!/bin/sh
+# prerm for irrd-ng: stop the service when the package is removed. On an
+# upgrade it keeps running from the old binary until postinst restarts it,
+# and whether it was running is recorded for postinst.
+set -e
+
+UNIT=irrd-ng.service
+WAS_RUNNING=/run/irrd-ng.dpkg-was-running
+
+case "$1" in
+remove)
+	if [ -d /run/systemd/system ]; then
+		deb-systemd-invoke stop "$UNIT" >/dev/null || true
+	fi
+	;;
+upgrade)
+	if [ -d /run/systemd/system ] && systemctl --quiet is-active "$UNIT" 2>/dev/null; then
+		: >"$WAS_RUNNING"
+	fi
+	;;
+deconfigure | failed-upgrade) ;;
+*)
+	echo "prerm called with unknown argument '$1'" >&2
+	exit 1
+	;;
+esac
+
+exit 0

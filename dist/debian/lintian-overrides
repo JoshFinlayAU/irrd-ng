@@ -1,0 +1,10 @@
+# The release binary is a static musl build, so that one package runs on
+# every Debian and Ubuntu release. This is deliberate.
+irrd-ng: statically-linked-binary [usr/bin/irrd-ng]
+# Adding its own repository is the point: the package keeps itself up to
+# date through apt and unattended-upgrades. It is a conffile, and the
+# documentation says how to turn it off.
+irrd-ng: package-installs-apt-sources [etc/apt/sources.list.d/irrd-ng.sources]
+# preinst asks only whether the service is running, so that postinst
+# restarts it after an upgrade only if it was.
+irrd-ng: maintainer-script-calls-systemctl [preinst:*]
